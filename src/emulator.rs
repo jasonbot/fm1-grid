@@ -4,7 +4,7 @@
 //! paced to the wall clock, pushes audio into the slot's [`AudioRing`], and publishes the
 //! LCD framebuffer, front-panel LED brightness and a one-line status for the GUI.
 
-use crate::audio::AudioRing;
+use crate::audio::{AudioRing, MAX_QUEUED};
 use fm1_core::{Bus, Cpu};
 use fm1_soc::{machine, Action, Board, Soc, CPU_HZ, RAM_BASE};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -25,8 +25,6 @@ const PARAMS: u32 = RAM_BASE + 0x7fc00;
 
 /// 44.1 kHz stereo i16 is 88.2 samples per millisecond.
 const SAMPLES_PER_MS: f64 = 88.2;
-/// Keep at most 250 ms of audio queued per slot.
-const MAX_QUEUED: usize = 44_100 * 2 / 4;
 
 pub const LCD_W: usize = 240;
 pub const LCD_H: usize = 240;
@@ -111,6 +109,7 @@ impl EmulatorHandle {
         package: bool,
         ring: Arc<AudioRing>,
         audio_enabled: bool,
+        pin_cpu: Option<usize>,
     ) -> Result<Self, String> {
         let engine = if package {
             Machine::from_package(&bytes)?
@@ -132,6 +131,11 @@ impl EmulatorHandle {
             thread::Builder::new()
                 .name(format!("fm1-{name}"))
                 .spawn(move || {
+                    // Pin each emulator to its own physical core when Linux exposes the
+                    // topology; the scheduler otherwise tends to stack two on one core.
+                    if let Some(cpu) = pin_cpu {
+                        crate::affinity::pin_current_thread(cpu);
+                    }
                     run_emulator(engine, rx, ring, lcd, leds, status, running, audio_enabled)
                 })
                 .map_err(|e| format!("cannot start emulator thread: {e}"))?

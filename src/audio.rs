@@ -16,7 +16,7 @@ const EMU_RATE: f64 = 44_100.0;
 /// Per-slot gain. Several units at full scale would clip without it.
 const SLOT_GAIN: f32 = 0.30;
 /// Keep at most this much audio queued per slot (stereo i16 samples, 250 ms).
-const MAX_QUEUED: usize = 44_100 * 2 / 4;
+pub(crate) const MAX_QUEUED: usize = 44_100 * 2 / 4;
 
 pub struct AudioRing {
     /// Interleaved stereo: L, R, L, R, ...

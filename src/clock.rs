@@ -16,6 +16,31 @@ pub const MIN_BPM: u32 = 20;
 pub const MAX_BPM: u32 = 300;
 const DEFAULT_BPM: u32 = 120;
 
+/// A destination for raw MIDI bytes: a live FM-1 on USB. Implemented by the hardware
+/// module; the clock only ever pushes single real-time bytes (0xF8 / 0xFA / 0xFC).
+pub trait MidiSink: Send + Sync {
+    fn send_byte(&self, b: u8);
+}
+
+/// One real-time byte to every emulator slot and every USB device on the clock.
+fn broadcast(
+    targets: &Mutex<Vec<Option<Sender<Action>>>>,
+    hw_targets: &Mutex<Vec<Option<Arc<dyn MidiSink>>>>,
+    b: u8,
+) {
+    if let Ok(targets) = targets.lock() {
+        for tx in targets.iter().flatten() {
+            // An unbounded channel send only fails if the receiver is gone.
+            let _ = tx.send(Action::Midi { b });
+        }
+    }
+    if let Ok(hw) = hw_targets.lock() {
+        for sink in hw.iter().flatten() {
+            sink.send_byte(b);
+        }
+    }
+}
+
 pub struct Clock {
     bpm: Arc<AtomicU32>,
     /// Number of complete quarter notes (beats) since startup.
@@ -30,6 +55,8 @@ pub struct Clock {
     /// One optional sender per grid slot. Wrapped in a Mutex because slots are reloaded
     /// from the GUI thread while the clock thread is sending.
     targets: Arc<Mutex<Vec<Option<Sender<Action>>>>>,
+    /// The live USB devices on the clock, indexed by the hardware module's device ids.
+    hw_targets: Arc<Mutex<Vec<Option<Arc<dyn MidiSink>>>>>,
     thread: Option<JoinHandle<()>>,
 }
 
@@ -43,6 +70,8 @@ impl Clock {
         let running = Arc::new(AtomicBool::new(true));
         let quit = Arc::new(AtomicBool::new(false));
         let targets = Arc::new(Mutex::new(vec![None; slot_count]));
+        let hw_targets: Arc<Mutex<Vec<Option<Arc<dyn MidiSink>>>>> =
+            Arc::new(Mutex::new(Vec::new()));
 
         let thread = {
             let bpm = bpm.clone();
@@ -52,9 +81,12 @@ impl Clock {
             let running = running.clone();
             let quit = quit.clone();
             let targets = targets.clone();
+            let hw_targets = hw_targets.clone();
             thread::Builder::new()
                 .name("fm1-midi-clock".into())
-                .spawn(move || clock_loop(bpm, beat, tick, enabled, running, quit, targets))
+                .spawn(move || {
+                    clock_loop(bpm, beat, tick, enabled, running, quit, targets, hw_targets)
+                })
                 .expect("spawn MIDI clock thread")
         };
 
@@ -66,6 +98,7 @@ impl Clock {
             running,
             quit,
             targets,
+            hw_targets,
             thread: Some(thread),
         }
     }
@@ -125,17 +158,28 @@ impl Clock {
         targets[slot] = target;
     }
 
+    /// Plug a live USB device into (or out of) the clock. Like an emulator, a newly
+    /// plugged device joins a running clock with MIDI Start (0xFA).
+    pub fn set_hw_target(&self, id: usize, target: Option<Arc<dyn MidiSink>>) {
+        let mut hw = self.hw_targets.lock().unwrap();
+        if hw.len() <= id {
+            hw.resize(id + 1, None);
+        }
+        if let Some(sink) = &target {
+            if self.enabled() {
+                sink.send_byte(0xFA);
+            }
+        }
+        hw[id] = target;
+    }
+
     /// Stop the clock thread and send MIDI Stop (0xFC) to every still-connected slot.
     pub fn stop(&mut self) {
         if self.thread.is_none() {
             return;
         }
         self.running.store(false, Ordering::Relaxed);
-        if let Ok(targets) = self.targets.lock() {
-            for tx in targets.iter().flatten() {
-                let _ = tx.send(Action::Midi { b: 0xFC });
-            }
-        }
+        broadcast(&self.targets, &self.hw_targets, 0xFC);
         self.quit.store(true, Ordering::Relaxed);
         if let Some(thread) = self.thread.take() {
             let _ = thread.join();
@@ -157,6 +201,7 @@ fn clock_loop(
     running: Arc<AtomicBool>,
     quit: Arc<AtomicBool>,
     targets: Arc<Mutex<Vec<Option<Sender<Action>>>>>,
+    hw_targets: Arc<Mutex<Vec<Option<Arc<dyn MidiSink>>>>>,
 ) {
     let mut next = Instant::now();
     let mut was_enabled = false;
@@ -174,11 +219,7 @@ fn clock_loop(
             tick.store(0, Ordering::Relaxed);
             next = Instant::now();
             let message = if on { 0xFA } else { 0xFC };
-            if let Ok(targets) = targets.lock() {
-                for tx in targets.iter().flatten() {
-                    let _ = tx.send(Action::Midi { b: message });
-                }
-            }
+            broadcast(&targets, &hw_targets, message);
             if !on {
                 continue;
             }
@@ -208,12 +249,7 @@ fn clock_loop(
             continue;
         }
 
-        if let Ok(targets) = targets.lock() {
-            for tx in targets.iter().flatten() {
-                // An unbounded channel send only fails if the receiver is gone.
-                let _ = tx.send(Action::Midi { b: 0xF8 });
-            }
-        }
+        broadcast(&targets, &hw_targets, 0xF8);
 
         let count = tick.fetch_add(1, Ordering::Relaxed) + 1;
         if count % 24 == 0 {

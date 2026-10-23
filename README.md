@@ -1,27 +1,39 @@
 # FM-1 Grid
 
-Up to four emulated M-VAVE FM-1s side by side, each with its own firmware and LCD, with a
-Platinum-style (Mac OS 9) light interface. Two run by default; `--slots 4` starts all four
-on a machine with enough cores. Click anywhere in a slot to route the computer keyboard
-there; the selected card gets a blue border and the keyboard indicator in its title bar.
-The large, clickable FM-1 front panel above the metronome mirrors the active slot: its keys
-and buttons can be played with the mouse, its knobs turn with the −/+ ends, and its LEDs
-show the firmware's own state as well as what the computer keyboard is doing.
+A 3×3 grid of nine emulated M-VAVE FM-1s, each pane with its own firmware and LCD, with a
+GTK4/Libadwaita-inspired light interface (flat white cards, hairline borders, the system
+sans-serif via fontconfig). Emulators are powered **off** at startup — flip the power switch
+in the device sidebar to start one, so idle panes cost nothing. Click anywhere in a pane to
+route the computer keyboard there; the selected card gets a blue border. Every grid screen
+always shows at 1x: the selected pane's live screen appears at **4x in the device sidebar**,
+while its grid card shows a hypersaturated snapshot refreshed once a second. The device sidebar
+is greedy for all space right of the grid and stacks, from the top: a large
+`Device N: Firmware Name` heading, the 4x screen (horizontally centered), the power switch,
+firmware selector and
+status, and the placeholder for firmware-specific controls. The grid area's background takes
+the dominant colour of the selected pane's screen (recalculated once a second, fading over
+500 ms); the sidebar's background is the same colour slightly desaturated and strongly
+lightened, so its text and controls stay readable. The large, clickable FM-1 front panel
+above the metronome mirrors the active pane: its keys and buttons can be played with the
+mouse, its knobs turn with the −/+ ends, and its LEDs show the firmware's own state as well
+as what the computer keyboard is doing.
 
 ```
-┌─ SLOT 1 ─────────┐ ┌─ SLOT 2 ─────────┐
-│ ┌──────────────┐ │ │ ┌──────────────┐ │
-│ │   240×240    │ │ │ │   240×240    │ │
-│ └──────────────┘ │ │ └──────────────┘ │
-│ SLOOP 2.8        │ │ Felucca 1.6.1    │
-│ [ firmware ▾ ]   │ │ [ firmware ▾ ]   │
-└──────────────────┘ └──────────────────┘
-┌─ FM-1 PANEL ────────────────────────── CLICKABLE · KEYBOARD LIGHTS · SLOT 1 ──┐
+┌────────────┐ ┌────────────┐ ┌────────────┐  ┌────────────────────────────┐
+│ ┌────────┐ │ │ ┌────────┐ │ │ ┌────────┐ │  │ Device 1: SLOOP 2.8        │
+│ │  LCD   │ │ │ │  LCD   │ │ │ │  LCD   │ │  │ ┌────────────────────────┐ │
+│ └────────┘ │ │ └────────┘ │ │ └────────┘ │  │ │      live 4× LCD       │ │
+└────────────┘ └────────────┘ └────────────┘  │ └────────────────────────┘ │
+      … six more panes in two more rows …     │ [ ○─── ] [ SLOOP 2.8 ▾ ]   │
+   3 rows × 3 columns, up to 240×240 each     │ Off                        │
+                                              │ No custom behavior for …   │
+                                              └────────────────────────────┘
+┌─ FM-1 PANEL ────────────────────────── CLICKABLE · KEYBOARD LIGHTS · PANE 1 ──┐
 │ [− MASTER +]  [− SELECT +]                 [− KNOB 1 +] … [− KNOB 4 +]       │
 │ [− PRESETS +] [− ALGORITHM +]                                               │
 │ [OCT− Z] [OCT+ X]   [FX 1][SCL 2][ENV 3][LFO 4][EDIT 5][GLO 6]              │
 │                     [HOME 7][SAVE 8][ARP 9][SEQ 0][PLAY ␣][REC R]            │
-│ [F3][F#3][G3] … [C4 A][C#4 W][D4 S] … [F5 '][F#5][G5]                       │
+│ [F3 C][F#3 V][G3 B] … [C4 A][C#4 W][D4 S] … [F5 '][F#5][G5]                 │
 └──────────────────────────────────────────────────────────────────────────────┘
 [ ○─── ] MIDI CLOCK  120 BPM [ − ][ + ]  ● BEAT
          STOPPED · 24 PPQN
@@ -33,60 +45,80 @@ show the firmware's own state as well as what the computer keyboard is doing.
 cargo run --release
 ```
 
-With no arguments the first two slots start with an embedded firmware:
+With no arguments the first panes load the embedded firmwares (powered off until you
+switch them on):
 
-| Slot | Firmware |
+| Pane | Firmware |
 |------|----------|
 | 1 | SLOOP 2.8 |
 | 2 | Felucca 1.6.1 |
+| 3 | FM1 Open V15 |
+| 4 | ChoralRoot 0.26.1 |
 
-Either slot can load any of the four embedded firmwares (including FM1 Open V15 and
-ChoralRoot 0.26.1) from its dropdown.
+Any pane can load any of the embedded firmwares from the firmware selector in the device
+sidebar. On Linux each running emulator thread is pinned to its own physical core (one logical
+CPU per core) while cores last; panes beyond the core count float. Nine emulators at once
+want nine cores — power on only what you play.
 
-Choose the number of slots with `--slots N` (1–4, default 2). With no firmware arguments,
-the first N embedded firmwares start. Four is practical on a 4-core machine; more than four
-would oversubscribe the physical cores.
-
-```sh
-cargo run --release -- --slots 4
-```
-
-Pass up to N firmware files to choose what starts where:
+Pass up to nine firmware files to choose what loads where (left to right, top to bottom):
 
 ```sh
-cargo run --release -- --slots 4 sloop.fwsc felucca.fwsc
+cargo run --release -- sloop.fwsc felucca.fwsc
 ```
 
 A `.fwsc` file is treated as an update package; a `.bin` or `.xip` file is treated as a raw
 app image mapped at XIP base, entered at `0x0200_0120`. `--help` lists the options.
 
-### Firmware dropdown
+### Firmware selector
 
-Every slot's dropdown offers the four embedded firmwares and **Other…**, which opens a file
-picker. The embedded images are compiled into the binary (see `firmware/README.md` for
-versions, sources and SHA-256 hashes). Hovering a choice shows its file name and hash.
-Loading a firmware stops the slot's old emulator, clears its audio queue and starts the new
-one; the metronome is reconnected automatically.
+The cards are display-only monitors with no labels of their own, all screens always at 1x.
+The selected pane's power switch, firmware selector and status live at the top of the device
+sidebar, under the `Device N:` heading; its live screen shows there at 4x, centered, while
+its grid card shows a hypersaturated snapshot refreshed once a second. Emulators are off by
+default; the
+power switch starts and stops the selected pane's emulator — powering off stops its thread,
+silences its audio and blanks its screen, powering on boots whatever firmware the pane has
+loaded. The selector is only enabled while the pane is powered off; while it is on, the
+selector is greyed out and hovering it explains why. It offers the embedded firmwares and
+**Other…**, which opens a file picker. The embedded images are compiled into the binary
+(see `firmware/README.md` for versions, sources and SHA-256 hashes). Hovering a choice
+shows its file name and hash. Choosing a firmware swaps what the pane has loaded; it boots
+the next time the power switch is turned on, and the metronome is reconnected automatically.
+
+The embedded list lives in `firmware/manifest.txt` and is compiled in at build time. Add or
+remove entries with the helper script, then rebuild:
+
+```sh
+scripts/firmware.sh add ~/Downloads/new-1.0.fwsc "New Firmware" 1.0
+scripts/firmware.sh del "New Firmware"
+scripts/firmware.sh list
+```
+
+`add` copies the package into `firmware/` and records its SHA-256; `del` removes both the
+entry and the file. Manifest order is the default slot order: the first lines are what
+starts with no CLI arguments.
 
 ## Keyboard
 
-The active slot receives the same layout as `fm1-live`:
+The active pane receives the same layout as `fm1-live`, plus the low octave on the seven
+letters nothing else claims:
 
 | Keys | FM-1 |
 |------|------|
 | `A W S E D F T G Y H U J K O L P ; '` | C4 … F5 (key IDs 21–38) |
+| `C V B N M Q I` | F3, F#3, G3, G#3, A3, A#3, B3 (IDs 14–20) |
 | `Z` / `X` | octave down / up (IDs 0, 1) |
 | `1 2 3 4 5 6 7 8 9 0` | function buttons (IDs 2–11) |
 | `Space` | PLAY / PAUSE (ID 12) |
 | `R` | REC (ID 13) |
-| `←` / `→` | SELECT encoder |
-| `↓` / `↑` | ALGORITHM encoder |
-| `,` / `.` | PRESETS encoder |
+| `←` / `→` | PRESETS encoder −/+ |
+| `↑` / `↓` | ALGORITHM encoder −/+ |
+| `,` / `.` | SELECT encoder |
 
-Keys are sent as key-down/key-up events to the active emulator. Switching slots releases
-held keys on the old one, so no note sticks. Clicking anywhere in a slot's box makes it
-active; the blue outline and the `KEYBOARD` label in its title bar show which slot has the
-keyboard.
+Keys are sent as key-down/key-up events to the active emulator. Switching panes releases
+held keys on the old one, so no note sticks. Clicking anywhere in a pane's box makes it
+active; the blue outline shows which pane has the keyboard. A powered-off pane ignores
+keys until its power switch is turned on.
 
 The FM-1 panel is also a control surface. The 27 white and black note keys are tall and can
 be clicked and held. MASTER, SELECT, PRESETS and ALGORITHM sit in a block at the upper left;
@@ -128,11 +160,22 @@ Apache-2.0. The emulator crates are MIT. See `firmware/README.md`.
 ## Layout
 
 ```
-src/app.rs       egui window: transport, two cards, dropdowns, keyboard routing
+build.rs         generates the embedded firmware table from firmware/manifest.txt
+scripts/firmware.sh  add/del/list for the embedded firmware list
+src/affinity.rs  Linux physical-core detection and per-emulator pinning
+src/app.rs       GridApp state and lifecycle: pane power, firmware install, keyboard and
+                 encoder routing, per-frame LCD upload, eframe app
 src/clock.rs     MIDI-clock thread, tempo, beat light, per-slot senders
 src/emulator.rs  one thread + SoC + cores per slot, LCD/status/audio publication
-src/audio.rs     two queues mixed into one cpal output stream
-src/builtin.rs   embedded firmware catalogue (include_bytes!)
+src/audio.rs     nine queues mixed into one cpal output stream
+src/builtin.rs   embedded firmware catalogue (includes the generated table)
+src/grid.rs      the 3x3 grid of pane cards and the ambient background colour
+src/sidebar.rs   the device sidebar: heading, 4x screen, pane attributes
+src/panel.rs     the miniature FM-1 front panel control surface
+src/transport.rs the bottom bar: front panel plus the metronome row
+src/lcd.rs       RGB565 decode, dominant colour, fisheye/hypersat snapshot, LCD view
+src/keys.rs      FM-1 control maps: keyboard layout, panel key/button tables
+src/theme.rs     Adwaita palette, egui style, fonts and the shared custom widgets
 src/main.rs      startup and CLI firmware arguments
-firmware/        the four embedded .fwsc packages (unmodified)
+firmware/        the embedded .fwsc packages (unmodified) plus manifest.txt
 ```

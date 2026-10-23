@@ -26,14 +26,15 @@ fn main() {
             continue;
         }
         let fields: Vec<&str> = line.split('|').map(str::trim).collect();
-        if fields.len() != 4 || fields.iter().any(|field| field.is_empty()) {
+        if fields.len() != 5 || fields.iter().any(|field| field.is_empty()) {
             panic!(
-                "{}:{}: expected `file | name | version | sha256`",
+                "{}:{}: expected `file | name | version | sha256 | tags`",
                 manifest_path.display(),
                 line_number + 1
             );
         }
-        let (file, name, version, sha256) = (fields[0], fields[1], fields[2], fields[3]);
+        let (file, name, version, sha256, tags) =
+            (fields[0], fields[1], fields[2], fields[3], fields[4]);
         let path = manifest_dir.join("firmware").join(file);
         if !path.is_file() {
             panic!(
@@ -45,11 +46,12 @@ fn main() {
         }
         println!("cargo:rerun-if-changed={}", path.display());
         code.push_str(&format!(
-            "    BuiltinFirmware {{\n        name: \"{}\",\n        version: \"{}\",\n        file: \"{}\",\n        sha256: \"{}\",\n        bytes: include_bytes!(\"{}\"),\n    }},\n",
+            "    BuiltinFirmware {{\n        name: \"{}\",\n        version: \"{}\",\n        file: \"{}\",\n        sha256: \"{}\",\n        tags: \"{}\",\n        bytes: include_bytes!(\"{}\"),\n    }},\n",
             escape(name),
             escape(version),
             escape(file),
             escape(sha256),
+            escape(tags),
             escape(&path.to_string_lossy()),
         ));
     }

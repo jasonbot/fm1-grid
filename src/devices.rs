@@ -5,6 +5,7 @@
 
 use crate::app::GridApp;
 use crate::builtin::BUILTINS;
+use crate::firmware_picker::{self, Pick};
 use crate::hardware::DeviceRow;
 use crate::theme::{ambient_tint, paint_card, toggle_switch, ACCENT, DIM, INK, RED};
 use eframe::egui;
@@ -104,30 +105,18 @@ impl GridApp {
                         if ui.small_button("×").on_hover_text("Dismiss").clicked() {
                             self.flash_pick = None;
                         }
-                        let mut choice = None;
-                        egui::ComboBox::from_id_salt(("flash", row.name.clone()))
-                            .selected_text(RichText::new("flash firmware…").size(11.0))
-                            .width(200.0)
-                            .show_ui(ui, |ui| {
-                                for (index, firmware) in BUILTINS.iter().enumerate() {
-                                    let tip =
-                                        format!("{}\nSHA-256 {}", firmware.file, firmware.sha256);
-                                    if ui
-                                        .selectable_label(false, firmware.label())
-                                        .on_hover_text(tip)
-                                        .clicked()
-                                    {
-                                        choice = Some(FlashChoice::Builtin(index));
-                                        ui.close();
-                                    }
-                                }
-                                ui.separator();
-                                if ui.selectable_label(false, "Other…").clicked() {
-                                    choice = Some(FlashChoice::File);
-                                    ui.close();
-                                }
-                            });
-                        choice
+                        let (_, picked) = firmware_picker::show(
+                            ui,
+                            ("flash", row.name.clone()),
+                            RichText::new("flash firmware…").size(11.0),
+                            200.0,
+                            None,
+                            false,
+                        );
+                        picked.map(|picked| match picked {
+                            Pick::Builtin(index) => FlashChoice::Builtin(index),
+                            Pick::File => FlashChoice::File,
+                        })
                     })
                     .inner;
                 match picked {

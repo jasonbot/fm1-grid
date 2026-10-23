@@ -5,6 +5,7 @@ mod builtin;
 mod clock;
 mod devices;
 mod emulator;
+mod firmware_picker;
 mod graph;
 mod grid;
 mod hardware;

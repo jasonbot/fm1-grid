@@ -3,7 +3,7 @@
 //! for firmware-specific controls, then the MIDI graph ([`crate::graph`]).
 
 use crate::app::{GridApp, Source};
-use crate::builtin::BUILTINS;
+use crate::firmware_picker::{self, Pick};
 use crate::lcd;
 use crate::theme::{ambient_tint, paint_card, toggle_switch, DIM, INK, RED};
 use eframe::egui;
@@ -53,18 +53,35 @@ impl GridApp {
         );
         content.add_space(12.0);
 
-        // The selected screen at 4x (960 px), clamped to the sidebar's width and to
-        // what its height leaves for the attributes, placeholder and MIDI graph below,
-        // centered horizontally in the sidebar.
+        // The selected screen at an exact pixel multiple — 4x, 2x or 1x (960/480/240),
+        // the largest that fits the sidebar's width and what its height leaves for the
+        // attributes, placeholder and MIDI graph below — centered horizontally and
+        // aligned to whole screen pixels, so every LCD pixel maps to a clean block of
+        // screen pixels (the texture arrives hqx-upscaled to match). Only windows too
+        // small even for 1x fall back to a fractional fit. The graph reserves what it
+        // measured last frame (capped at 1.5x the grid screen), not its worst case:
+        // the worst-case reservation starved the screen of 2x on normal windows.
+        let graph_id = egui::Id::new("midi-graph-height");
         let graph_max = 1.5 * grid_screen;
-        let side = 960.0_f32
+        let graph_h = ui
+            .ctx()
+            .data(|data| data.get_temp::<f32>(graph_id))
+            .unwrap_or(96.0)
+            .clamp(60.0, graph_max);
+        let fit = 960.0_f32
             .min(content.available_width() - 6.0)
-            .min((content.available_height() - 140.0 - graph_max).max(80.0));
+            .min((content.available_height() - 140.0 - graph_h).max(80.0));
+        let side = [960.0, 480.0, 240.0]
+            .into_iter()
+            .find(|&exact| exact <= fit)
+            .unwrap_or(fit);
+        self.sidebar_scale = (side / 240.0).round() as usize;
         let (bezel, _) = content.allocate_exact_size(Vec2::splat(side + 6.0), Sense::hover());
         let bezel = bezel.translate(Vec2::new(
             rect.left() + (rect.width() - bezel.width()) / 2.0 - bezel.left(),
             0.0,
         ));
+        let bezel = Rect::from_min_max(bezel.min.round(), bezel.max.round());
         let texture = &self.textures[slot];
         lcd::view_at(&mut content, bezel, texture);
         content.add_space(12.0);
@@ -82,7 +99,6 @@ impl GridApp {
         // so the section's bottom edge meets the sidebar's. Its height is what it
         // measured last frame (the first frame uses a rough estimate), so the block
         // hugs the content exactly.
-        let graph_id = egui::Id::new("midi-graph-height");
         let max = content.max_rect();
         let spare = (max.bottom() - content.min_rect().bottom() - 12.0).max(60.0);
         let graph_h = ui
@@ -141,37 +157,24 @@ impl GridApp {
             // Firmware can only be changed while the pane is powered off.
             let response = ui
                 .add_enabled_ui(!self.powered[slot], |ui| {
-                    let combo = egui::ComboBox::from_id_salt(("firmware", slot))
-                        .selected_text(RichText::new(current).size(11.0))
-                        .width(combo_width)
-                        .show_ui(ui, |ui| {
-                            for (index, firmware) in BUILTINS.iter().enumerate() {
-                                let tip =
-                                    format!("{}\nSHA-256 {}", firmware.file, firmware.sha256);
-                                if ui
-                                    .selectable_label(
-                                        selected_builtin == Some(index),
-                                        firmware.label(),
-                                    )
-                                    .on_hover_text(tip)
-                                    .clicked()
-                                {
-                                    choice = Some(Choice::Builtin(index));
-                                    ui.close();
-                                }
-                            }
-                            ui.separator();
-                            if ui.selectable_label(selected_file, "Other…").clicked() {
-                                choice = Some(Choice::Other);
-                                ui.close();
-                            }
-                        });
+                    let (response, picked) = firmware_picker::show(
+                        ui,
+                        ("firmware", slot),
+                        RichText::new(current).size(11.0),
+                        combo_width,
+                        selected_builtin,
+                        selected_file,
+                    );
+                    choice = picked.map(|picked| match picked {
+                        Pick::Builtin(index) => Choice::Builtin(index),
+                        Pick::File => Choice::Other,
+                    });
 
                     // A focused menu would otherwise eat Space (PLAY) on the active
                     // emulator.
                     let response = match path_tip {
-                        Some(path) => combo.response.on_hover_text(path),
-                        None => combo.response,
+                        Some(path) => response.on_hover_text(path),
+                        None => response,
                     };
                     if response.clicked() {
                         response.surrender_focus();

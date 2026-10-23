@@ -1,7 +1,7 @@
 #!/bin/sh
 # Manage the embedded firmware list (firmware/manifest.txt).
 #
-#   scripts/firmware.sh add <file.fwsc> <name> <version>
+#   scripts/firmware.sh add <file.fwsc> <name> <version> [tags]
 #   scripts/firmware.sh del <name-or-file>
 #   scripts/firmware.sh list
 #
@@ -14,7 +14,7 @@ MANIFEST=firmware/manifest.txt
 
 usage() {
     echo "usage:" >&2
-    echo "  $0 add <file.fwsc> <name> <version>" >&2
+    echo "  $0 add <file.fwsc> <name> <version> [tags]" >&2
     echo "  $0 del <name-or-file>" >&2
     echo "  $0 list" >&2
     exit 2
@@ -30,10 +30,11 @@ sha256_of() {
 
 case "${1:-}" in
     add)
-        [ $# -eq 4 ] || usage
+        { [ $# -eq 4 ] || [ $# -eq 5 ]; } || usage
         src=$2
         name=$3
         version=$4
+        tags=${5:-other}
         [ -f "$src" ] || { echo "no such file: $src" >&2; exit 1; }
         file=$(basename "$src")
         dest=firmware/$file
@@ -42,8 +43,8 @@ case "${1:-}" in
         # Replace any existing entry with the same file or name.
         grep -Fv -e "$file | " -e " | $name | " "$MANIFEST" > "$MANIFEST.tmp" || true
         mv "$MANIFEST.tmp" "$MANIFEST"
-        echo "$file | $name | $version | $sum" >> "$MANIFEST"
-        echo "added: $name $version ($file, sha256 $sum)"
+        echo "$file | $name | $version | $sum | $tags" >> "$MANIFEST"
+        echo "added: $name $version ($file, sha256 $sum, tags $tags)"
         echo "rebuild with: cargo build --release"
         ;;
     del)

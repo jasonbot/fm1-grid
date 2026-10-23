@@ -5,8 +5,9 @@ GTK4/Libadwaita-inspired light interface (flat white cards, hairline borders, th
 sans-serif via fontconfig). Emulators are powered **off** at startup — flip the power switch
 in the device sidebar to start one, so idle panes cost nothing. Click anywhere in a pane to
 route the computer keyboard there; the selected card gets a blue border. Every grid screen
-always shows at 1x: the selected pane's live screen appears at **4x in the device sidebar**,
-while its grid card shows a hypersaturated snapshot refreshed once a second. The device sidebar
+always shows at 1x: the selected pane's live screen appears in the device sidebar
+**hqx-upscaled at an exact 4x, 2x or 1x** (the largest that fits), while its grid card
+shows an NTSC-distorted snapshot refreshed in realtime. The device sidebar
 is greedy for all space right of the grid and stacks, from the top: a large
 `Device N: Firmware Name` heading, the 4x screen (horizontally centered), the power switch,
 firmware selector and
@@ -73,8 +74,9 @@ app image mapped at XIP base, entered at `0x0200_0120`. `--help` lists the optio
 
 The cards are display-only monitors with no labels of their own, all screens always at 1x.
 The selected pane's power switch, firmware selector and status live at the top of the device
-sidebar, under the `Device N:` heading; its live screen shows there at 4x, centered, while
-its grid card shows a hypersaturated snapshot refreshed once a second. Emulators are off by
+sidebar, under the `Device N:` heading; its live screen shows there hqx-upscaled at an
+exact pixel multiple, centered, while
+its grid card shows an NTSC-distorted snapshot refreshed in realtime. Emulators are off by
 default; the
 power switch starts and stops the selected pane's emulator — powering off stops its thread,
 silences its audio and blanks its screen, powering on boots whatever firmware the pane has
@@ -173,7 +175,7 @@ src/grid.rs      the 3x3 grid of pane cards and the ambient background colour
 src/sidebar.rs   the device sidebar: heading, 4x screen, pane attributes
 src/panel.rs     the miniature FM-1 front panel control surface
 src/transport.rs the bottom bar: front panel plus the metronome row
-src/lcd.rs       RGB565 decode, dominant colour, fisheye/hypersat snapshot, LCD view
+src/lcd.rs       RGB565 decode, dominant colour, ghost/recede/hqx pictures, LCD view
 src/keys.rs      FM-1 control maps: keyboard layout, panel key/button tables
 src/theme.rs     Adwaita palette, egui style, fonts and the shared custom widgets
 src/main.rs      startup and CLI firmware arguments

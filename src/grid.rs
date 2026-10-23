@@ -20,14 +20,11 @@ impl GridApp {
     pub fn grid(&mut self, ctx: &egui::Context) {
         // The grid background takes the dominant colour of the selected pane's screen,
         // recalculated once a second (and right after a pane switch) and eased into over
-        // 500 ms whenever it changes. A separate 3 Hz tick refreshes the NTSC-distorted
-        // hypersaturated snapshot the selected pane shows on its grid card.
+        // 500 ms whenever it changes. The selected pane's grid-card snapshot (its screen
+        // NTSC-distorted and slightly bulged) refreshes every frame, in realtime.
         let now = ctx.input(|i| i.time);
         let switched = self.dominant_slot != self.active;
-        if now - self.ghost_at >= 1.0 / 3.0 || switched {
-            self.ghost_at = now;
-            self.refresh_ghost();
-        }
+        self.refresh_ghost();
         if now - self.dominant_at >= 1.0 || switched {
             self.dominant_at = now;
             self.dominant_slot = self.active;
@@ -55,7 +52,7 @@ impl GridApp {
                 // normal use; the device sidebar greedily takes all space to its
                 // right. The sizing reserves at least SIDEBAR_WIDTH for the sidebar.
                 // The selected pane's live screen shows in the sidebar; its grid card
-                // shows the NTSC-distorted hypersaturated 3 Hz snapshot. Under the grid
+                // shows the NTSC-distorted realtime snapshot. Under the grid
                 // sits the devices pane for the live USB units, as wide as the grid, so
                 // the sidebar keeps its clearance on the right.
                 const GRID_GAP: f32 = 3.0;
@@ -195,7 +192,7 @@ impl GridApp {
         let (bezel, _) =
             content.allocate_exact_size(Vec2::splat(lcd_side + 6.0), Sense::hover());
 
-        // The selected pane shows the NTSC-distorted hypersaturated 3 Hz snapshot on the
+        // The selected pane shows the NTSC-distorted realtime snapshot on the
         // grid; its live screen is the 4x view in the sidebar. Every other pane shows
         // its live screen.
         let texture = if active {

@@ -1,6 +1,7 @@
 //! The miniature FM-1 front panel in the transport bar: a working control surface whose
-//! keys, buttons and knob ends are clickable, and whose LEDs follow both the computer
-//! keyboard and the emulated firmware's own LED state.
+//! keys, buttons and knob ends are clickable, whose knobs also turn with the mouse
+//! wheel, and whose LEDs follow both the computer keyboard and the emulated firmware's
+//! own LED state.
 
 use crate::app::GridApp;
 use crate::keys::{
@@ -19,8 +20,9 @@ const PANEL_HEIGHT: f32 = 196.0 + (KEY_HEIGHT - 40.0);
 
 impl GridApp {
     /// A miniature FM-1 front panel. It is a working control surface: note keys and
-    /// buttons can be clicked, the knobs are turned with the -/+ ends, and both the
-    /// computer keyboard and the emulated firmware's LEDs light the indicators.
+    /// buttons can be clicked, the knobs are turned with the -/+ ends or the mouse
+    /// wheel, and both the computer keyboard and the emulated firmware's LEDs light
+    /// the indicators.
     pub fn control_display(&mut self, ui: &mut egui::Ui) {
         // Keep the panel roughly as wide as the card grid.
         let panel_max_width = 1040.0;
@@ -65,7 +67,8 @@ impl GridApp {
         let knob_width = (function_width - knob_gap * 3.0) / 4.0;
 
         // Top left: MASTER / SELECT over PRESETS / ALGORITHM. The labels are inert; the
-        // tiny - and + ends turn the control one detent.
+        // tiny - and + ends turn the control one detent, as does each mouse-wheel click
+        // while the group is hovered.
         let top_left = [
             ("MASTER", 0u32, None),
             ("SELECT", 1, Some(0u8)),
@@ -108,6 +111,14 @@ impl GridApp {
                     self.adjust_master(1);
                 }
             }
+            let steps = wheel_steps(ui, rect);
+            if steps != 0 {
+                if let Some(encoder) = encoder {
+                    self.turn_encoder(*encoder, steps);
+                } else {
+                    self.adjust_master(steps);
+                }
+            }
         }
 
         // Top right: KNOB 1..4.
@@ -126,6 +137,10 @@ impl GridApp {
             }
             if up.on_hover_text("Turn clockwise").clicked() {
                 self.turn_encoder(2 + index as u8, 1);
+            }
+            let steps = wheel_steps(ui, rect);
+            if steps != 0 {
+                self.turn_encoder(2 + index as u8, steps);
             }
         }
 
@@ -242,6 +257,30 @@ impl GridApp {
 }
 
 /// A three-part rotary group: an inert label in the middle and clickable - / + ends.
+/// The knob's mouse-wheel input: while the pointer is over the group, each wheel click
+/// turns it one detent — up clockwise, down counter-clockwise. A wheel mouse reports
+/// whole notches; a touchpad reports points, where ~40 points count as one detent.
+fn wheel_steps(ui: &egui::Ui, rect: Rect) -> i32 {
+    if !ui.rect_contains_pointer(rect) {
+        return 0;
+    }
+    ui.input(|input| {
+        input
+            .events
+            .iter()
+            .map(|event| match event {
+                egui::Event::MouseWheel { unit, delta, .. } => match unit {
+                    egui::MouseWheelUnit::Line => delta.y,
+                    egui::MouseWheelUnit::Point => delta.y / 40.0,
+                    egui::MouseWheelUnit::Page => delta.y * 10.0,
+                },
+                _ => 0.0,
+            })
+            .sum::<f32>()
+            .round() as i32
+    })
+}
+
 fn panel_turn_group(
     ui: &mut egui::Ui,
     rect: Rect,

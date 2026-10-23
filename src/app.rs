@@ -10,7 +10,7 @@
 use crate::audio::{start_audio, AudioRing};
 use crate::builtin::BUILTINS;
 use crate::clock::Clock;
-use crate::emulator::EmulatorHandle;
+use crate::emulator::{EmulatorHandle, LCD_H, LCD_W};
 use crate::hardware::Hardware;
 use crate::keys::{BUTTONS, PIANO};
 use crate::midi_keys::MidiKeys;
@@ -67,8 +67,8 @@ pub struct GridApp {
     _audio: Option<cpal::Stream>,
     pub(crate) audio_error: Option<String>,
     pub(crate) textures: [egui::TextureHandle; MAX_SLOTS],
-    /// Snapshot of the selected pane's screen, hypersaturated with a slight fisheye
-    /// bulge and refreshed once a second; this is what its grid card shows, while the
+    /// Snapshot of the selected pane's screen, NTSC-distorted with a slight fisheye
+    /// bulge and refreshed every frame; this is what its grid card shows, while the
     /// sidebar shows the live picture at 4x.
     pub(crate) ghost: egui::TextureHandle,
     /// Keys/buttons currently sent as down to the active emulator (keyboard or panel mouse).
@@ -86,10 +86,11 @@ pub struct GridApp {
     /// pane switches); the grid background eases towards it over 500 ms.
     pub(crate) dominant: Color32,
     pub(crate) dominant_at: f64,
-    /// When the selected pane's grid-card snapshot was last refreshed (3 Hz).
-    pub(crate) ghost_at: f64,
     /// Snapshot counter, seeding the ghost's dynamic NTSC distortion.
     ghost_frame: u64,
+    /// The sidebar screen's exact upscale factor (1, 2 or 4), decided by the sidebar's
+    /// layout last frame and applied by `upload_lcds` with the hqx filter.
+    pub(crate) sidebar_scale: usize,
     pub(crate) dominant_slot: usize,
     held_slot: Option<usize>,
 }
@@ -141,8 +142,8 @@ impl GridApp {
             powered: [false; MAX_SLOTS],
             dominant: Color32::BLACK,
             dominant_at: 0.0,
-            ghost_at: 0.0,
             ghost_frame: 0,
+            sidebar_scale: 1,
             dominant_slot: usize::MAX,
             held_slot: None,
         };
@@ -305,9 +306,6 @@ impl GridApp {
                 self.leds = [0.0; 41];
             }
             lcd::blank_to(&mut self.textures[slot]);
-            if slot == self.active {
-                self.refresh_ghost();
-            }
         }
     }
 
@@ -411,8 +409,21 @@ impl GridApp {
         for slot in 0..MAX_SLOTS {
             let Some(handle) = &self.slots[slot].handle else { continue };
             let Ok(fb) = handle.lcd.lock() else { continue };
-            let pixels = fb.iter().map(|&px| lcd::rgb565(px)).collect::<Vec<_>>();
-            lcd::set_lcd(&mut self.textures[slot], pixels);
+            // The selected pane's texture feeds the sidebar, hqx-upscaled to the exact
+            // factor its layout chose last frame; the other running panes' grid cards
+            // show the recessed look at 1x.
+            let (side, pixels) = if slot == self.active {
+                let faithful: Vec<Color32> = fb.iter().map(|&px| lcd::rgb565(px)).collect();
+                let scale = if matches!(self.sidebar_scale, 2 | 4) {
+                    self.sidebar_scale
+                } else {
+                    1
+                };
+                (LCD_W * scale, lcd::upscaled(&faithful, scale))
+            } else {
+                (LCD_W, lcd::recede(&fb))
+            };
+            lcd::set_lcd(&mut self.textures[slot], [side, side], pixels);
         }
 
         // LEDs are scanned by the firmware in short pulses; decay them slowly so the panel
@@ -441,9 +452,8 @@ impl GridApp {
     }
 
     /// Refresh the snapshot the selected pane shows on its grid card: its screen
-    /// NTSC-distorted, then hypersaturated with a very slight fisheye bulge, taken three
-    /// times a second (and on pane switches). The live, faithful picture is the 4x view
-    /// in the sidebar. A pane that is off shows black.
+    /// NTSC-distorted with a very slight fisheye bulge, taken every frame. The live,
+    /// faithful picture is the 4x view in the sidebar. A pane that is off shows black.
     pub(crate) fn refresh_ghost(&mut self) {
         self.ghost_frame = self.ghost_frame.wrapping_add(1);
         match self.slots[self.active]
@@ -453,7 +463,7 @@ impl GridApp {
         {
             Some(fb) => {
                 let pixels = lcd::ghost(&fb, self.ghost_frame);
-                lcd::set_lcd(&mut self.ghost, pixels);
+                lcd::set_lcd(&mut self.ghost, [LCD_W, LCD_H], pixels);
             }
             None => lcd::blank_to(&mut self.ghost),
         }

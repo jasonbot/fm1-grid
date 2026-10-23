@@ -1,7 +1,9 @@
 //! Everything that turns an emulator's RGB565 framebuffer into pixels on screen: the
 //! colour decode, the dominant-colour pickup for the ambient background, the
-//! NTSC-distorted hypersaturated fisheye snapshot of the selected pane, and the bezel +
-//! image view both the grid cards and the sidebar draw. Pure functions; no app state.
+//! NTSC-distorted fisheye snapshot of the selected pane, the hqx upscale of the
+//! sidebar's picture, the desaturated vignetted look of the other running panes, and
+//! the bezel + image view both the grid cards and the sidebar draw. Pure functions; no
+//! app state.
 
 use crate::emulator::{LCD_H, LCD_W};
 use crate::theme::paint_inset;
@@ -113,12 +115,10 @@ fn ntsc(fb: &[u16], frame: u64) -> Vec<Color32> {
     out
 }
 
-/// The grid card's picture of the selected pane: the screen NTSC-distorted, then
-/// hypersaturated with a very slight fisheye bulge. The fisheye magnifies the centre
-/// ~8%, keeps the edge of the inscribed circle put and clamps the corners; the
-/// hypersaturation pushes every channel away from the pixel's luminance and clamps, so
-/// colours pop hard while black stays black and white stays white. `frame` varies the
-/// NTSC pass, so every snapshot distorts a little differently.
+/// The grid card's picture of the selected pane: the screen NTSC-distorted, then given
+/// a very slight fisheye bulge. The fisheye magnifies the centre ~8%, keeps the edge of
+/// the inscribed circle put and clamps the corners. `frame` varies the NTSC pass, so
+/// every snapshot distorts a little differently.
 pub fn ghost(fb: &[u16], frame: u64) -> Vec<Color32> {
     let screen = ntsc(fb, frame);
     let c = LCD_W as f32 / 2.0;
@@ -129,11 +129,29 @@ pub fn ghost(fb: &[u16], frame: u64) -> Vec<Color32> {
             let r2 = (u * u + v * v) / (c * c);
             let f = 1.0 - 0.08 * (1.0 - r2);
             let sample = |d: f32| ((d * f + c).round() as i32).clamp(0, LCD_W as i32 - 1) as usize;
-            let source = screen[sample(v) * LCD_W + sample(u)];
+            screen[sample(v) * LCD_W + sample(u)]
+        })
+        .collect()
+}
+
+/// The grid card's picture of a running pane that is not selected: the faithful screen
+/// slightly desaturated (channels pulled 30% towards their luminance) and vignetted —
+/// the edges and corners darkened, the inverse of a lens flare's glow — so the
+/// selection pops and the other panes recede while staying legible.
+pub fn recede(fb: &[u16]) -> Vec<Color32> {
+    let c = LCD_W as f32 / 2.0;
+    fb.iter()
+        .enumerate()
+        .map(|(i, &px)| {
+            let source = rgb565(px);
+            let u = (i % LCD_W) as f32 + 0.5 - c;
+            let v = (i / LCD_W) as f32 + 0.5 - c;
+            let r2 = (u * u + v * v) / (c * c);
+            let shade = 1.0 - 0.3 * r2;
             let (r, g, b) = (source.r() as f32, source.g() as f32, source.b() as f32);
             let lum = luminance(r, g, b);
-            let hyper = |v: f32| (lum + (v - lum) * 3.0).clamp(0.0, 255.0) as u8;
-            Color32::from_rgb(hyper(r), hyper(g), hyper(b))
+            let recessed = |v: f32| ((lum + (v - lum) * 0.7) * shade).clamp(0.0, 255.0) as u8;
+            Color32::from_rgb(recessed(r), recessed(g), recessed(b))
         })
         .collect()
 }
@@ -149,12 +167,39 @@ pub fn view_at(ui: &mut egui::Ui, bezel: Rect, texture: &TextureHandle) {
     );
 }
 
-/// Upload helper shared by the per-frame live textures and the 3 Hz ghost.
-pub fn set_lcd(texture: &mut TextureHandle, pixels: Vec<Color32>) {
-    texture.set(
-        ColorImage::new([LCD_W, LCD_H], pixels),
-        TextureOptions::NEAREST,
-    );
+/// The sidebar's picture of the selected pane's screen: the faithful pixels run through
+/// the hqx filter at an exact 2x or 4x (`scale`), smoothing jagged edges while keeping
+/// lines crisp. Any other scale passes the pixels through untouched (1x needs no
+/// filter, and fractional scales never reach here).
+pub fn upscaled(pixels: &[Color32], scale: usize) -> Vec<Color32> {
+    if scale != 2 && scale != 4 {
+        return pixels.to_vec();
+    }
+    // hqx works on 0xAARRGGBB words; the LCD is opaque, so alpha is always full.
+    let src: Vec<u32> = pixels
+        .iter()
+        .map(|c| 0xFF00_0000 | (c.r() as u32) << 16 | (c.g() as u32) << 8 | c.b() as u32)
+        .collect();
+    let mut dest = vec![0u32; LCD_W * LCD_H * scale * scale];
+    match scale {
+        2 => hqx::hq2x(&src, &mut dest, LCD_W as u32, LCD_H as u32),
+        _ => hqx::hq4x(&src, &mut dest, LCD_W as u32, LCD_H as u32),
+    }
+    dest.iter()
+        .map(|&v| {
+            Color32::from_rgb(
+                ((v >> 16) & 0xFF) as u8,
+                ((v >> 8) & 0xFF) as u8,
+                (v & 0xFF) as u8,
+            )
+        })
+        .collect()
+}
+
+/// Upload helper shared by the per-frame live textures, the realtime ghost and the
+/// sidebar's hqx-upscaled picture.
+pub fn set_lcd(texture: &mut TextureHandle, size: [usize; 2], pixels: Vec<Color32>) {
+    texture.set(ColorImage::new(size, pixels), TextureOptions::NEAREST);
 }
 
 /// Blank (power-off / startup) a texture.

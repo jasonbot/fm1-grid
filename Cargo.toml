@@ -1,0 +1,23 @@
+[package]
+name = "fm1-grid"
+version = "0.1.0"
+edition = "2021"
+description = "A two-FM-1 emulator grid with a MIDI clock metronome"
+license = "MIT"
+
+[dependencies]
+# GUI
+eframe = "0.33.3"
+rfd = "0.17.2"
+# Audio out (the emulator produces 44.1 kHz stereo i16)
+cpal = "0.18.2"
+# The FM-1 CPU/SoC from the fm1-emu project. Pinned so the app keeps building even if
+# upstream changes. `fm1-core` and `fm1-soc` are found inside the fm1-emu workspace.
+fm1-core = { git = "https://github.com/joakimeriksson/fm1-emu.git", rev = "9f0f65afc1b30c94daf295edc4b23ed71490849e" }
+fm1-soc = { git = "https://github.com/joakimeriksson/fm1-emu.git", rev = "9f0f65afc1b30c94daf295edc4b23ed71490849e" }
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"

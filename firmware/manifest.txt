@@ -1,0 +1,38 @@
+# The embedded firmware list. Format: file | name | version | sha256 | tags
+# The tags come from The FM-1 Firmware Hub's catalogue (its `kind` categories plus
+# the vintage/beta flags); the first tag is the dropdown's group name.
+# Edit with scripts/firmware.sh (add/del/list) or by hand, then rebuild.
+sloop-2.8.1.fwsc | SLOOP | 2.8.1 | 64c9dfa7e75312debeae01a7c96e4ad3801eaffff9c81cb76ece9c48daf0501d | groove
+felucca-1.6.1.fwsc | Felucca | 1.6.1 | dff3a38f7e5b9833e15aba322558c9485e9e422e3ff813c616c91b3584a2d909 | groove,dev
+FM-1_015.fwsc | FM1 Open | V15 | db1642b2b6fa5c2cccb11ffd13878068bb28601678d3644049f99dc40e7edb8a | official
+choralroot-0.26.1.fwsc | ChoralRoot | 0.26.1 | 7fec6a729c2d05d1f19e8b6ab3e2101affb8d9b11e4835cb412b11625289ace2 | chords,beta
+chipbox-1.2.4.fwsc | Chipbox | 1.2.4 | 0a6df3248c07b17587badcc6258d8bce184252994c2dc6309eb09db90f5e6a42 | groove
+dub-1.3.0.fwsc | DUB-1 | 1.3.0 | 35a464983c8b0f1143e668db770f36d943df0279a477be5e61435325d9354796 | groove
+ghoulbox-2.3.2.fwsc | GHOULBOX | 2.3.2 | 069f6d783db1e05776a89006ecba07a0abfcd2cc7a0fe6fa64db096b5ecad4c8 | groove
+grimm-1.0.fwsc | GR!MM | 1.0 | 8f1f6c0bc6c0afb58a400f4ea99a7a03302b98b38e4905527aa1fa2c665f5f65 | groove
+jangada-1.0.1.fwsc | Jangada | 1.0.1 | c382e334057bd107294940e456e5c1140754917ba152a1958af3aa1696333588 | groove
+jiant-0.9.9-beta4a-813869d.fwsc | JIANT FM | 0.9.9-beta4a-813869d | 3d73c59a591dd73562e3314d5081cdb0ccc9bcb187e85434f5cb5a27f627e9e1 | groove,beta
+loom-0.6.1.fwsc | LOOM-8 | 0.6.1 | 0849c89312d7028d4c735eccd293245939ddb2115b1a699453751cc5d59084bb | groove,beta
+maku-1.0.fwsc | MAKU | 1.0 | b55d471fd179008511dfea032530750f0692d5be8eab263970f5c3c2162b53ea | groove
+melodee-1.4.5.fwsc | Melodee | 1.4.5 | a18f40d6f8c8087b25f115ab11286f85c7f04383de836227c463c6ce4745ce20 | groove
+mutable-1.0.fwsc | Mutable Dreams | 1.0 | 75008881683cbeb3515e24cfd7830136b90eb293f0752dc66b203b7f2ee7cd9f | groove
+polly-0.5.fwsc | Polly | 0.5 | 2dea2914b4628f075cf3605fae7a75afc03a4b2ae2d7823d8ccf4bf16dd986c7 | groove,vintage,beta
+skiff-1.4.fwsc | Skiff | 1.4 | 0622a752e8304777c042ccea0732ba023e1413baa6dbc8724576e2ec76de02e0 | groove
+tribe-0.3-beta.fwsc | TRIBE | 0.3-beta | daa953ea5c37a5612d6db6f508a86879a79214768acc79d6ae04f2e0b93b6f6b | groove,beta
+x0x-1.1.0.fwsc | X0X | 1.1.0 | a0c29deb930c65f1d40b5691b7d673f861418b438b7e65027cb9c671e6f44f5b | groove,vintage
+coralflower-0.5.fwsc | CoralFlower | 0.5 | ab7d0744eed0c83d62be39da9d63c5618e1bccc94de2931a9145a7d4b723b0bb | chords,beta
+fomni-0.4.fwsc | FoMni | 0.4 | 71fa8304b91bff89078bfd27e981ed28ca4f0d3c5f406e8fdb5a2ab240fbdbb5 | chords,vintage,beta
+fumi-1.1.0.fwsc | FuMi-1 | 1.1.0 | 211db1c2efc379b0a29a284aea523c67e230d98dab7a7f91336cc3fbd1201188 | chords,vintage
+amb-1.3.fwsc | AMB-1 | 1.3 | 59dbc6b688e3a64bb0da912c1e40890da7bc214b2a3269704627369b776707cb | synth
+clipper-1.1-experimental.fwsc | Clipper | 1.1-experimental | 3a23a37c431c813bcdf97321f49722c7328d1f9134ba469ff3ba194ad9f05206 | synth,beta
+fimba-0.6.1.fwsc | FiMba-1 | 0.6.1 | 2ce744411ab6142a27e5c6238b8eb2f3875ccaa1e6fc47726211bf09f1393fa7 | synth,beta
+cutador-1.2.1.fwsc | Cut-A-Dor | 1.2.1 | 5d4be92061cc5bf1396d3ff599ac3a1ef9ec1261afe003b74e32f4298307f614 | drums
+386dx-1.0.2.fwsc | 386DX | 1.0.2 | 97dc787a7b5ef4052c6ab519e98a679274e1fd1c25ba46baa3a3d02901008028 | other
+fart-1.1.0.fwsc | Fart Machine One | 1.1.0 | b9e380061ddc086d5c45cfa4d4e583249a9bfb45869e1fcd6fdaf5249c7ee7e2 | other
+min1-0.2.1.fwsc | MIN-1 | 0.2.1 | 82715d6ee18c8b12c287d614c131a4fb37f8606d811ae23301f1cd42bd4548c3 | other,beta
+rainbow-1.1.5-rb+804c7785.fwsc | Rainbow Mode | 1.1.5-rb | 804c77851c4125f12ce81a50e0f40a421c02401b1a3e72cc4240b231d2e30e83 | other
+hyp1-1.5.54.fwsc | HYP-1 | 1.5.54 | 2d310b243ea4f01197339819d4228c8c1f21fe267e7991142e91df527e18f049 | groove
+lof1-0.0.87.fwsc | LOF-1 | 0.0.87 | dcae62abc37372788502a42438176f81d9aca26588f9b799628ffe7928f88c2d | groove,beta
+eco1-0.0.87.fwsc | ECO-1 | 0.0.87 | ca0709fb43cdfb58b2f59a2c9f2e00d40d5441f95f882298524f89d50feac3b1 | synth,beta
+grav1-0.0.87.fwsc | GRAV-1 | 0.0.87 | 393a5d01edea2f4e8a5914fce6863408e384881a3816fa46ff0201ed57469565 | synth,beta
+cty1-0.0.87.fwsc | CTY-1 | 0.0.87 | effb37ab3439d92597cb28ed2860efdb60390d58836eb8e447d7f577cd6e52b7 | synth,beta

@@ -29,7 +29,7 @@ use gpui_kit::component::combobox::{ComboboxEvent, ComboboxState};
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::component::resizable::h_resizable;
 use gpui_kit::component::tab::{Tab, TabBar};
-use gpui_kit::component::{ActiveTheme, TitleBar};
+use gpui_kit::component::{ActiveTheme, Theme, TitleBar};
 use gpui_kit::*;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -187,6 +187,13 @@ impl GridApp {
             .ok();
         });
         let mut subscriptions = vec![focus_out];
+
+        // The chrome follows the OS light/dark setting: take the current appearance
+        // (init() forced Light), then track live changes while the window is up.
+        Theme::sync_system_appearance(Some(window), cx);
+        subscriptions.push(window.observe_window_appearance(|window, cx| {
+            Theme::sync_system_appearance(Some(window), cx);
+        }));
 
         // One firmware combobox per slot; picking an entry loads it into that slot.
         let firmware_combos: [Entity<ComboboxState<FirmwareDelegate>>; MAX_SLOTS] =

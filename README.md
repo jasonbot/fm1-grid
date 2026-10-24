@@ -19,28 +19,7 @@ above the metronome mirrors the active pane: its keys and buttons can be played 
 mouse, its knobs turn with the −/+ ends, and its LEDs show the firmware's own state as well
 as what the computer keyboard is doing.
 
-```
-┌────────────┐ ┌────────────┐  ┌────────────────────────────┐
-│ ┌────────┐ │ │ ┌────────┐ │  │ Device 1: SLOOP 2.8        │
-│ │  LCD   │ │ │ │  LCD   │ │  │ ┌────────────────────────┐ │
-│ └────────┘ │ │ └────────┘ │  │ │      live 4× LCD       │ │
-└────────────┘ └────────────┘  │ └────────────────────────┘ │
-┌────────────┐ ┌────────────┐  │ [ ○─── ] [ SLOOP 2.8 ▾ ]   │
-│ ┌────────┐ │ │ ┌────────┐ │  │ Off                        │
-│ │  LCD   │ │ │ │  LCD   │ │  │ No custom behavior for …   │
-│ └────────┘ │ │ └────────┘ │  └────────────────────────────┘
-└────────────┘ └────────────┘
-   2 rows × 2 columns
-┌─ FM-1 PANEL ────────────────────────── CLICKABLE · KEYBOARD LIGHTS · PANE 1 ──┐
-│ [− MASTER +]  [− SELECT +]                 [− KNOB 1 +] … [− KNOB 4 +]       │
-│ [− PRESETS +] [− ALGORITHM +]                                               │
-│ [OCT− Z] [OCT+ X]   [FX 1][SCL 2][ENV 3][LFO 4][EDIT 5][GLO 6]              │
-│                     [HOME 7][SAVE 8][ARP 9][SEQ 0][PLAY ␣][REC R]            │
-│ [F3 C][F#3 V][G3 B] … [C4 A][C#4 W][D4 S] … [F5 '][F#5][G5]                 │
-└──────────────────────────────────────────────────────────────────────────────┘
-[ ○─── ] MIDI CLOCK  120 BPM [ − ][ + ]  ● BEAT
-         STOPPED · 24 PPQN
-```
+![Screenshot](./screenshot/screen.png)
 
 ## Run
 

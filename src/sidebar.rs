@@ -4,7 +4,7 @@
 
 use crate::app::{GridApp, Source};
 use crate::lcd;
-use gpui_kit::base::{ElementExt, h_flex, v_flex};
+use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::{ActiveTheme, Icon, IconName, Sizable};
 use gpui_kit::component::combobox::Combobox;
@@ -34,15 +34,26 @@ impl GridApp {
             )
         };
 
-        // The exact-multiple fit, from the width measured during last frame's prepaint
-        // (the same one-frame lag the egui layout had with the graph's height).
-        let inner_w = (self.sidebar_width - 26.0).max(80.0);
-        let fit = inner_w.min(960.0);
+        // The sidebar takes the width the fixed 2x2 grid leaves (at least the 2x
+        // screen's worth, at most the 4x screen's); the exact pixel multiple then has
+        // to fit that width AND the height the title/attributes/graph leave. So a wide
+        // enough window shows the focused screen at 4x — but only a tall enough one
+        // too. Computed from last frame's measured central area (the same one-frame
+        // lag the egui layout had with the graph's height).
+        const GRID_W: f32 = 527.0; // two 262 px cards + one 3 px gap
+        let (central_w, central_h) = self.central_size;
+        let max_w = (central_w - GRID_W - 24.0).clamp(512.0, 992.0);
+        let fit_w = max_w - 26.0; // padding and bezel
+        // Title, attributes, status, note, gaps and a minimal graph share the height.
+        let fit_h = central_h - 242.0;
+        let fit = fit_w.min(fit_h).min(960.0).max(80.0);
         let side = [960.0, 480.0, 240.0]
             .into_iter()
             .find(|&exact| exact <= fit)
             .unwrap_or(fit);
         self.sidebar_scale = (side / 240.0).round() as usize;
+        // The sidebar hugs the chosen screen size: 512 px at 2x, 992 px at 4x.
+        let side_w = side + 32.0;
 
         let name = self.slots[slot]
             .label
@@ -65,13 +76,9 @@ impl GridApp {
             None => format!("No firmware loaded in pane {}", slot + 1),
         };
 
-        // Record the rendered width for next frame's scale choice.
-        let app = cx.entity().clone();
         v_flex()
             .id("device-sidebar")
-            // Fixed width: exactly what the 2x (480 px) screen plus padding needs —
-            // the sidebar's picture is always 2x.
-            .w(px(512.0))
+            .w(px(side_w))
             .flex_none()
             .h_full()
             .rounded(px(10.0))
@@ -80,14 +87,6 @@ impl GridApp {
             .border_color(border)
             .p_3()
             .gap_3()
-            .on_prepaint(move |bounds, _, cx| {
-                let width: f32 = bounds.size.width.into();
-                app.update(cx, |this, _| {
-                    if (this.sidebar_width - width).abs() > 0.5 {
-                        this.sidebar_width = width;
-                    }
-                });
-            })
             .child(
                 div()
                     .w_full()

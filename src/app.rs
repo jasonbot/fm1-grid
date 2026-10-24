@@ -119,12 +119,13 @@ pub struct GridApp {
     dominant_slot: usize,
     /// Snapshot counter, seeding the ghost's dynamic NTSC distortion.
     ghost_frame: u64,
-    /// The sidebar screen's exact upscale factor (1, 2 or 4), decided by the sidebar's
-    /// rendered width last frame and applied by `upload_lcds` with the hqx filter.
+    /// The sidebar screen's exact upscale factor (1, 2 or 4), decided by the central
+    /// area's rendered size last frame and applied by `upload_lcds` with the hqx filter.
     pub(crate) sidebar_scale: usize,
-    /// The sidebar's rendered width, recorded during prepaint (one frame of lag, the
-    /// same trade the egui layout made with the graph height).
-    pub(crate) sidebar_width: f32,
+    /// The central row's rendered size, recorded during prepaint (one frame of lag, the
+    /// same trade the egui layout made with the graph height). The sidebar's width and
+    /// the screen's scale derive from it.
+    pub(crate) central_size: (f32, f32),
     /// The front panel's rendered width, recorded during prepaint.
     pub(crate) panel_width: f32,
     /// Mouse-wheel detent accumulator for the panel knobs: (group, fractional detents).
@@ -287,7 +288,7 @@ impl GridApp {
             dominant_slot: usize::MAX,
             ghost_frame: 0,
             sidebar_scale: 1,
-            sidebar_width: 320.0,
+            central_size: (1156.0, 700.0),
             panel_width: 1040.0,
             wheel_acc: (u32::MAX, 0.0),
             last_beat: false,

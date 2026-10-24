@@ -7,7 +7,7 @@
 
 use crate::app::GridApp;
 use crate::lcd;
-use gpui_kit::base::{h_flex, v_flex};
+use gpui_kit::base::{ElementExt, h_flex, v_flex};
 use gpui_kit::component::ActiveTheme;
 use gpui_kit::{TestSupportExt as _, *};
 
@@ -24,13 +24,25 @@ impl GridApp {
             b: self.bg[2],
             a: 1.0,
         };
+        // Record the rendered size; the sidebar's width and screen scale derive from
+        // it next frame.
+        let app = cx.entity().clone();
         h_flex()
+            .id("central")
             .flex_1()
             .min_h_0()
             .w_full()
             .bg(bg)
             .p_2()
             .gap_2()
+            .on_prepaint(move |bounds, _, cx| {
+                let size = (bounds.size.width.into(), bounds.size.height.into());
+                app.update(cx, |this, _| {
+                    if this.central_size != size {
+                        this.central_size = size;
+                    }
+                });
+            })
             .child(
                 v_flex()
                     .flex_1()

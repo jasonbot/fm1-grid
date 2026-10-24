@@ -6,9 +6,11 @@ are powered **off** at startup — flip the power switch
 in the device sidebar to start one, so idle panes cost nothing. Click anywhere in a pane to
 route the computer keyboard there; the selected card gets a blue border. Every grid screen
 always shows at 1x (240×240, never scaled): the selected pane's live screen appears in
-the device sidebar **hqx-upscaled at 2x**, while its grid card
+the device sidebar **hqx-upscaled at 2x — 4x when the window is wide and tall enough** —
+while its grid card
 shows an NTSC-distorted snapshot refreshed in realtime. The device sidebar
-is exactly as wide as the 2x screen needs and stacks, from the top: a large
+is as wide as the screen it shows (512 px at 2x, up to 992 px at 4x) and stacks, from
+the top: a large
 `Device N: Firmware Name` heading, the 2x screen (horizontally centered), the power switch,
 firmware selector and
 status, and the placeholder for firmware-specific controls. The grid area's background takes
@@ -55,8 +57,8 @@ app image mapped at XIP base, entered at `0x0200_0120`. `--help` lists the optio
 
 The cards are display-only monitors with no labels of their own, all screens always at 1x.
 The selected pane's power switch, firmware selector and status live at the top of the device
-sidebar, under the `Device N:` heading; its live screen shows there hqx-upscaled at 2x,
-centered, while
+sidebar, under the `Device N:` heading; its live screen shows there hqx-upscaled at 2x
+(4x on big windows), centered, while
 its grid card shows an NTSC-distorted snapshot refreshed in realtime. Emulators are off by
 default; the
 power switch starts and stops the selected pane's emulator — powering off stops its thread,

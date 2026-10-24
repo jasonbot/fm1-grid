@@ -149,8 +149,12 @@ others).
   development packages for gpui (see the gpui-kit installation docs).
 * macOS/Windows: no extra system packages beyond the platform SDK.
 
+`.cargo/config.toml` builds with `target-cpu=native` (this is a local tool, not a
+distributed binary) — delete it if you ever build for another machine. The emulator
+crates are pinned to an fm1-emu revision in `Cargo.toml`; bump the `rev` deliberately.
+
 The emulator crates from <https://github.com/joakimeriksson/fm1-emu> are used from git at
-commit `9f0f65afc1b30c94daf295edc4b23ed71490849e`.
+commit `c1c045fc067da024d686e7a690806e2e55795042`.
 
 The FM-1 firmware images are unmodified packages from
 [The FM-1 Firmware Hub](https://thefirmwarehub.com/) and M-VAVE. They keep their own

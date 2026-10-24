@@ -1,0 +1,8 @@
+# This app is built for the machine it runs on (a local music tool, not a
+# distributed binary): let LLVM use the host CPU's full instruction set. The FM-1
+# emulator's JIT/interpreter loop and the LCD pixel filters both gain visibly;
+# in debug builds this is the difference between the fourth pane starving
+# (0.85x, crackling audio) and all four keeping realtime. Delete this file if you
+# ever build binaries for other machines.
+[build]
+rustflags = ["-C", "target-cpu=native"]

@@ -1,11 +1,24 @@
-//! Generates the embedded firmware table from `firmware/manifest.txt`.
+//! Generates the embedded firmware table from `firmware/firmwares.json`.
 //!
-//! The manifest is the single place that lists what gets compiled into the binary. Use
+//! The JSON list is the single place that lists what gets compiled into the binary. Use
 //! `scripts/firmware.sh` to add or remove entries; the generated code is never edited.
 
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
+
+use serde::Deserialize;
+
+/// One entry in firmwares.json. Extra fields (url, source, license) are used by
+/// firmware/download; serde ignores them here.
+#[derive(Deserialize)]
+struct Firmware {
+    name: String,
+    version: String,
+    file: String,
+    sha256: String,
+    tags: Vec<String>,
+}
 
 fn escape(text: &str) -> String {
     text.replace('\\', "\\\\").replace('"', "\\\"")
@@ -13,45 +26,46 @@ fn escape(text: &str) -> String {
 
 fn main() {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
-    let manifest_path = manifest_dir.join("firmware/manifest.txt");
-    println!("cargo:rerun-if-changed={}", manifest_path.display());
+    let json_path = manifest_dir.join("firmware/firmwares.json");
+    println!("cargo:rerun-if-changed={}", json_path.display());
 
-    let text = fs::read_to_string(&manifest_path)
-        .unwrap_or_else(|e| panic!("cannot read {}: {e}", manifest_path.display()));
+    let text = fs::read_to_string(&json_path)
+        .unwrap_or_else(|e| panic!("cannot read {}: {e}", json_path.display()));
+    let list: Vec<Firmware> = serde_json::from_str(&text)
+        .unwrap_or_else(|e| panic!("cannot parse {}: {e}", json_path.display()));
 
     let mut code = String::from("&[\n");
-    for (line_number, line) in text.lines().enumerate() {
-        let line = line.trim();
-        if line.is_empty() || line.starts_with('#') {
-            continue;
-        }
-        let fields: Vec<&str> = line.split('|').map(str::trim).collect();
-        if fields.len() != 5 || fields.iter().any(|field| field.is_empty()) {
+    for fw in &list {
+        if fw.name.is_empty()
+            || fw.version.is_empty()
+            || fw.file.is_empty()
+            || fw.sha256.is_empty()
+            || fw.tags.is_empty()
+        {
             panic!(
-                "{}:{}: expected `file | name | version | sha256 | tags`",
-                manifest_path.display(),
-                line_number + 1
+                "{}: entry {:?}: name, version, file, sha256 and a non-empty tags list are required \
+                 (the first tag is the dropdown group)",
+                json_path.display(),
+                fw.name
             );
         }
-        let (file, name, version, sha256, tags) =
-            (fields[0], fields[1], fields[2], fields[3], fields[4]);
-        let path = manifest_dir.join("firmware").join(file);
+        let path = manifest_dir.join("firmware").join(&fw.file);
         if !path.is_file() {
             panic!(
-                "{}:{}: no such file {}",
-                manifest_path.display(),
-                line_number + 1,
+                "{}: entry {:?}: no such file {}",
+                json_path.display(),
+                fw.name,
                 path.display()
             );
         }
         println!("cargo:rerun-if-changed={}", path.display());
         code.push_str(&format!(
             "    BuiltinFirmware {{\n        name: \"{}\",\n        version: \"{}\",\n        file: \"{}\",\n        sha256: \"{}\",\n        tags: \"{}\",\n        bytes: include_bytes!(\"{}\"),\n    }},\n",
-            escape(name),
-            escape(version),
-            escape(file),
-            escape(sha256),
-            escape(tags),
+            escape(&fw.name),
+            escape(&fw.version),
+            escape(&fw.file),
+            escape(&fw.sha256),
+            escape(&fw.tags.join(",")),
             escape(&path.to_string_lossy()),
         ));
     }

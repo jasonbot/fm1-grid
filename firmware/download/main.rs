@@ -16,12 +16,14 @@ use anyhow::{bail, Context};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
-/// One entry in firmwares.json. Extra fields (name, version, tags, source, license) are
-/// documentation for humans and other tooling; serde ignores them here.
+/// One entry in firmwares.json. `url` is the download location; entries added locally
+/// by `scripts/firmware.sh add` may not have one. Extra fields (name, version, tags,
+/// source, license) are documentation for humans and other tooling; serde ignores them
+/// here.
 #[derive(Deserialize)]
 struct Firmware {
     file: String,
-    url: String,
+    url: Option<String>,
     sha256: String,
 }
 
@@ -69,21 +71,30 @@ fn run(dir: &Path) -> anyhow::Result<usize> {
                     failures += 1;
                 }
             }
-        } else if let Err(err) = download(fw, dir) {
-            eprintln!("ERROR       {} ({}): {err:#}", fw.file, fw.url);
-            failures += 1;
         } else {
-            println!("downloaded  {}", fw.file);
+            match &fw.url {
+                Some(url) => match download(fw, url, dir) {
+                    Ok(()) => println!("downloaded  {}", fw.file),
+                    Err(err) => {
+                        eprintln!("ERROR       {} ({url}): {err:#}", fw.file);
+                        failures += 1;
+                    }
+                },
+                None => {
+                    eprintln!("MISSING     {}: no url recorded; place the file in {}", fw.file, dir.display());
+                    failures += 1;
+                }
+            }
         }
     }
     println!("{} entries checked, {failures} failed", list.len());
     Ok(failures)
 }
 
-/// Downloads fw.url to a temp file, verifies the hash, renames into place.
-fn download(fw: &Firmware, dir: &Path) -> anyhow::Result<()> {
+/// Downloads url to a temp file, verifies the hash, renames into place.
+fn download(fw: &Firmware, url: &str, dir: &Path) -> anyhow::Result<()> {
     let tmp = dir.join(format!(".{}.part", fw.file));
-    let sum = fetch(fw, &tmp);
+    let sum = fetch(url, &tmp);
     if sum.is_err() {
         let _ = fs::remove_file(&tmp);
     }
@@ -96,10 +107,10 @@ fn download(fw: &Firmware, dir: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn fetch(fw: &Firmware, dest: &Path) -> anyhow::Result<String> {
-    let mut resp = ureq::get(&fw.url)
+fn fetch(url: &str, dest: &Path) -> anyhow::Result<String> {
+    let mut resp = ureq::get(url)
         .call()
-        .with_context(|| format!("GET {}", fw.url))?;
+        .with_context(|| format!("GET {url}"))?;
     let sum = hash_stream(resp.body_mut().as_reader(), File::create(dest)?)?;
     Ok(sum)
 }

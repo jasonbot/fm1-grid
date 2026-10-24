@@ -1,15 +1,13 @@
 # Embedded firmware
 
-The images compiled into the binary are listed in `manifest.txt`
-(`file | name | version | sha256 | tags`). `build.rs` turns that list into the table
-used by `src/builtin.rs`. Manage it with `scripts/firmware.sh add/del/list`, then
-rebuild.
+`firmwares.json` is the single source of truth for the images compiled into the
+binary: name, version, file, tags, download URL, source repo, SHA-256 and licence,
+one object per line. `build.rs` turns that list into the table used by
+`src/builtin.rs`; `firmware/download` fetches and verifies the packages against it.
+Manage the list with `scripts/firmware.sh add/del/list`, then rebuild.
 
 The first tag is the group the firmware dropdown shows (`synth`, `groove`, `chords`,
 `drums`, `official`, `other`); `vintage` and `beta` are extra flags.
-
-`firmwares.json` records where each package came from: name, version, file, tags,
-download URL, source repo, SHA-256 and licence, one object per line.
 
 ## Downloading the packages
 

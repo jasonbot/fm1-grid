@@ -49,7 +49,7 @@ impl SearchableListItem for FirmwareItem {
 }
 
 pub(crate) struct FirmwareDelegate {
-    /// All builtins in manifest order, then the "Other…" entry as the last item.
+    /// All builtins in firmwares.json order, then the "Other…" entry as the last item.
     all: Vec<FirmwareItem>,
     /// The current view: (category header, indices into `all`). The `None` header is
     /// the "Other…" section — separated, but unlabeled.

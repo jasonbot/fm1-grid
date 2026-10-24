@@ -56,7 +56,7 @@ on to see why. It lists the embedded firmwares plus **Other…** (a file picker)
 Hovering a choice shows its file name and SHA-256 hash. A new firmware boots the next
 time you power the pane on.
 
-The embedded list lives in `firmware/manifest.txt` and is compiled in at build time.
+The embedded list lives in `firmware/firmwares.json` and is compiled in at build time.
 Manage it with the helper script, then rebuild:
 
 ```sh
@@ -66,7 +66,7 @@ scripts/firmware.sh list
 ```
 
 `add` copies the package into `firmware/` and records its hash; `del` removes both.
-Manifest order is the default pane order.
+The JSON order is the default pane order.
 
 ## Keyboard
 
@@ -136,7 +136,7 @@ Apache-2.0, and FM-1+VA is proprietary. The emulator crates are MIT. See
 ## Layout
 
 ```
-build.rs             generates the embedded firmware table from firmware/manifest.txt
+build.rs             generates the embedded firmware table from firmware/firmwares.json
 scripts/firmware.sh  add/del/list for the embedded firmware list
 src/affinity.rs      Linux physical-core detection and per-emulator pinning
 src/app.rs           grid state: pane power, firmware install, key routing, LCD upload
@@ -153,5 +153,5 @@ src/keys.rs          keyboard layout and panel key tables
 src/theme.rs         the FM-1 hardware colours; app chrome follows gpui-kit
 src/main.rs          startup and CLI firmware arguments
 src/tests/           headless UI smoke tests
-firmware/            the embedded .fwsc packages plus manifest.txt
+firmware/            the embedded .fwsc packages plus firmwares.json
 ```

@@ -1870,6 +1870,8 @@ dependencies = [
  "libc",
  "midir",
  "rfd",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

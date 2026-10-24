@@ -17,35 +17,22 @@ use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 
 impl GridApp {
-    /// The devices pane, as wide as the grid, under it. Theme colours like the sidebar.
+    /// The Devices tab's left half: the live USB units. Bare like the graph half —
+    /// the split's divider is the only frame.
     pub(crate) fn devices_pane(
         &mut self,
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
-        let (surface, border, dim, danger, accent) = {
+        let (dim, danger, accent) = {
             let theme = cx.theme();
-            (
-                theme.popover,
-                theme.border,
-                theme.muted_foreground,
-                theme.danger,
-                theme.primary,
-            )
+            (theme.muted_foreground, theme.danger, theme.primary)
         };
         let rows = self.hardware.devices();
         let board = self.hardware.flash_state();
         let error = self.hardware.error.clone();
 
-        let mut pane = v_flex()
-            .w_full()
-            .h_full()
-            .rounded(px(10.0))
-            .bg(surface)
-            .border_1()
-            .border_color(border)
-            .p(px(10.0))
-            .gap(px(2.0))
+        let mut pane = v_flex().size_full().gap(px(2.0))
             .child(
                 h_flex()
                     .w_full()

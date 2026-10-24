@@ -158,6 +158,13 @@ impl GridApp {
             .search_placeholder("Filter…")
             .menu_width(px(260.0))
             .disabled(on)
+            .empty(|_, cx| {
+                div()
+                    .p_2()
+                    .text_size(px(10.0))
+                    .text_color(cx.theme().muted_foreground)
+                    .child("No firmware matches")
+            })
             .render_trigger(move |_, _, _| {
                 h_flex()
                     .w_full()

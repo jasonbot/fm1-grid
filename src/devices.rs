@@ -198,7 +198,14 @@ impl GridApp {
                                 Combobox::new(&state)
                                     .placeholder("flash firmware…")
                                     .search_placeholder("Filter…")
-                                    .menu_width(px(260.0)),
+                                    .menu_width(px(260.0))
+                                    .empty(|_, cx| {
+                                        div()
+                                            .p_2()
+                                            .text_size(px(10.0))
+                                            .text_color(cx.theme().muted_foreground)
+                                            .child("No firmware matches")
+                                    }),
                             ),
                         )
                     })

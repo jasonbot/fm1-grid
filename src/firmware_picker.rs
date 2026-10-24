@@ -8,7 +8,13 @@ use gpui_kit::component::searchable_list::{SearchableListDelegate, SearchableLis
 use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::{ActiveTheme, IndexPath};
 use gpui_kit::prelude::FluentBuilder;
-use gpui_kit::*;
+// Explicit imports, no glob: the glob imports GPUI's `test` attribute macro under
+// test-support builds, which then re-expands this module's own `#[test]`s.
+use gpui_kit::{
+    AnyElement, App, ElementId, FontWeight, InteractiveElement as _, IntoElement as _,
+    ParentElement as _, SharedString, StatefulInteractiveElement as _, Styled as _, Task,
+    Window, div, px,
+};
 
 /// What a pick produces: an embedded firmware by index into `BUILTINS`, or the
 /// "Other…" file dialog (`None`).
@@ -111,7 +117,9 @@ impl SearchableListDelegate for FirmwareDelegate {
     }
 
     fn items_count(&self, section: usize) -> usize {
-        self.sections[section].1.len()
+        // The list may probe a stale section index right after a search emptied the
+        // view; tolerate it (gpui-component's own delegates do the same).
+        self.sections.get(section).map_or(0, |s| s.1.len())
     }
 
     fn item(&self, ix: IndexPath) -> Option<&Self::Item> {
@@ -190,7 +198,7 @@ impl SearchableListDelegate for FirmwareDelegate {
         _: &mut Window,
         cx: &mut App,
     ) -> Option<AnyElement> {
-        let (category, _) = &self.sections[section];
+        let (category, _) = self.sections.get(section)?;
         let (muted, border) = {
             let theme = cx.theme();
             (theme.muted_foreground, theme.border)
@@ -207,5 +215,21 @@ impl SearchableListDelegate for FirmwareDelegate {
             }
             .into_any_element(),
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn empty_filter_result_is_safe() {
+        // A search that matches nothing leaves no sections; the list must be able to
+        // probe section 0 without panicking (it crashed once: index out of bounds).
+        let mut delegate = FirmwareDelegate::new();
+        delegate.refilter("nothing matches this");
+        assert_eq!(delegate.sections.len(), 0);
+        assert_eq!(delegate.items_count(0), 0);
+        assert!(delegate.item(IndexPath::new(0)).is_none());
     }
 }

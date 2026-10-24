@@ -20,8 +20,8 @@ libc = "0.2"
 # The FM-1 CPU/SoC from the fm1-emu project. Pinned so the app keeps building even if
 # upstream changes; bump the pin deliberately. `fm1-core` and `fm1-soc` are found inside
 # the fm1-emu workspace.
-fm1-core = { git = "https://github.com/joakimeriksson/fm1-emu.git", rev = "c1c045fc067da024d686e7a690806e2e55795042" }
-fm1-soc = { git = "https://github.com/joakimeriksson/fm1-emu.git", rev = "c1c045fc067da024d686e7a690806e2e55795042" }
+fm1-core = { git = "https://github.com/joakimeriksson/fm1-emu.git", rev = "51ca41af6734ea23871685450fe1f2e1e357bb0e" }
+fm1-soc = { git = "https://github.com/joakimeriksson/fm1-emu.git", rev = "51ca41af6734ea23871685450fe1f2e1e357bb0e" }
 hqx = "0.1.1"
 
 [dev-dependencies]

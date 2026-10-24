@@ -9,8 +9,10 @@ gets a blue border.
 
 Grid cards always show the screen at 1x (240×240) with an NTSC-style filter. The
 selected pane's live screen also appears in the sidebar, hqx-upscaled 2x (4x on big
-windows). The grid background takes the main colour of the selected screen (updated
-once a second, faded over 500 ms).
+windows); the grid/sidebar split is draggable, with the sidebar kept wide enough for
+at least 1x. The grid background takes the main colour of the selected screen (updated
+once a second, faded over 500 ms). The Devices tab splits the window evenly between
+the live USB units and the MIDI graph.
 
 The large FM-1 front panel above the metronome mirrors the active pane: click its keys
 and buttons, turn knobs with the −/+ ends, and watch its LEDs follow the firmware.
@@ -87,9 +89,9 @@ pane ignores keys.
 
 ## MIDI graph
 
-The sidebar's MIDI graph connects sources to sinks: system MIDI ports, running panes
-and live FM-1 units. Pick a source with **+ connect a MIDI out…**, then add sinks
-with a row's **+**; click a chip to remove a connection.
+The Devices tab's MIDI graph connects sources to sinks: system MIDI ports, running
+panes and live FM-1 units. Pick a source with **+ connect a MIDI out…**, then add
+sinks with a row's **+**; click a chip to remove a connection.
 
 ```mermaid
 flowchart LR
@@ -101,8 +103,8 @@ flowchart LR
 
 A running pane is a sink only. That is the emulator's limit: the FM-1's TRS jack is
 MIDI-in alone, and the firmwares' real MIDI path is USB, which the emulated chip
-cannot enumerate. The graph says so while such a pane runs. (FM1 Open V15 is the one
-bundled firmware with no USB-MIDI at all.)
+cannot enumerate. The graph says so while such a pane runs. (M-VAVE's own packages —
+FM1 Open V15, FM-1+VA — are the bundled firmwares with no USB-MIDI at all.)
 
 ## Metronome
 

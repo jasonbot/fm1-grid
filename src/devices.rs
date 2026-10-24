@@ -39,6 +39,7 @@ impl GridApp {
 
         let mut pane = v_flex()
             .w_full()
+            .h_full()
             .rounded(px(10.0))
             .bg(surface)
             .border_1()

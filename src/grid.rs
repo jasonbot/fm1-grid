@@ -1,69 +1,42 @@
-//! The central area: the 2×2 grid of display-only pane cards on the left with the
-//! devices pane for the live USB units under it, the computed background colour, and
-//! the hand-off to the device sidebar on the right. The background is the one colour
-//! in the app that does not come from the theme: the dominant colour of the selected
-//! pane's screen, resampled once a second and eased towards over 500 ms (see
-//! `GridApp::ease_background`).
+//! The Emulator tab's left split: the 2×2 grid of display-only pane cards centred on
+//! the computed background — the one colour in the app that does not come from the
+//! theme: the dominant colour of the selected pane's screen, resampled once a second
+//! and eased towards over 500 ms (see `GridApp::ease_background`).
 
 use crate::app::GridApp;
 use crate::lcd;
-use gpui_kit::base::{ElementExt, h_flex, v_flex};
+use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::component::ActiveTheme;
 use gpui_kit::{TestSupportExt as _, *};
 
+/// Two 262 px cards plus one 3 px gap.
+pub(crate) const GRID_W: f32 = 527.0;
+
 impl GridApp {
-    /// The grid column plus the device sidebar, sitting on the computed background.
-    pub(crate) fn central(
-        &mut self,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement {
+    /// The 2x2 grid on the computed background: content-sized and centred, with the
+    /// side padding capped at ~1½ screen widths (past that, the sidebar's split takes
+    /// the window's extra width).
+    pub(crate) fn grid_area(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
         let bg = Rgba {
             r: self.bg[0],
             g: self.bg[1],
             b: self.bg[2],
             a: 1.0,
         };
-        // Record the rendered size; the sidebar's width and screen scale derive from
-        // it next frame.
-        let app = cx.entity().clone();
-        h_flex()
-            .id("central")
-            .flex_1()
-            .min_h_0()
-            .w_full()
+        div()
+            .size_full()
             .bg(bg)
-            .p_2()
-            .gap_2()
-            .on_prepaint(move |bounds, _, cx| {
-                let size = (bounds.size.width.into(), bounds.size.height.into());
-                app.update(cx, |this, _| {
-                    if this.central_size != size {
-                        this.central_size = size;
-                    }
-                });
-            })
+            .flex()
+            .items_center()
+            .justify_center()
             .child(
-                v_flex()
-                    .flex_1()
-                    .min_w_0()
-                    .h_full()
-                    .gap_2()
-                    // The grid is content-sized and centred in the space the devices
-                    // pane leaves; spare pixels stay background.
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_h_0()
-                            .w_full()
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .child(self.grid_cards(cx)),
-                    )
-                    .child(self.devices_pane(window, cx)),
+                div()
+                    .w_full()
+                    .max_w(px(GRID_W + 720.0))
+                    .flex()
+                    .justify_center()
+                    .child(self.grid_cards(cx)),
             )
-            .child(self.device_sidebar(window, cx))
     }
 
     /// The 2x2 card grid. Cards and screens are fixed-size — the LCD picture is always

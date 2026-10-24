@@ -24,8 +24,11 @@ use crate::midi_keys::MidiKeys;
 use crate::routing::Routing;
 use crate::{MAX_SLOTS, lcd};
 use fm1_soc::Action;
+use gpui_kit::base::resizable_panel;
 use gpui_kit::component::combobox::{ComboboxEvent, ComboboxState};
 use gpui_kit::component::input::{InputEvent, InputState};
+use gpui_kit::component::resizable::h_resizable;
+use gpui_kit::component::tab::{Tab, TabBar};
 use gpui_kit::component::{ActiveTheme, TitleBar};
 use gpui_kit::*;
 use std::path::PathBuf;
@@ -119,13 +122,16 @@ pub struct GridApp {
     dominant_slot: usize,
     /// Snapshot counter, seeding the ghost's dynamic NTSC distortion.
     ghost_frame: u64,
-    /// The sidebar screen's exact upscale factor (1, 2 or 4), decided by the central
-    /// area's rendered size last frame and applied by `upload_lcds` with the hqx filter.
+    /// The sidebar screen's exact upscale factor (1, 2 or 4), decided by the sidebar
+    /// panel's rendered size last frame and applied by `upload_lcds` with the hqx
+    /// filter.
     pub(crate) sidebar_scale: usize,
-    /// The central row's rendered size, recorded during prepaint (one frame of lag, the
-    /// same trade the egui layout made with the graph height). The sidebar's width and
-    /// the screen's scale derive from it.
-    pub(crate) central_size: (f32, f32),
+    /// The sidebar panel's rendered size, recorded during prepaint (one frame of lag,
+    /// the same trade the egui layout made with the graph height).
+    pub(crate) sidebar_size: (f32, f32),
+    /// The main area's tab: 0 = Emulator (grid + sidebar split), 1 = Devices (USB
+    /// devices + MIDI graph split).
+    pub(crate) active_tab: usize,
     /// The front panel's rendered width, recorded during prepaint.
     pub(crate) panel_width: f32,
     /// Mouse-wheel detent accumulator for the panel knobs: (group, fractional detents).
@@ -288,7 +294,8 @@ impl GridApp {
             dominant_slot: usize::MAX,
             ghost_frame: 0,
             sidebar_scale: 1,
-            central_size: (1156.0, 700.0),
+            sidebar_size: (512.0, 700.0),
+            active_tab: 0,
             panel_width: 1040.0,
             wheel_acc: (u32::MAX, 0.0),
             last_beat: false,
@@ -739,6 +746,42 @@ impl GridApp {
     }
 }
 
+impl GridApp {
+    /// The Emulator tab: the 2x2 grid and the selected pane's sidebar in a draggable
+    /// split. The sidebar's range holds the screen at 1x to 4x; the grid panel's own
+    /// minimum keeps the cards whole.
+    fn emulator_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        div().size_full().child(
+            h_resizable("emulator-split")
+                .child(
+                    resizable_panel()
+                        .size_range(px(crate::grid::GRID_W)..Pixels::MAX)
+                        .child(self.grid_area(cx)),
+                )
+                .child(
+                    resizable_panel()
+                        .size(px(512.0))
+                        .size_range(px(272.0)..px(992.0))
+                        .child(self.device_sidebar(window, cx)),
+                ),
+        )
+    }
+
+    /// The Devices tab: the live USB units and the MIDI graph in an even split.
+    fn devices_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let background = cx.theme().background;
+        div().size_full().bg(background).child(
+            h_resizable("devices-split")
+                .child(
+                    resizable_panel().child(
+                        div().size_full().p_2().child(self.devices_pane(window, cx)),
+                    ),
+                )
+                .child(resizable_panel().child(self.graph_section(cx))),
+        )
+    }
+}
+
 impl Render for GridApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let (background, dim) = {
@@ -765,7 +808,21 @@ impl Render for GridApp {
                         .child("FM-1 GRID"),
                 ),
             )
-            .child(self.central(window, cx))
+            .child(
+                TabBar::new("main-tabs")
+                    .selected_index(self.active_tab)
+                    .on_click(cx.listener(|this, ix: &usize, _, cx| {
+                        this.active_tab = *ix;
+                        cx.notify();
+                    }))
+                    .children([Tab::new().label("Emulator"), Tab::new().label("Devices")]),
+            )
+            .child(
+                div().flex_1().min_h_0().w_full().child(match self.active_tab {
+                    0 => self.emulator_tab(window, cx).into_any_element(),
+                    _ => self.devices_tab(window, cx).into_any_element(),
+                }),
+            )
             .child(self.transport(window, cx))
     }
 }

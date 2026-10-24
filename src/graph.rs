@@ -240,9 +240,8 @@ impl GridApp {
             .any(|slot| slot.handle.is_some() && slot.usb_midi);
 
         v_flex()
-            .w_full()
-            .flex_1()
-            .min_h_0()
+            .size_full()
+            .p_2()
             .gap(px(2.0))
             .child(
                 div()

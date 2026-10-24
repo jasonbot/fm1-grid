@@ -81,7 +81,8 @@ fn boots_selects_powers(cx: &mut TestAppContext) {
     assert!(framed, "pane 3 produced no LCD frames");
 
     // Power pane 2 (Felucca — a firmware that advertises USB-MIDI): the graph notes
-    // that its USB-MIDI in/out can't be bridged by the emulator.
+    // that its USB-MIDI in/out can't be bridged by the emulator. The graph lives on
+    // the Devices tab now (tab bar children are indexed 0/1).
     cx.update_window(window.into(), |_, window, cx| {
         window.click(("slot-card", 1usize), cx);
         window.click("pane-power", cx);
@@ -90,6 +91,7 @@ fn boots_selects_powers(cx: &mut TestAppContext) {
     cx.background_executor.advance_clock(Duration::from_millis(100));
     cx.run_until_parked();
     cx.update_window(window.into(), |_, window, cx| {
+        window.click(1usize, cx); // the Devices tab
         window.render_frame(cx);
         assert!(
             window.find("graph-usb-note").visible(),
@@ -114,4 +116,3 @@ fn metronome_toggles(cx: &mut TestAppContext) {
     .unwrap();
     cx.update(|cx| assert_eq!(app.read(cx).clock.enabled(), !before));
 }
-

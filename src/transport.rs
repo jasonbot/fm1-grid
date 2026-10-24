@@ -159,8 +159,10 @@ impl GridApp {
                         ),
                     )
                     .child(
+                        // Wide enough that the steppers and the BPM suffix cannot
+                        // squeeze the digits out of the field.
                         div()
-                            .w(px(96.0))
+                            .w(px(140.0))
                             .child(NumberInput::new(&self.tempo_input).suffix(
                                 div()
                                     .text_size(px(9.0))

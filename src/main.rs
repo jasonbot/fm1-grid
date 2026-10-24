@@ -55,12 +55,14 @@ fn main() {
         .with_assets(assets::Assets)
         .run(move |cx| {
             init(cx);
-            let bounds = Bounds::centered(None, size(px(1180.0), px(950.0)), cx);
+            let bounds = Bounds::centered(None, size(px(1180.0), px(1160.0)), cx);
             open_window(
                 WindowOptions {
                     window_bounds: Some(WindowBounds::Windowed(bounds)),
-                    // The grid + sidebar stop making sense below this.
-                    window_min_size: Some(size(px(1024.0), px(700.0))),
+                    // Fixed by the unscaled screens: two 1:1 cards across, the sidebar
+                    // tall enough for the 2x screen plus a usable graph, and the
+                    // transport bar below.
+                    window_min_size: Some(size(px(1072.0), px(1116.0))),
                     titlebar: Some(TitlebarOptions {
                         title: Some("FM-1 Grid".into()),
                         ..TitleBar::title_bar_options()

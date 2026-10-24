@@ -69,9 +69,10 @@ impl GridApp {
         let app = cx.entity().clone();
         v_flex()
             .id("device-sidebar")
-            .w(DefiniteLength::Fraction(0.32))
-            .min_w(px(280.0))
-            .max_w(px(620.0))
+            // Fixed width: exactly what the 2x (480 px) screen plus padding needs —
+            // the sidebar's picture is always 2x.
+            .w(px(512.0))
+            .flex_none()
             .h_full()
             .rounded(px(10.0))
             .bg(surface)

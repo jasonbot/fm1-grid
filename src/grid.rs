@@ -37,14 +37,25 @@ impl GridApp {
                     .min_w_0()
                     .h_full()
                     .gap_2()
-                    .child(self.grid_cards(cx))
+                    // The grid is content-sized and centred in the space the devices
+                    // pane leaves; spare pixels stay background.
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_h_0()
+                            .w_full()
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .child(self.grid_cards(cx)),
+                    )
                     .child(self.devices_pane(window, cx)),
             )
             .child(self.device_sidebar(window, cx))
     }
 
-    /// The 2x2 card grid. Cards stretch with the window; the LCD picture inside stays
-    /// centred at its native aspect (the images are square).
+    /// The 2x2 card grid. Cards and screens are fixed-size — the LCD picture is always
+    /// 240x240, never scaled.
     fn grid_cards(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
         let mut cards = Vec::with_capacity(crate::MAX_SLOTS);
         for slot in 0..crate::MAX_SLOTS {
@@ -54,20 +65,12 @@ impl GridApp {
         for _row in 0..2 {
             rows.push(
                 h_flex()
-                    .flex_1()
-                    .min_h_0()
-                    .w_full()
                     .gap(px(3.0))
                     .children(cards.drain(..2))
                     .into_any_element(),
             );
         }
-        v_flex()
-            .flex_1()
-            .min_h_0()
-            .w_full()
-            .gap(px(3.0))
-            .children(rows)
+        v_flex().gap(px(3.0)).children(rows)
     }
 
     /// One pane card: the pane's picture (the NTSC-distorted realtime snapshot for the
@@ -90,7 +93,6 @@ impl GridApp {
         div()
             .id(("slot-card", slot))
             .test_support()
-            .size_full()
             .rounded(px(10.0))
             .bg(card_bg)
             .border_2()
@@ -110,31 +112,24 @@ impl GridApp {
                 }),
             )
             .child(
-                div()
-                    .size_full()
-                    .p(px(6.0))
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    // The screens are square: the bezel is the largest square that fits,
-                    // so the picture never spills past the card's bottom edge.
-                    .child(
-                        div()
-                            .h_full()
-                            .aspect_ratio(1.0)
-                            .max_w_full()
-                            .rounded(px(6.0))
-                            .bg(rgb(lcd::BEZEL))
-                            .p(px(3.0))
-                            .overflow_hidden()
-                            .child(match picture {
-                                Some(image) => img(image).size_full().into_any_element(),
-                                None => div()
-                                    .size_full()
-                                    .bg(rgb(0x000000))
-                                    .into_any_element(),
-                            }),
-                    ),
+                div().p(px(6.0)).child(
+                    // The bezel hugs the screen exactly: 240x240, 1:1, never scaled.
+                    div()
+                        .rounded(px(6.0))
+                        .bg(rgb(lcd::BEZEL))
+                        .p(px(3.0))
+                        .child(match picture {
+                            Some(image) => img(image)
+                                .w(px(crate::emulator::LCD_W as f32))
+                                .h(px(crate::emulator::LCD_H as f32))
+                                .into_any_element(),
+                            None => div()
+                                .w(px(crate::emulator::LCD_W as f32))
+                                .h(px(crate::emulator::LCD_H as f32))
+                                .bg(rgb(0x000000))
+                                .into_any_element(),
+                        }),
+                ),
             )
             .into_any_element()
     }

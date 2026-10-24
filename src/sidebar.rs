@@ -35,14 +35,16 @@ impl GridApp {
         };
 
         // The sidebar takes the width the fixed 2x2 grid leaves (at least the 2x
-        // screen's worth, at most the 4x screen's); the exact pixel multiple then has
-        // to fit that width AND the height the title/attributes/graph leave. So a wide
-        // enough window shows the focused screen at 4x — but only a tall enough one
-        // too. Computed from last frame's measured central area (the same one-frame
-        // lag the egui layout had with the graph's height).
+        // screen's worth); the exact pixel multiple then has to fit that width AND the
+        // height the title/attributes/graph leave. So a wide enough window shows the
+        // focused screen at 4x — but only a tall enough one too. Once the screen is at
+        // 4x and the grid's side padding would pass ~1.5 screen widths (360 px each),
+        // the sidebar takes the rest. Computed from last frame's measured central area
+        // (the same one-frame lag the egui layout had with the graph's height).
         const GRID_W: f32 = 527.0; // two 262 px cards + one 3 px gap
         let (central_w, central_h) = self.central_size;
-        let max_w = (central_w - GRID_W - 24.0).clamp(512.0, 992.0);
+        let leftover = central_w - GRID_W - 24.0; // gaps and the area's own padding
+        let max_w = leftover.clamp(512.0, 992.0);
         let fit_w = max_w - 26.0; // padding and bezel
         // Title, attributes, status, note, gaps and a minimal graph share the height.
         let fit_h = central_h - 242.0;
@@ -52,8 +54,9 @@ impl GridApp {
             .find(|&exact| exact <= fit)
             .unwrap_or(fit);
         self.sidebar_scale = (side / 240.0).round() as usize;
-        // The sidebar hugs the chosen screen size: 512 px at 2x, 992 px at 4x.
-        let side_w = side + 32.0;
+        // Hug the screen (512 px at 2x, 992 px at 4x) until the grid's padding cap
+        // binds, then grow past the 4x screen (it centres; the graph widens).
+        let side_w = (side + 32.0).max(leftover - 720.0);
 
         let name = self.slots[slot]
             .label

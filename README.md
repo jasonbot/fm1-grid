@@ -9,8 +9,9 @@ always shows at 1x (240×240, never scaled): the selected pane's live screen app
 the device sidebar **hqx-upscaled at 2x — 4x when the window is wide and tall enough** —
 while its grid card
 shows an NTSC-distorted snapshot refreshed in realtime. The device sidebar
-is as wide as the screen it shows (512 px at 2x, up to 992 px at 4x) and stacks, from
-the top: a large
+is as wide as the screen it shows (512 px at 2x, 992 px at 4x) and, once the grid has
+~1½ screens of padding on either side, takes the rest of the window's width too. It
+stacks, from the top: a large
 `Device N: Firmware Name` heading, the 2x screen (horizontally centered), the power switch,
 firmware selector and
 status, and the placeholder for firmware-specific controls. The grid area's background takes

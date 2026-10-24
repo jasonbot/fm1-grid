@@ -32,7 +32,8 @@ impl GridApp {
         let board = self.hardware.flash_state();
         let error = self.hardware.error.clone();
 
-        let mut pane = v_flex().size_full().gap(px(2.0))
+        // overflow_hidden: narrow splits must clip, never bleed into the graph half.
+        let mut pane = v_flex().size_full().overflow_hidden().gap(px(2.0))
             .child(
                 h_flex()
                     .w_full()
@@ -77,6 +78,7 @@ impl GridApp {
                 h_flex()
                     .w_full()
                     .items_center()
+                    .flex_wrap()
                     .gap_2()
                     .child(
                         div()
@@ -115,6 +117,7 @@ impl GridApp {
         let mut line = h_flex()
             .w_full()
             .items_center()
+            .flex_wrap()
             .gap_2()
             .child(
                 Switch::new(("dev-clock", ix))

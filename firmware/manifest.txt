@@ -36,3 +36,4 @@ lof1-0.0.87.fwsc | LOF-1 | 0.0.87 | dcae62abc37372788502a42438176f81d9aca26588f9
 eco1-0.0.87.fwsc | ECO-1 | 0.0.87 | ca0709fb43cdfb58b2f59a2c9f2e00d40d5441f95f882298524f89d50feac3b1 | synth,beta
 grav1-0.0.87.fwsc | GRAV-1 | 0.0.87 | 393a5d01edea2f4e8a5914fce6863408e384881a3816fa46ff0201ed57469565 | synth,beta
 cty1-0.0.87.fwsc | CTY-1 | 0.0.87 | effb37ab3439d92597cb28ed2860efdb60390d58836eb8e447d7f577cd6e52b7 | synth,beta
+FM-1+VA-102.fwsc | FM-1+VA | 102 | 7b169a69b30570581d0ebc7b44851e3e08898d2956ade155363bcf18fac5c348 | synth

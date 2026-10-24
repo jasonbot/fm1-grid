@@ -1,26 +1,19 @@
 # FM-1 Grid
 
-A 2×2 grid of four emulated M-VAVE FM-1s, each pane with its own firmware and LCD, with a
-gpui-kit interface (themed cards and controls from the GPUI component library). Emulators
-are powered **off** at startup — flip the power switch
-in the device sidebar to start one, so idle panes cost nothing. Click anywhere in a pane to
-route the computer keyboard there; the selected card gets a blue border. Every grid screen
-always shows at 1x (240×240, never scaled): the selected pane's live screen appears in
-the device sidebar **hqx-upscaled at 2x — 4x when the window is wide and tall enough** —
-while its grid card
-shows an NTSC-distorted snapshot refreshed in realtime. The device sidebar
-is as wide as the screen it shows (512 px at 2x, 992 px at 4x) and, once the grid has
-~1½ screens of padding on either side, takes the rest of the window's width too. It
-stacks, from the top: a large
-`Device N: Firmware Name` heading, the 2x screen (horizontally centered), the power switch,
-firmware selector and
-status, and the placeholder for firmware-specific controls. The grid area's background takes
-the dominant colour of the selected pane's screen (recalculated once a second, fading over
-500 ms); the sidebar's background is the same colour slightly desaturated and strongly
-lightened, so its text and controls stay readable. The large, clickable FM-1 front panel
-above the metronome mirrors the active pane: its keys and buttons can be played with the
-mouse, its knobs turn with the −/+ ends, and its LEDs show the firmware's own state as well
-as what the computer keyboard is doing.
+Four emulated M-VAVE FM-1s in a 2×2 grid, each with its own firmware and screen.
+Built with gpui-kit.
+
+Emulators start **off** — flip a pane's power switch in the sidebar to start it, so
+idle panes cost nothing. Click a pane to send your keyboard there; the selected card
+gets a blue border.
+
+Grid cards always show the screen at 1x (240×240) with an NTSC-style filter. The
+selected pane's live screen also appears in the sidebar, hqx-upscaled 2x (4x on big
+windows). The grid background takes the main colour of the selected screen (updated
+once a second, faded over 500 ms).
+
+The large FM-1 front panel above the metronome mirrors the active pane: click its keys
+and buttons, turn knobs with the −/+ ends, and watch its LEDs follow the firmware.
 
 ![Screenshot](./screenshot/screen.png)
 
@@ -30,8 +23,7 @@ as what the computer keyboard is doing.
 cargo run --release
 ```
 
-With no arguments the first panes load the embedded firmwares (powered off until you
-switch them on):
+With no arguments, the four panes load:
 
 | Pane | Firmware |
 |------|----------|
@@ -40,39 +32,30 @@ switch them on):
 | 3 | FM1 Open V15 |
 | 4 | ChoralRoot 0.26.1 |
 
-Any pane can load any of the embedded firmwares from the firmware selector in the device
-sidebar. On Linux each running emulator thread is pinned to its own physical core (one logical
-CPU per core) while cores last; panes beyond the core count float. Four emulators at once
-want four cores — power on only what you play.
+Any pane can run any embedded firmware — pick it from the selector in the sidebar.
+On Linux each running emulator is pinned to its own physical core while cores last.
+Four emulators at once want four cores; power on only what you play.
 
-Pass up to four firmware files to choose what loads where (left to right, top to bottom):
+Pass up to four firmware files to choose what loads where (left to right, top to
+bottom):
 
 ```sh
 cargo run --release -- sloop.fwsc felucca.fwsc
 ```
 
-A `.fwsc` file is treated as an update package; a `.bin` or `.xip` file is treated as a raw
-app image mapped at XIP base, entered at `0x0200_0120`. `--help` lists the options.
+A `.fwsc` file is an update package; a `.bin` or `.xip` file is a raw app image.
+`--help` lists all options.
 
 ### Firmware selector
 
-The cards are display-only monitors with no labels of their own, all screens always at 1x.
-The selected pane's power switch, firmware selector and status live at the top of the device
-sidebar, under the `Device N:` heading; its live screen shows there hqx-upscaled at 2x
-(4x on big windows), centered, while
-its grid card shows an NTSC-distorted snapshot refreshed in realtime. Emulators are off by
-default; the
-power switch starts and stops the selected pane's emulator — powering off stops its thread,
-silences its audio and blanks its screen, powering on boots whatever firmware the pane has
-loaded. The selector is only enabled while the pane is powered off; while it is on, the
-selector is greyed out and hovering it explains why. It offers the embedded firmwares and
-**Other…**, which opens a file picker. The embedded images are compiled into the binary
-(see `firmware/README.md` for versions, sources and SHA-256 hashes). Hovering a choice
-shows its file name and hash. Choosing a firmware swaps what the pane has loaded; it boots
-the next time the power switch is turned on, and the metronome is reconnected automatically.
+The selector, power switch and status for the selected pane sit at the top of the
+sidebar. The selector only works while the pane is off — hover it while the pane is
+on to see why. It lists the embedded firmwares plus **Other…** (a file picker).
+Hovering a choice shows its file name and SHA-256 hash. A new firmware boots the next
+time you power the pane on.
 
-The embedded list lives in `firmware/manifest.txt` and is compiled in at build time. Add or
-remove entries with the helper script, then rebuild:
+The embedded list lives in `firmware/manifest.txt` and is compiled in at build time.
+Manage it with the helper script, then rebuild:
 
 ```sh
 scripts/firmware.sh add ~/Downloads/new-1.0.fwsc "New Firmware" 1.0
@@ -80,14 +63,12 @@ scripts/firmware.sh del "New Firmware"
 scripts/firmware.sh list
 ```
 
-`add` copies the package into `firmware/` and records its SHA-256; `del` removes both the
-entry and the file. Manifest order is the default slot order: the first lines are what
-starts with no CLI arguments.
+`add` copies the package into `firmware/` and records its hash; `del` removes both.
+Manifest order is the default pane order.
 
 ## Keyboard
 
-The active pane receives the same layout as `fm1-live`, plus the low octave on the seven
-letters nothing else claims:
+The selected pane gets these keys:
 
 | Keys | FM-1 |
 |------|------|
@@ -101,88 +82,74 @@ letters nothing else claims:
 | `↑` / `↓` | ALGORITHM encoder −/+ |
 | `,` / `.` | SELECT encoder |
 
-Keys are sent as key-down/key-up events to the active emulator. Switching panes releases
-held keys on the old one, so no note sticks. Clicking anywhere in a pane's box makes it
-active; the blue outline shows which pane has the keyboard. A powered-off pane ignores
-keys until its power switch is turned on.
-
-The FM-1 panel is also a control surface. The 27 white and black note keys are tall and can
-be clicked and held. MASTER, SELECT, PRESETS and ALGORITHM sit in a block at the upper left;
-KNOB 1–4 are to their right. Each of those controls is a button group with a small −/+ end
-on the left and right that turns it one detent. Each button shows its computer-key mapping
-and has a small LED (green for PLAY, amber for the rest) that follows both the computer
-keyboard and the emulated firmware's real LED state. The note keys show their note names and
-computer-key hints, and light amber while held or while the firmware plays them.
+Switching panes releases held keys on the old one, so no note sticks. A powered-off
+pane ignores keys.
 
 ## MIDI graph
 
-The sidebar's MIDI graph connects sources to any number of sinks: system MIDI ports, the
-running panes and live FM-1 units. Pick a source with **+ connect a MIDI out…**, then add
-sinks with a row's **+**; clicking a chip removes that connection. Live units are
-bidirectional — their firmwares advertise one USB-MIDI in/out pair over USB-C.
+The sidebar's MIDI graph connects sources to sinks: system MIDI ports, running panes
+and live FM-1 units. Pick a source with **+ connect a MIDI out…**, then add sinks
+with a row's **+**; click a chip to remove a connection.
 
-A running pane is a sink only, and that is the emulator's limit rather than the
-firmware's: the FM-1's TRS jack is MIDI-in alone, and the firmwares' real MIDI path is
-USB — every bundled hub firmware advertises a bidirectional USB-MIDI interface (checked
-at load, from the image's descriptors), which the emulated SoC cannot enumerate, and the
-UART's TX side is unwired. A pane's MIDI out therefore stays silent; the graph says so
-while such a pane runs. (M-VAVE's stock FM1 Open V15 is the one bundled firmware that
-advertises no USB-MIDI at all.)
+```mermaid
+flowchart LR
+    sys[System MIDI ports] --> pane[Running pane]
+    live[Live FM-1 unit] --> pane
+    sys <--> live
+    pane -.- silent[MIDI out stays silent]
+```
+
+A running pane is a sink only. That is the emulator's limit: the FM-1's TRS jack is
+MIDI-in alone, and the firmwares' real MIDI path is USB, which the emulated chip
+cannot enumerate. The graph says so while such a pane runs. (FM1 Open V15 is the one
+bundled firmware with no USB-MIDI at all.)
 
 ## Metronome
 
-The metronome starts **off**; the rocker switch on its front panel starts and stops it. When
-running, it sends a MIDI clock at **24 PPQN** (`0xF8`) to each emulator's emulated MIDI IN
-jack. Switching on sends MIDI Start (`0xFA`), switching off sends MIDI Stop (`0xFC`), and
-shutting down does the same. Tempo is 20–300 BPM: type a value in the readout or use its
-−/+ steppers. The small light next to it alternates on every beat.
+Starts **off**; the rocker switch starts and stops it. While running it sends a MIDI
+clock (24 PPQN) to every emulator, with MIDI Start/Stop on switch on/off. Tempo is
+20–300 BPM — type it or use the −/+ steppers. The small light blinks on every beat.
 
-The clock thread runs independently of the GUI frame rate, so timing does not drift when
-the window is idle. The emulators are paced to wall-clock time and their audio is mixed by
-one `cpal` output stream (each slot has its own queue, so a stalled slot cannot block the
-others).
+The clock thread runs independently of the window's frame rate, so timing never
+drifts. Audio from all slots is mixed into one output stream; a stalled slot cannot
+block the others.
 
 ## Building
 
 * Rust 1.91 or newer, stable.
 * Linux: ALSA headers (`libasound2-dev` on Debian/Ubuntu) and the usual X11/Wayland
-  development packages for gpui (see the gpui-kit installation docs).
-* macOS/Windows: no extra system packages beyond the platform SDK.
+  dev packages for gpui.
+* macOS/Windows: just the platform SDK.
 
-`.cargo/config.toml` builds with `target-cpu=native` (this is a local tool, not a
-distributed binary) — delete it if you ever build for another machine. The emulator
-crates are pinned to an fm1-emu revision in `Cargo.toml`; bump the `rev` deliberately.
+`.cargo/config.toml` builds with `target-cpu=native` (this is a local tool) — delete
+it if you build for another machine. The emulator crates are pinned to an fm1-emu
+revision in `Cargo.toml`; bump the `rev` deliberately.
 
-The emulator crates from <https://github.com/joakimeriksson/fm1-emu> are used from git at
-commit `c1c045fc067da024d686e7a690806e2e55795042`.
-
-The FM-1 firmware images are unmodified packages from
-[The FM-1 Firmware Hub](https://thefirmwarehub.com/) and M-VAVE. They keep their own
-licences: SLOOP, Felucca and ChoralRoot are GPL-3.0; M-VAVE's FM-1_015 package is
-Apache-2.0. The emulator crates are MIT. See `firmware/README.md`.
+The firmware images are unmodified packages from
+[The FM-1 Firmware Hub](https://thefirmwarehub.com/), M-VAVE and Baud Girl. They keep
+their own licences: everything hub-mirrored is GPL-3.0, M-VAVE's FM-1_015 is
+Apache-2.0, and FM-1+VA is proprietary. The emulator crates are MIT. See
+`firmware/README.md`.
 
 ## Layout
 
 ```
-build.rs         generates the embedded firmware table from firmware/manifest.txt
+build.rs             generates the embedded firmware table from firmware/manifest.txt
 scripts/firmware.sh  add/del/list for the embedded firmware list
-src/affinity.rs  Linux physical-core detection and per-emulator pinning
-src/app.rs       GridApp state and lifecycle: pane power, firmware install, keyboard and
-                 encoder routing, per-tick LCD upload, the gpui root view
-src/clock.rs     MIDI-clock thread, tempo, beat light, per-slot senders
-src/emulator.rs  one thread + SoC + cores per slot, LCD/status/audio publication
-src/audio.rs     four queues mixed into one cpal output stream
-src/builtin.rs   embedded firmware catalogue (includes the generated table)
-src/grid.rs      the 2x2 grid of pane cards and the computed background colour
-src/sidebar.rs   the device sidebar: heading, upscaled screen, pane attributes
-src/panel.rs     the miniature FM-1 front panel control surface
-src/transport.rs the bottom bar: front panel plus the metronome row
-src/lcd.rs       RGB565 decode, dominant colour, ghost/recede/hqx pictures, frame images
-src/keys.rs      FM-1 control maps: keyboard layout, panel key/button tables
-src/theme.rs     the FM-1 hardware colours (panel, keycaps, LEDs); app chrome follows
-                 the gpui-kit theme
-src/main.rs      startup and CLI firmware arguments
-src/lib.rs       the library root the binary and the UI tests share
-src/tests/       headless UI smoke tests (gpui-kit test-support)
-firmware/        the embedded .fwsc packages (unmodified) plus manifest.txt
+src/affinity.rs      Linux physical-core detection and per-emulator pinning
+src/app.rs           grid state: pane power, firmware install, key routing, LCD upload
+src/clock.rs         MIDI-clock thread, tempo, beat light
+src/emulator.rs      one thread + SoC + cores per slot
+src/audio.rs         four queues mixed into one output stream
+src/builtin.rs       embedded firmware catalogue (generated table)
+src/grid.rs          the 2x2 grid of cards and the background colour
+src/sidebar.rs       the device sidebar: heading, upscaled screen, pane controls
+src/panel.rs         the clickable FM-1 front panel
+src/transport.rs     the bottom bar: panel plus metronome
+src/lcd.rs           RGB565 decode, colours, NTSC/ghost/hqx image filters
+src/keys.rs          keyboard layout and panel key tables
+src/theme.rs         the FM-1 hardware colours; app chrome follows gpui-kit
+src/main.rs          startup and CLI firmware arguments
+src/tests/           headless UI smoke tests
+firmware/            the embedded .fwsc packages plus manifest.txt
 ```

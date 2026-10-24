@@ -1,578 +1,465 @@
 //! The miniature FM-1 front panel in the transport bar: a working control surface whose
 //! keys, buttons and knob ends are clickable, whose knobs also turn with the mouse
 //! wheel, and whose LEDs follow both the computer keyboard and the emulated firmware's
-//! own LED state.
+//! own LED state. The layout is fixed geometry from the FM-1 control map
+//! ([`crate::keys`]), drawn with absolutely positioned elements; the panel's rendered
+//! width is recorded during prepaint so the geometry tracks the window.
 
 use crate::app::GridApp;
 use crate::keys::{
-    panel_key_hint, BLACK_KEYS, FUNCTION_ROW_1, FUNCTION_ROW_2, PANEL_KEYS, WHITE_KEYS,
+    BLACK_KEYS, FUNCTION_ROW_1, FUNCTION_ROW_2, PANEL_KEYS, WHITE_KEYS, panel_key_hint,
 };
 use crate::theme::{
-    mix_color, paint_inset, AMBER, GREEN, KEY_BLACK, KEY_WHITE, PANEL_BODY, PANEL_BUTTON,
-    PANEL_BUTTON_EDGE, SILK, SILK_DIM,
+    AMBER, GREEN, KEY_BLACK, KEY_BLACK_EDGE, KEY_BLACK_INK, KEY_EDGE, KEY_INK, KEY_NOTE,
+    KEY_WHITE, LIT_HINT, LIT_INK, PANEL_BODY, PANEL_BUTTON, PANEL_BUTTON_EDGE,
+    PANEL_BUTTON_HOVER, SILK, SILK_DIM, mix,
 };
-use eframe::egui;
-use egui::{Align2, Color32, CornerRadius, FontId, Pos2, Rect, Sense, Stroke, StrokeKind, Vec2};
+use gpui_kit::base::{ElementExt, v_flex};
+use gpui_kit::component::ActiveTheme;
+use gpui_kit::*;
 
 const KEY_HEIGHT: f32 = 120.0;
 const KEY_MARGIN: f32 = 6.0;
 const PANEL_HEIGHT: f32 = 196.0 + (KEY_HEIGHT - 40.0);
+const GROUP_HEIGHT: f32 = 24.0;
+
+/// What a three-part rotary group turns: the MASTER pot or one of the FM-1's encoders.
+#[derive(Clone, Copy)]
+enum KnobTarget {
+    Master,
+    Enc(u8),
+}
 
 impl GridApp {
     /// A miniature FM-1 front panel. It is a working control surface: note keys and
     /// buttons can be clicked, the knobs are turned with the -/+ ends or the mouse
     /// wheel, and both the computer keyboard and the emulated firmware's LEDs light
     /// the indicators.
-    pub fn control_display(&mut self, ui: &mut egui::Ui) {
+    pub fn control_display(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
         // Keep the panel roughly as wide as the card grid.
-        let panel_max_width = 1040.0;
-        let available = ui.available_width();
-        let width = available.min(panel_max_width);
-        let (row, _) =
-            ui.allocate_exact_size(Vec2::new(available, PANEL_HEIGHT), Sense::hover());
-        let panel = Rect::from_center_size(row.center(), Vec2::new(width, PANEL_HEIGHT));
-        let painter = ui.painter().clone();
-        paint_inset(&painter, panel, CornerRadius::same(8), PANEL_BODY);
-
-        let left = panel.left() + 14.0;
-        let right = panel.right() - 14.0;
-        let controls_top = panel.top() + 24.0;
-        let group_width = 120.0;
-        let group_height = 24.0;
-        let group_gap = 6.0;
-        let row_gap = 4.0;
-
-        painter.text(
-            Pos2::new(left, panel.top() + 7.0),
-            Align2::LEFT_TOP,
-            "FM-1 PANEL",
-            FontId::proportional(9.5),
-            SILK_DIM,
-        );
-        painter.text(
-            Pos2::new(right, panel.top() + 7.0),
-            Align2::RIGHT_TOP,
-            format!("CLICKABLE · KEYBOARD LIGHTS · PANE {}", self.active + 1),
-            FontId::proportional(9.5),
-            SILK_DIM,
-        );
+        let w = self.panel_width.clamp(320.0, 1040.0);
+        let left = 14.0f32;
+        let right = w - 14.0;
+        let controls_top = 24.0f32;
+        let group_width = 120.0f32;
+        let group_gap = 6.0f32;
+        let row_gap = 4.0f32;
+        let mono = cx.theme().mono_font_family.clone();
 
         // The right-hand groups (the four knobs and the function buttons) span one
         // common width, so the knobs sit directly above the button grid.
-        let function_width = (panel.width() * 0.52).clamp(360.0, 520.0);
+        let function_width = (w * 0.52).clamp(360.0, 520.0);
         let function_left = right - function_width;
-        let button_gap = 4.0;
+        let button_gap = 4.0f32;
         let button_width = (function_width - button_gap * 5.0) / 6.0;
-        let knob_gap = 6.0;
+        let knob_gap = 6.0f32;
         let knob_width = (function_width - knob_gap * 3.0) / 4.0;
 
-        // Top left: MASTER / SELECT over PRESETS / ALGORITHM. The labels are inert; the
-        // tiny - and + ends turn the control one detent, as does each mouse-wheel click
-        // while the group is hovered.
-        let top_left = [
-            ("MASTER", 0u32, None),
-            ("SELECT", 1, Some(0u8)),
-            ("PRESETS", 2, Some(6)),
-            ("ALGORITHM", 3, Some(1)),
-        ];
-        for (index, (label, salt, encoder)) in top_left.iter().enumerate() {
-            let column = index % 2;
-            let row_index = index / 2;
-            let rect = Rect::from_min_size(
-                Pos2::new(
-                    left + column as f32 * (group_width + group_gap),
-                    controls_top + row_index as f32 * (group_height + row_gap),
-                ),
-                Vec2::new(group_width, group_height),
+        let app = cx.entity().clone();
+        let mut panel = div()
+            .id("fm1-panel")
+            .relative()
+            .w(px(w))
+            .max_w_full()
+            .h(px(PANEL_HEIGHT))
+            .rounded(px(8.0))
+            .bg(rgb(PANEL_BODY))
+            .on_prepaint(move |bounds, _, cx| {
+                let width: f32 = bounds.size.width.into();
+                app.update(cx, |this, _| {
+                    if (this.panel_width - width).abs() > 0.5 {
+                        this.panel_width = width;
+                    }
+                });
+            })
+            // The header line.
+            .child(
+                div()
+                    .absolute()
+                    .left(px(left))
+                    .right(px(left))
+                    .top(px(7.0))
+                    .flex()
+                    .flex_row()
+                    .justify_between()
+                    .text_size(px(9.5))
+                    .text_color(rgb(SILK_DIM))
+                    .child("FM-1 PANEL")
+                    .child(format!(
+                        "CLICKABLE · KEYBOARD LIGHTS · PANE {}",
+                        self.active + 1
+                    )),
             );
-            let (down, up) = panel_turn_group(ui, rect, *salt, label);
-            let is_master = encoder.is_none();
-            let down = down.on_hover_text(if is_master {
-                "Lower master"
-            } else {
-                "Turn counter-clockwise"
-            });
-            let up = up.on_hover_text(if is_master {
-                "Raise master"
-            } else {
-                "Turn clockwise"
-            });
-            if down.clicked() {
-                if let Some(encoder) = encoder {
-                    self.turn_encoder(*encoder, -1);
-                } else {
-                    self.adjust_master(-1);
-                }
-            }
-            if up.clicked() {
-                if let Some(encoder) = encoder {
-                    self.turn_encoder(*encoder, 1);
-                } else {
-                    self.adjust_master(1);
-                }
-            }
-            let steps = wheel_steps(ui, rect);
-            if steps != 0 {
-                if let Some(encoder) = encoder {
-                    self.turn_encoder(*encoder, steps);
-                } else {
-                    self.adjust_master(steps);
-                }
-            }
+
+        // Top left: MASTER / SELECT over PRESETS / ALGORITHM.
+        let top_left = [
+            ("MASTER", 0u32, KnobTarget::Master),
+            ("SELECT", 1, KnobTarget::Enc(0)),
+            ("PRESETS", 2, KnobTarget::Enc(6)),
+            ("ALGORITHM", 3, KnobTarget::Enc(1)),
+        ];
+        for (index, (label, salt, target)) in top_left.iter().enumerate() {
+            let column = (index % 2) as f32;
+            let row = (index / 2) as f32;
+            let x = left + column * (group_width + group_gap);
+            let y = controls_top + row * (GROUP_HEIGHT + row_gap);
+            panel = panel.child(self.turn_group(cx, x, y, group_width, *salt, label, *target));
         }
 
         // Top right: KNOB 1..4.
-        for index in 0..4 {
-            let rect = Rect::from_min_size(
-                Pos2::new(
-                    function_left + index as f32 * (knob_width + knob_gap),
-                    controls_top,
-                ),
-                Vec2::new(knob_width, group_height),
-            );
-            let (down, up) =
-                panel_turn_group(ui, rect, 10 + index as u32, &format!("KNOB {}", index + 1));
-            if down.on_hover_text("Turn counter-clockwise").clicked() {
-                self.turn_encoder(2 + index as u8, -1);
-            }
-            if up.on_hover_text("Turn clockwise").clicked() {
-                self.turn_encoder(2 + index as u8, 1);
-            }
-            let steps = wheel_steps(ui, rect);
-            if steps != 0 {
-                self.turn_encoder(2 + index as u8, steps);
-            }
+        for index in 0..4u32 {
+            let x = function_left + index as f32 * (knob_width + knob_gap);
+            panel = panel.child(self.turn_group(
+                cx,
+                x,
+                controls_top,
+                knob_width,
+                10 + index,
+                &format!("KNOB {}", index + 1),
+                KnobTarget::Enc(2 + index as u8),
+            ));
         }
 
-        let second_band = controls_top + group_height * 2.0 + row_gap + 8.0;
+        let second_band = controls_top + GROUP_HEIGHT * 2.0 + row_gap + 8.0;
 
         // OCT- and OCT+ sit under the two encoder columns.
         for (index, (label, id, hint)) in [("OCT−", 0u8, "Z"), ("OCT+", 1, "X")]
             .iter()
             .enumerate()
         {
-            let rect = Rect::from_min_size(
-                Pos2::new(left + index as f32 * (group_width + group_gap), second_band),
-                Vec2::new(group_width, group_height),
-            );
-            let (response, down) = panel_button_ui(
-                ui,
-                rect,
+            let x = left + index as f32 * (group_width + group_gap);
+            panel = panel.child(self.panel_button(
+                cx,
+                x,
+                second_band,
+                group_width,
                 *id,
                 label,
                 hint,
-                self.held[*id as usize],
-                self.leds[*id as usize] > 0.04,
                 AMBER,
-            );
-            self.panel_down[*id as usize] = down;
-            response.on_hover_text(format!("{label} ({hint})"));
+                &mono,
+            ));
         }
 
         // The two rows of six function buttons, with their computer-key hints and
         // indicators. PLAY uses the same green as the machine's play/pause LED.
         for (row_index, row) in [FUNCTION_ROW_1, FUNCTION_ROW_2].iter().enumerate() {
             for (column, (label, id, hint)) in row.iter().enumerate() {
-                let rect = Rect::from_min_size(
-                    Pos2::new(
-                        function_left + column as f32 * (button_width + button_gap),
-                        second_band + row_index as f32 * (group_height + row_gap),
-                    ),
-                    Vec2::new(button_width, group_height),
-                );
+                let x = function_left + column as f32 * (button_width + button_gap);
+                let y = second_band + row_index as f32 * (GROUP_HEIGHT + row_gap);
                 let tint = if *id == 12 { GREEN } else { AMBER };
-                let (response, down) = panel_button_ui(
-                    ui,
-                    rect,
-                    *id,
-                    label,
-                    hint,
-                    self.held[*id as usize],
-                    self.leds[*id as usize] > 0.04,
-                    tint,
-                );
-                self.panel_down[*id as usize] = down;
-                if *id == 12 {
-                    response.on_hover_text("Play/Pause (Space)");
-                } else {
-                    response.on_hover_text(format!("{label} ({hint})"));
-                }
+                panel = panel.child(self.panel_button(
+                    cx, x, y, button_width, *id, label, hint, tint, &mono,
+                ));
             }
         }
 
-        // The 27 pill keys: white keys first, then the black keys over them.
+        // The 27 pill keys: a row of white keys, then the black keys over them.
         let key_left = left;
         let key_right = right;
-        let key_bottom = panel.bottom() - KEY_MARGIN;
+        let key_bottom = PANEL_HEIGHT - KEY_MARGIN;
         let key_top = key_bottom - KEY_HEIGHT;
         let white_width = (key_right - key_left) / WHITE_KEYS.len() as f32;
-        for (index, id) in WHITE_KEYS.iter().enumerate() {
-            let white_left = key_left + index as f32 * white_width;
-            let rect = Rect::from_min_max(
-                Pos2::new(white_left + 0.5, key_top),
-                Pos2::new(white_left + white_width - 0.5, key_bottom),
-            );
-            let note = PANEL_KEYS
-                .iter()
-                .find(|(key, _, _)| key == id)
-                .map(|(_, note, _)| *note)
-                .unwrap_or("");
-            let (response, down) = panel_key_ui(
-                ui,
-                rect,
-                *id,
-                true,
-                note,
-                panel_key_hint(*id),
-                self.held[*id as usize],
-                self.leds[*id as usize] > 0.04,
-            );
-            self.panel_down[*id as usize] = down;
-            let _ = response;
-        }
-        let black_height = (key_bottom - key_top) * 0.62;
-        for (id, after) in BLACK_KEYS {
+        panel = panel.child(
+            div()
+                .absolute()
+                .left(px(key_left))
+                .top(px(key_top))
+                .w(px(key_right - key_left))
+                .h(px(KEY_HEIGHT))
+                .flex()
+                .flex_row()
+                .gap(px(1.0))
+                .children(WHITE_KEYS.iter().map(|&id| self.white_key(cx, id))),
+        );
+        let black_height = KEY_HEIGHT * 0.62;
+        for &(id, after) in BLACK_KEYS.iter() {
             let center_x = key_left + (after as f32 + 1.0) * white_width;
-            let rect = Rect::from_center_size(
-                Pos2::new(center_x, key_top + black_height / 2.0),
-                Vec2::new(white_width * 0.62, black_height),
-            );
-            let (response, down) = panel_key_ui(
-                ui,
-                rect,
-                id,
-                false,
-                "",
-                panel_key_hint(id),
-                self.held[id as usize],
-                self.leds[id as usize] > 0.04,
-            );
-            self.panel_down[id as usize] = down;
-            let _ = response;
+            let width = white_width * 0.62;
+            panel = panel.child(self.black_key(cx, id, center_x - width / 2.0, key_top, width, black_height));
         }
 
-        // Mouse changes were collected above; deliver them on this same frame.
-        self.sync_held(ui.ctx());
+        div().w_full().flex().justify_center().child(panel)
     }
-}
 
-/// A three-part rotary group: an inert label in the middle and clickable - / + ends.
-/// The knob's mouse-wheel input: while the pointer is over the group, each wheel click
-/// turns it one detent — up clockwise, down counter-clockwise. A wheel mouse reports
-/// whole notches; a touchpad reports points, where ~40 points count as one detent.
-fn wheel_steps(ui: &egui::Ui, rect: Rect) -> i32 {
-    if !ui.rect_contains_pointer(rect) {
-        return 0;
+    /// Accumulate wheel detents per knob group: a wheel mouse reports whole notches, a
+    /// touchpad reports points (~40 per detent), so the fractions carry over between
+    /// events. Returns the whole detents to turn by.
+    fn wheel_detents(&mut self, group: u32, detents: f32) -> i32 {
+        if self.wheel_acc.0 != group {
+            self.wheel_acc = (group, 0.0);
+        }
+        self.wheel_acc.1 += detents;
+        let whole = self.wheel_acc.1.trunc() as i32;
+        if whole != 0 {
+            self.wheel_acc.1 -= whole as f32;
+        }
+        whole
     }
-    ui.input(|input| {
-        input
-            .events
-            .iter()
-            .map(|event| match event {
-                egui::Event::MouseWheel { unit, delta, .. } => match unit {
-                    egui::MouseWheelUnit::Line => delta.y,
-                    egui::MouseWheelUnit::Point => delta.y / 40.0,
-                    egui::MouseWheelUnit::Page => delta.y * 10.0,
-                },
-                _ => 0.0,
+
+    fn turn_target(&mut self, target: KnobTarget, clicks: i32) {
+        match target {
+            KnobTarget::Master => self.adjust_master(clicks),
+            KnobTarget::Enc(enc) => self.turn_encoder(enc, clicks),
+        }
+    }
+
+    /// A three-part rotary group: an inert label in the middle and clickable - / +
+    /// ends. The knob's mouse-wheel input: while the pointer is over the group, each
+    /// wheel click turns it one detent — up clockwise, down counter-clockwise.
+    fn turn_group(
+        &self,
+        cx: &mut Context<Self>,
+        x: f32,
+        y: f32,
+        width: f32,
+        salt: u32,
+        label: &str,
+        target: KnobTarget,
+    ) -> impl IntoElement {
+        let arrow = 22.0f32;
+        let end = |salt_end: &'static str, glyph: &'static str, clicks: i32| {
+            div()
+                .id((salt_end, salt as usize))
+                .w(px(arrow))
+                .h_full()
+                .flex()
+                .items_center()
+                .justify_center()
+                .cursor_pointer()
+                .text_size(px(13.0))
+                .text_color(rgb(SILK))
+                .hover(|style| style.bg(rgb(PANEL_BUTTON_HOVER)))
+                .child(glyph)
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(move |this, _, _, cx| {
+                        this.turn_target(target, clicks);
+                        cx.notify();
+                    }),
+                )
+        };
+        div()
+            .absolute()
+            .left(px(x))
+            .top(px(y))
+            .w(px(width))
+            .h(px(GROUP_HEIGHT))
+            .rounded(px(3.0))
+            .bg(rgb(PANEL_BUTTON))
+            .border_1()
+            .border_color(rgb(PANEL_BUTTON_EDGE))
+            .flex()
+            .flex_row()
+            .items_center()
+            .overflow_hidden()
+            .on_scroll_wheel(cx.listener(move |this, event: &ScrollWheelEvent, _, cx| {
+                let detents = match event.delta {
+                    ScrollDelta::Lines(point) => point.y,
+                    ScrollDelta::Pixels(point) => f32::from(point.y) / 40.0,
+                };
+                let steps = this.wheel_detents(salt, detents);
+                if steps != 0 {
+                    this.turn_target(target, steps);
+                    cx.notify();
+                }
+            }))
+            .child(end("turn-down", "−", -1))
+            .child(div().w(px(1.0)).h_full().bg(rgb(PANEL_BUTTON_EDGE)))
+            .child(
+                div()
+                    .flex_1()
+                    .h_full()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .truncate()
+                    .text_size(px(9.5))
+                    .text_color(rgb(SILK))
+                    .child(label.to_string()),
+            )
+            .child(div().w(px(1.0)).h_full().bg(rgb(PANEL_BUTTON_EDGE)))
+            .child(end("turn-up", "+", 1))
+    }
+
+    /// A clickable front-panel button with its LED and computer-key hint. Lit follows
+    /// the keyboard, the mouse and the firmware's own LED state.
+    #[allow(clippy::too_many_arguments)]
+    fn panel_button(
+        &self,
+        cx: &mut Context<Self>,
+        x: f32,
+        y: f32,
+        width: f32,
+        id: u8,
+        label: &str,
+        hint: &str,
+        tint: u32,
+        mono: &SharedString,
+    ) -> impl IntoElement {
+        let lit =
+            self.held[id as usize] || self.leds[id as usize] > 0.04 || self.panel_down[id as usize];
+        let fill = if lit {
+            mix(PANEL_BUTTON, tint, 0.45)
+        } else {
+            PANEL_BUTTON
+        };
+        let ink = if lit { LIT_INK } else { SILK };
+        let hint_color = if lit { LIT_HINT } else { SILK_DIM };
+        let mono = mono.clone();
+        div()
+            .absolute()
+            .left(px(x))
+            .top(px(y))
+            .w(px(width))
+            .h(px(GROUP_HEIGHT))
+            .id(("panel-btn", id as usize))
+            .rounded(px(4.0))
+            .bg(rgb(fill))
+            .border_1()
+            .border_color(rgb(if lit { tint } else { PANEL_BUTTON_EDGE }))
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap(px(6.0))
+            .px(px(6.0))
+            .cursor_pointer()
+            .hover(move |style| {
+                if lit {
+                    style
+                } else {
+                    style.bg(rgb(PANEL_BUTTON_HOVER))
+                }
             })
-            .sum::<f32>()
-            .round() as i32
-    })
-}
-
-fn panel_turn_group(
-    ui: &mut egui::Ui,
-    rect: Rect,
-    salt: u32,
-    label: &str,
-) -> (egui::Response, egui::Response) {
-    let arrow = 22.0;
-    let down_rect = Rect::from_min_max(rect.min, Pos2::new(rect.left() + arrow, rect.bottom()));
-    let up_rect = Rect::from_min_max(Pos2::new(rect.right() - arrow, rect.top()), rect.max);
-    let down = ui.interact(
-        down_rect,
-        ui.id().with(("panel-turn-down", salt)),
-        Sense::click(),
-    );
-    let up = ui.interact(
-        up_rect,
-        ui.id().with(("panel-turn-up", salt)),
-        Sense::click(),
-    );
-
-    let painter = ui.painter();
-    painter.rect_filled(rect, CornerRadius::same(3), PANEL_BUTTON);
-    painter.rect_stroke(
-        rect,
-        CornerRadius::same(3),
-        Stroke::new(1.0_f32, PANEL_BUTTON_EDGE),
-        StrokeKind::Inside,
-    );
-
-    let left_corners = CornerRadius { nw: 3, sw: 3, ne: 0, se: 0 };
-    let right_corners = CornerRadius { nw: 0, sw: 0, ne: 3, se: 3 };
-    for (response, half, corners) in [
-        (&down, down_rect, left_corners),
-        (&up, up_rect, right_corners),
-    ] {
-        if response.is_pointer_button_down_on() {
-            painter.rect_filled(
-                half.shrink(1.0),
-                corners,
-                mix_color(PANEL_BUTTON, AMBER, 0.3),
-            );
-        } else if response.hovered() {
-            painter.rect_filled(half.shrink(1.0), corners, Color32::from_rgb(78, 81, 88));
-        }
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |this, _, _, cx| {
+                    this.panel_down[id as usize] = true;
+                    this.sync_held();
+                    cx.notify();
+                }),
+            )
+            // The LED: the button's own colour while lit.
+            .child(
+                div()
+                    .w(px(7.0))
+                    .h(px(7.0))
+                    .rounded_full()
+                    .flex_none()
+                    .bg(rgb(if lit { tint } else { 0x303338 }))
+                    .border_1()
+                    .border_color(rgb(PANEL_BUTTON_EDGE)),
+            )
+            .child(
+                div()
+                    .truncate()
+                    .text_size(px(9.5))
+                    .text_color(rgb(ink))
+                    .child(label.to_string()),
+            )
+            .child(
+                div()
+                    .ml_auto()
+                    .text_size(px(8.5))
+                    .font_family(mono)
+                    .text_color(rgb(hint_color))
+                    .child(hint.to_string()),
+            )
     }
 
-    for x in [rect.left() + arrow, rect.right() - arrow] {
-        painter.line_segment(
-            [
-                Pos2::new(x, rect.top() + 3.0),
-                Pos2::new(x, rect.bottom() - 3.0),
-            ],
-            Stroke::new(1.0_f32, PANEL_BUTTON_EDGE),
-        );
+    /// A white piano key: ivory at rest, amber while held; hint in the middle, note
+    /// name at the bottom.
+    fn white_key(&self, cx: &mut Context<Self>, id: u8) -> impl IntoElement {
+        let lit =
+            self.held[id as usize] || self.leds[id as usize] > 0.04 || self.panel_down[id as usize];
+        let note = PANEL_KEYS
+            .iter()
+            .find(|(key, _, _)| *key == id)
+            .map(|(_, note, _)| *note)
+            .unwrap_or("");
+        let hint = panel_key_hint(id);
+        let ink = if lit { LIT_INK } else { KEY_INK };
+        div()
+            .id(("panel-key", id as usize))
+            .flex_1()
+            .min_w_0()
+            .h_full()
+            .rounded(px(1.0))
+            .bg(rgb(if lit { AMBER } else { KEY_WHITE }))
+            .border_1()
+            .border_color(rgb(KEY_EDGE))
+            .cursor_pointer()
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |this, _, _, cx| {
+                    this.panel_down[id as usize] = true;
+                    this.sync_held();
+                    cx.notify();
+                }),
+            )
+            .child(
+                v_flex()
+                    .size_full()
+                    .items_center()
+                    .child(
+                        div().flex_1().flex().items_center().child(
+                            div()
+                                .text_size(px(16.0))
+                                .text_color(rgb(ink))
+                                .child(hint),
+                        ),
+                    )
+                    .child(
+                        div()
+                            .pb(px(2.0))
+                            .text_size(px(10.0))
+                            .text_color(rgb(if lit { LIT_INK } else { KEY_NOTE }))
+                            .child(note),
+                    ),
+            )
     }
 
-    painter.text(
-        down_rect.center(),
-        Align2::CENTER_CENTER,
-        "−",
-        FontId::proportional(15.0),
-        SILK,
-    );
-    painter.text(
-        up_rect.center(),
-        Align2::CENTER_CENTER,
-        "+",
-        FontId::proportional(15.0),
-        SILK,
-    );
-    painter.text(
-        rect.center(),
-        Align2::CENTER_CENTER,
-        label,
-        FontId::proportional(9.5),
-        SILK,
-    );
-    (
-        down.on_hover_cursor(egui::CursorIcon::PointingHand),
-        up.on_hover_cursor(egui::CursorIcon::PointingHand),
-    )
-}
-
-/// A clickable front-panel button. Returns its response and whether the mouse is holding it.
-#[allow(clippy::too_many_arguments)]
-fn panel_button_ui(
-    ui: &mut egui::Ui,
-    rect: Rect,
-    id: u8,
-    label: &str,
-    hint: &str,
-    held: bool,
-    led: bool,
-    tint: Color32,
-) -> (egui::Response, bool) {
-    let response = ui.interact(rect, ui.id().with(("panel-btn", id)), Sense::click());
-    let mut down = response.is_pointer_button_down_on();
-    // A very fast click can begin and end between two frames; keep it down for one frame.
-    if response.clicked() {
-        down = true;
-    }
-    paint_panel_button(
-        ui.painter(),
-        rect,
-        label,
-        hint,
-        down || held || led,
-        tint,
-    );
-    (
-        response.on_hover_cursor(egui::CursorIcon::PointingHand),
-        down,
-    )
-}
-
-/// A clickable note key. Returns its response and whether the mouse is holding it.
-#[allow(clippy::too_many_arguments)]
-fn panel_key_ui(
-    ui: &mut egui::Ui,
-    rect: Rect,
-    id: u8,
-    white: bool,
-    note: &str,
-    hint: &str,
-    held: bool,
-    led: bool,
-) -> (egui::Response, bool) {
-    let response = ui.interact(rect, ui.id().with(("panel-key", id)), Sense::click());
-    let mut down = response.is_pointer_button_down_on();
-    if response.clicked() {
-        down = true;
-    }
-    paint_panel_key(
-        ui.painter(),
-        rect,
-        white,
-        note,
-        hint,
-        down || held || led,
-    );
-    (
-        response.on_hover_cursor(egui::CursorIcon::PointingHand),
-        down,
-    )
-}
-
-/// A keycap on the miniature FM-1 panel. `lit` is the pressed/hold state; the small
-/// indicator beside the label uses the button's own colour (green for PLAY, amber
-/// otherwise).
-fn paint_panel_button(
-    painter: &egui::Painter,
-    rect: Rect,
-    label: &str,
-    hint: &str,
-    lit: bool,
-    tint: Color32,
-) {
-    let fill = if lit {
-        mix_color(PANEL_BUTTON, tint, 0.45)
-    } else {
-        PANEL_BUTTON
-    };
-    let ink = if lit {
-        Color32::from_rgb(34, 26, 10)
-    } else {
-        SILK
-    };
-    painter.rect_filled(rect, CornerRadius::same(4), fill);
-    painter.rect_stroke(
-        rect,
-        CornerRadius::same(4),
-        Stroke::new(1.0_f32, PANEL_BUTTON_EDGE),
-        StrokeKind::Inside,
-    );
-
-    let led_center = Pos2::new(rect.left() + 9.0, rect.center().y);
-    painter.circle_filled(led_center, 4.0, PANEL_BUTTON_EDGE);
-    painter.circle_filled(
-        led_center,
-        3.0,
-        if lit { tint } else { Color32::from_rgb(48, 51, 56) },
-    );
-    if lit {
-        painter.circle_filled(
-            Pos2::new(led_center.x - 0.8, led_center.y - 0.9),
-            1.0,
-            Color32::from_rgb(255, 245, 220),
-        );
-    }
-
-    painter.text(
-        Pos2::new(rect.left() + 18.0, rect.center().y),
-        Align2::LEFT_CENTER,
-        label,
-        FontId::proportional(9.5),
-        ink,
-    );
-    painter.text(
-        Pos2::new(rect.right() - 6.0, rect.center().y),
-        Align2::RIGHT_CENTER,
-        hint,
-        FontId::monospace(8.5),
-        if lit {
-            Color32::from_rgb(60, 48, 24)
-        } else {
-            SILK_DIM
-        },
-    );
-    if lit {
-        painter.rect_stroke(
-            rect.expand(1.0),
-            CornerRadius::same(4),
-            Stroke::new(
-                1.0_f32,
-                Color32::from_rgba_unmultiplied(tint.r(), tint.g(), tint.b(), 80),
-            ),
-            StrokeKind::Middle,
-        );
-    }
-}
-
-/// One note key on the miniature panel: ivory/black at rest, amber while held.
-fn paint_panel_key(
-    painter: &egui::Painter,
-    rect: Rect,
-    white: bool,
-    note: &str,
-    hint: &str,
-    lit: bool,
-) {
-    if white {
-        painter.rect_filled(
-            rect,
-            CornerRadius::same(1),
-            if lit { AMBER } else { KEY_WHITE },
-        );
-        painter.rect_stroke(
-            rect,
-            CornerRadius::same(1),
-            Stroke::new(1.0_f32, Color32::from_rgb(112, 107, 96)),
-            StrokeKind::Inside,
-        );
-        let ink = if lit {
-            Color32::from_rgb(44, 27, 4)
-        } else {
-            Color32::from_rgb(45, 43, 40)
-        };
-        if !hint.is_empty() {
-            painter.text(
-                Pos2::new(rect.center().x, rect.top() + rect.height() * 0.55),
-                Align2::CENTER_CENTER,
-                hint,
-                FontId::proportional(16.0),
-                ink,
-            );
-        }
-        painter.text(
-            Pos2::new(rect.center().x, rect.bottom() - 6.0),
-            Align2::CENTER_CENTER,
-            note,
-            FontId::proportional(10.0),
-            if lit {
-                ink
-            } else {
-                Color32::from_rgb(96, 91, 82)
-            },
-        );
-    } else {
-        painter.rect_filled(
-            rect,
-            CornerRadius::same(1),
-            if lit { AMBER } else { KEY_BLACK },
-        );
-        painter.rect_stroke(
-            rect,
-            CornerRadius::same(1),
-            Stroke::new(1.0_f32, Color32::from_rgb(18, 18, 20)),
-            StrokeKind::Inside,
-        );
-        let ink = if lit {
-            Color32::from_rgb(44, 27, 4)
-        } else {
-            Color32::from_rgb(214, 211, 202)
-        };
-        if !hint.is_empty() {
-            painter.text(
-                Pos2::new(rect.center().x, rect.center().y),
-                Align2::CENTER_CENTER,
-                hint,
-                FontId::proportional(14.0),
-                ink,
-            );
-        }
+    /// A black piano key, overlapping the white row.
+    fn black_key(
+        &self,
+        cx: &mut Context<Self>,
+        id: u8,
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+    ) -> impl IntoElement {
+        let lit =
+            self.held[id as usize] || self.leds[id as usize] > 0.04 || self.panel_down[id as usize];
+        let hint = panel_key_hint(id);
+        div()
+            .absolute()
+            .left(px(x))
+            .top(px(y))
+            .w(px(width))
+            .h(px(height))
+            .id(("panel-key", id as usize))
+            .rounded(px(1.0))
+            .bg(rgb(if lit { AMBER } else { KEY_BLACK }))
+            .border_1()
+            .border_color(rgb(KEY_BLACK_EDGE))
+            .cursor_pointer()
+            .flex()
+            .items_center()
+            .justify_center()
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |this, _, _, cx| {
+                    this.panel_down[id as usize] = true;
+                    this.sync_held();
+                    cx.notify();
+                }),
+            )
+            .child(
+                div()
+                    .text_size(px(14.0))
+                    .text_color(rgb(if lit { LIT_INK } else { KEY_BLACK_INK }))
+                    .child(hint),
+            )
     }
 }

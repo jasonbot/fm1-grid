@@ -1,8 +1,8 @@
 # FM-1 Grid
 
-A 3×3 grid of nine emulated M-VAVE FM-1s, each pane with its own firmware and LCD, with a
-GTK4/Libadwaita-inspired light interface (flat white cards, hairline borders, the system
-sans-serif via fontconfig). Emulators are powered **off** at startup — flip the power switch
+A 2×2 grid of four emulated M-VAVE FM-1s, each pane with its own firmware and LCD, with a
+gpui-kit interface (themed cards and controls from the GPUI component library). Emulators
+are powered **off** at startup — flip the power switch
 in the device sidebar to start one, so idle panes cost nothing. Click anywhere in a pane to
 route the computer keyboard there; the selected card gets a blue border. Every grid screen
 always shows at 1x: the selected pane's live screen appears in the device sidebar
@@ -20,15 +20,17 @@ mouse, its knobs turn with the −/+ ends, and its LEDs show the firmware's own 
 as what the computer keyboard is doing.
 
 ```
-┌────────────┐ ┌────────────┐ ┌────────────┐  ┌────────────────────────────┐
-│ ┌────────┐ │ │ ┌────────┐ │ │ ┌────────┐ │  │ Device 1: SLOOP 2.8        │
-│ │  LCD   │ │ │ │  LCD   │ │ │ │  LCD   │ │  │ ┌────────────────────────┐ │
-│ └────────┘ │ │ └────────┘ │ │ └────────┘ │  │ │      live 4× LCD       │ │
-└────────────┘ └────────────┘ └────────────┘  │ └────────────────────────┘ │
-      … six more panes in two more rows …     │ [ ○─── ] [ SLOOP 2.8 ▾ ]   │
-   3 rows × 3 columns, up to 240×240 each     │ Off                        │
-                                              │ No custom behavior for …   │
-                                              └────────────────────────────┘
+┌────────────┐ ┌────────────┐  ┌────────────────────────────┐
+│ ┌────────┐ │ │ ┌────────┐ │  │ Device 1: SLOOP 2.8        │
+│ │  LCD   │ │ │ │  LCD   │ │  │ ┌────────────────────────┐ │
+│ └────────┘ │ │ └────────┘ │  │ │      live 4× LCD       │ │
+└────────────┘ └────────────┘  │ └────────────────────────┘ │
+┌────────────┐ ┌────────────┐  │ [ ○─── ] [ SLOOP 2.8 ▾ ]   │
+│ ┌────────┐ │ │ ┌────────┐ │  │ Off                        │
+│ │  LCD   │ │ │ │  LCD   │ │  │ No custom behavior for …   │
+│ └────────┘ │ │ └────────┘ │  └────────────────────────────┘
+└────────────┘ └────────────┘
+   2 rows × 2 columns
 ┌─ FM-1 PANEL ────────────────────────── CLICKABLE · KEYBOARD LIGHTS · PANE 1 ──┐
 │ [− MASTER +]  [− SELECT +]                 [− KNOB 1 +] … [− KNOB 4 +]       │
 │ [− PRESETS +] [− ALGORITHM +]                                               │
@@ -58,10 +60,10 @@ switch them on):
 
 Any pane can load any of the embedded firmwares from the firmware selector in the device
 sidebar. On Linux each running emulator thread is pinned to its own physical core (one logical
-CPU per core) while cores last; panes beyond the core count float. Nine emulators at once
-want nine cores — power on only what you play.
+CPU per core) while cores last; panes beyond the core count float. Four emulators at once
+want four cores — power on only what you play.
 
-Pass up to nine firmware files to choose what loads where (left to right, top to bottom):
+Pass up to four firmware files to choose what loads where (left to right, top to bottom):
 
 ```sh
 cargo run --release -- sloop.fwsc felucca.fwsc
@@ -130,14 +132,28 @@ and has a small LED (green for PLAY, amber for the rest) that follows both the c
 keyboard and the emulated firmware's real LED state. The note keys show their note names and
 computer-key hints, and light amber while held or while the firmware plays them.
 
+## MIDI graph
+
+The sidebar's MIDI graph connects sources to any number of sinks: system MIDI ports, the
+running panes and live FM-1 units. Pick a source with **+ connect a MIDI out…**, then add
+sinks with a row's **+**; clicking a chip removes that connection. Live units are
+bidirectional — their firmwares advertise one USB-MIDI in/out pair over USB-C.
+
+A running pane is a sink only, and that is the emulator's limit rather than the
+firmware's: the FM-1's TRS jack is MIDI-in alone, and the firmwares' real MIDI path is
+USB — every bundled hub firmware advertises a bidirectional USB-MIDI interface (checked
+at load, from the image's descriptors), which the emulated SoC cannot enumerate, and the
+UART's TX side is unwired. A pane's MIDI out therefore stays silent; the graph says so
+while such a pane runs. (M-VAVE's stock FM1 Open V15 is the one bundled firmware that
+advertises no USB-MIDI at all.)
+
 ## Metronome
 
 The metronome starts **off**; the rocker switch on its front panel starts and stops it. When
 running, it sends a MIDI clock at **24 PPQN** (`0xF8`) to each emulator's emulated MIDI IN
 jack. Switching on sends MIDI Start (`0xFA`), switching off sends MIDI Stop (`0xFC`), and
-shutting down does the same. Tempo is 20–300 BPM: click the large monospace readout and type
-a value, drag it, or use the grouped −/+ buttons. The small light next to it alternates on
-every beat.
+shutting down does the same. Tempo is 20–300 BPM: type a value in the readout or use its
+−/+ steppers. The small light next to it alternates on every beat.
 
 The clock thread runs independently of the GUI frame rate, so timing does not drift when
 the window is idle. The emulators are paced to wall-clock time and their audio is mixed by
@@ -148,7 +164,7 @@ others).
 
 * Rust 1.91 or newer, stable.
 * Linux: ALSA headers (`libasound2-dev` on Debian/Ubuntu) and the usual X11/Wayland
-  development packages for `eframe`.
+  development packages for gpui (see the gpui-kit installation docs).
 * macOS/Windows: no extra system packages beyond the platform SDK.
 
 The emulator crates from <https://github.com/joakimeriksson/fm1-emu> are used from git at
@@ -166,18 +182,21 @@ build.rs         generates the embedded firmware table from firmware/manifest.tx
 scripts/firmware.sh  add/del/list for the embedded firmware list
 src/affinity.rs  Linux physical-core detection and per-emulator pinning
 src/app.rs       GridApp state and lifecycle: pane power, firmware install, keyboard and
-                 encoder routing, per-frame LCD upload, eframe app
+                 encoder routing, per-tick LCD upload, the gpui root view
 src/clock.rs     MIDI-clock thread, tempo, beat light, per-slot senders
 src/emulator.rs  one thread + SoC + cores per slot, LCD/status/audio publication
-src/audio.rs     nine queues mixed into one cpal output stream
+src/audio.rs     four queues mixed into one cpal output stream
 src/builtin.rs   embedded firmware catalogue (includes the generated table)
-src/grid.rs      the 3x3 grid of pane cards and the ambient background colour
-src/sidebar.rs   the device sidebar: heading, 4x screen, pane attributes
+src/grid.rs      the 2x2 grid of pane cards and the computed background colour
+src/sidebar.rs   the device sidebar: heading, upscaled screen, pane attributes
 src/panel.rs     the miniature FM-1 front panel control surface
 src/transport.rs the bottom bar: front panel plus the metronome row
-src/lcd.rs       RGB565 decode, dominant colour, ghost/recede/hqx pictures, LCD view
+src/lcd.rs       RGB565 decode, dominant colour, ghost/recede/hqx pictures, frame images
 src/keys.rs      FM-1 control maps: keyboard layout, panel key/button tables
-src/theme.rs     Adwaita palette, egui style, fonts and the shared custom widgets
+src/theme.rs     the FM-1 hardware colours (panel, keycaps, LEDs); app chrome follows
+                 the gpui-kit theme
 src/main.rs      startup and CLI firmware arguments
+src/lib.rs       the library root the binary and the UI tests share
+src/tests/       headless UI smoke tests (gpui-kit test-support)
 firmware/        the embedded .fwsc packages (unmodified) plus manifest.txt
 ```

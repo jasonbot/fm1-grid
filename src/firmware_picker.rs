@@ -1,119 +1,211 @@
-//! The searchable firmware dropdown the sidebar's firmware selector and the devices
-//! pane's flash selector share: a combo whose popup starts with a filter box that
-//! narrows the grouped builtin list as you type.
+//! The searchable firmware list behind the sidebar's combobox: the embedded builtins
+//! grouped by hub category, plus the "Other…" file escape hatch while unfiltered.
+//! egui needed a hand-rolled ComboBox popup for this; gpui-kit's `Combobox` provides
+//! the search box and the list, this module only provides the data.
 
-use eframe::egui::{self, Id, Response, RichText, TextEdit, Ui};
+use crate::builtin::{BUILTINS, groups};
+use gpui_kit::component::searchable_list::{SearchableListDelegate, SearchableListItem};
+use gpui_kit::component::tooltip::Tooltip;
+use gpui_kit::component::{ActiveTheme, IndexPath};
+use gpui_kit::prelude::FluentBuilder;
+use gpui_kit::*;
 
-use crate::builtin::{self, BUILTINS};
-use crate::theme::DIM;
+/// What a pick produces: an embedded firmware by index into `BUILTINS`, or the
+/// "Other…" file dialog (`None`).
+pub(crate) type Pick = Option<usize>;
 
-/// What a picker click produced.
-pub(crate) enum Pick {
-    /// An embedded firmware, by index into `BUILTINS`.
-    Builtin(usize),
-    /// The "Other…" file dialog.
-    File,
+#[derive(Clone)]
+pub(crate) struct FirmwareItem {
+    value: Pick,
+    title: SharedString,
+    /// Lowercase name + version + tags, searched by the filter box.
+    haystack: String,
+    /// Tooltip: the package file name and its SHA-256 (provenance from the hub).
+    tip: SharedString,
 }
 
-/// Does a firmware match the filter? An empty filter matches everything; otherwise the
-/// needle must appear in the name, the version or the tags.
-fn matches(needle: &str, index: usize) -> bool {
-    if needle.is_empty() {
-        return true;
+impl SearchableListItem for FirmwareItem {
+    type Value = Pick;
+
+    fn title(&self) -> SharedString {
+        self.title.clone()
     }
-    let firmware = &BUILTINS[index];
-    firmware.name.to_lowercase().contains(needle)
-        || firmware.version.to_lowercase().contains(needle)
-        || firmware.tags.to_lowercase().contains(needle)
+
+    fn value(&self) -> &Self::Value {
+        &self.value
+    }
+
+    /// An empty needle matches everything; otherwise it must appear in the name, the
+    /// version or the tags.
+    fn matches(&self, query: &str) -> bool {
+        self.haystack.contains(&query.to_lowercase())
+    }
 }
 
-/// Shows the firmware combo and returns its response plus what was picked this frame.
-/// `id_salt` must be unique per picker. The filter resets and is focused every time the
-/// popup opens, so you can type right away; Escape or a click outside closes it.
-pub(crate) fn show(
-    ui: &mut Ui,
-    id_salt: impl std::hash::Hash,
-    selected_text: RichText,
-    width: f32,
-    selected_builtin: Option<usize>,
-    selected_file: bool,
-) -> (Response, Option<Pick>) {
-    let ctx = ui.ctx().clone();
-    let open_key = Id::new(("firmware-picker-open", &id_salt));
-    let filter_key = Id::new(("firmware-picker-filter", &id_salt));
-    let was_open = ctx.data(|data| data.get_temp::<bool>(open_key).unwrap_or(false));
+pub(crate) struct FirmwareDelegate {
+    /// All builtins in manifest order, then the "Other…" entry as the last item.
+    all: Vec<FirmwareItem>,
+    /// The current view: (category header, indices into `all`). The `None` header is
+    /// the "Other…" section — separated, but unlabeled.
+    sections: Vec<(Option<&'static str>, Vec<usize>)>,
+}
 
-    let mut pick = None;
-    let mut ran = false;
-    let combo = egui::ComboBox::from_id_salt(("firmware-picker", &id_salt))
-        .selected_text(selected_text)
-        .width(width)
-        .show_ui(ui, |ui| {
-            ran = true;
-            let just_opened = !was_open;
-            if just_opened {
-                ctx.data_mut(|data| data.insert_temp(filter_key, String::new()));
-            }
-            let mut filter = ctx
-                .data(|data| data.get_temp::<String>(filter_key))
-                .unwrap_or_default();
-            let response = ui.add(
-                TextEdit::singleline(&mut filter)
-                    .hint_text("Filter…")
-                    .desired_width(width),
-            );
-            if just_opened {
-                response.request_focus();
-            }
-            let needle = filter.trim().to_lowercase();
-            ctx.data_mut(|data| {
-                data.insert_temp(filter_key, filter);
-                data.insert_temp(open_key, true);
-            });
-
-            // Grouped by the hub's categories, each group under its name; groups with
-            // no match disappear while filtering.
-            let mut any = false;
-            for (category, indices) in builtin::groups() {
-                let hits: Vec<usize> = indices
-                    .into_iter()
-                    .filter(|&index| matches(&needle, index))
-                    .collect();
-                if hits.is_empty() {
-                    continue;
-                }
-                builtin::group_header(ui, category, !any);
-                any = true;
-                for index in hits {
-                    let firmware = &BUILTINS[index];
-                    let tip = format!("{}\nSHA-256 {}", firmware.file, firmware.sha256);
-                    if ui
-                        .selectable_label(selected_builtin == Some(index), firmware.label())
-                        .on_hover_text(tip)
-                        .clicked()
-                    {
-                        pick = Some(Pick::Builtin(index));
-                        ui.close();
-                    }
-                }
-            }
-            if !any {
-                ui.label(RichText::new("No firmware matches").size(10.0).color(DIM));
-            }
-            // The file dialog is the escape hatch out of the builtin list, not a
-            // firmware: it only shows while the filter is empty.
-            if needle.is_empty() {
-                ui.separator();
-                if ui.selectable_label(selected_file, "Other…").clicked() {
-                    pick = Some(Pick::File);
-                    ui.close();
-                }
-            }
+impl FirmwareDelegate {
+    pub(crate) fn new() -> Self {
+        let mut all: Vec<FirmwareItem> = BUILTINS
+            .iter()
+            .enumerate()
+            .map(|(index, firmware)| FirmwareItem {
+                value: Some(index),
+                title: firmware.label().into(),
+                haystack: format!(
+                    "{} {} {}",
+                    firmware.name, firmware.version, firmware.tags
+                )
+                .to_lowercase(),
+                tip: format!("{}\nSHA-256 {}", firmware.file, firmware.sha256).into(),
+            })
+            .collect();
+        all.push(FirmwareItem {
+            value: None,
+            title: "Other…".into(),
+            haystack: String::new(),
+            tip: "Load a firmware file from disk".into(),
         });
-    // The closure only runs while the popup is open; a frame without it means the
-    // popup just closed, so the next open starts fresh.
-    if !ran {
-        ctx.data_mut(|data| data.insert_temp(open_key, false));
+        let mut delegate = Self {
+            all,
+            sections: Vec::new(),
+        };
+        delegate.refilter("");
+        delegate
     }
-    (combo.response, pick)
+
+    /// Group the matching firmwares by the hub's categories; groups with no match
+    /// disappear while filtering.
+    fn refilter(&mut self, query: &str) {
+        let needle = query.trim().to_lowercase();
+        let mut sections: Vec<(Option<&'static str>, Vec<usize>)> = Vec::new();
+        for (category, indices) in groups() {
+            let hits: Vec<usize> = indices
+                .into_iter()
+                .filter(|&index| self.all[index].matches(&needle))
+                .collect();
+            if !hits.is_empty() {
+                sections.push((Some(category), hits));
+            }
+        }
+        // The file dialog is the escape hatch out of the builtin list, not a firmware:
+        // it only shows while the filter is empty.
+        if needle.is_empty() {
+            sections.push((None, vec![self.all.len() - 1]));
+        }
+        self.sections = sections;
+    }
+}
+
+impl SearchableListDelegate for FirmwareDelegate {
+    type Item = FirmwareItem;
+
+    fn sections_count(&self, _: &App) -> usize {
+        self.sections.len()
+    }
+
+    fn items_count(&self, section: usize) -> usize {
+        self.sections[section].1.len()
+    }
+
+    fn item(&self, ix: IndexPath) -> Option<&Self::Item> {
+        self.sections
+            .get(ix.section)?
+            .1
+            .get(ix.row)
+            .map(|&index| &self.all[index])
+    }
+
+    fn position<V>(&self, value: &V) -> Option<IndexPath>
+    where
+        Self::Item: SearchableListItem<Value = V>,
+        V: PartialEq,
+    {
+        self.sections
+            .iter()
+            .enumerate()
+            .find_map(|(section, (_, indices))| {
+                indices.iter().enumerate().find_map(|(row, &index)| {
+                    (self.all[index].value() == value)
+                        .then_some(IndexPath::new(row).section(section))
+                })
+            })
+    }
+
+    fn perform_search(&mut self, query: &str, _: &mut Window, _: &mut App) -> Task<()> {
+        self.refilter(query);
+        Task::ready(())
+    }
+
+    /// Rows carry the package's provenance tooltip; the trailing check mirrors the
+    /// current selection (the default row layout is suppressed on override).
+    fn render_item(
+        &self,
+        ix: IndexPath,
+        item: &Self::Item,
+        checked: bool,
+        _: &mut Window,
+        cx: &mut App,
+    ) -> Option<AnyElement> {
+        let (ink, accent) = {
+            let theme = cx.theme();
+            (theme.foreground, theme.primary)
+        };
+        let tip = item.tip.clone();
+        Some(
+            div()
+                .id(ElementId::from(ix))
+                .w_full()
+                .flex()
+                .flex_row()
+                .items_center()
+                .justify_between()
+                .gap_2()
+                .px_2()
+                .py_1()
+                .child(
+                    div()
+                        .truncate()
+                        .text_color(ink)
+                        .child(item.title()),
+                )
+                .when(checked, |el| {
+                    el.child(div().text_color(accent).child("✓"))
+                })
+                .tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx))
+                .into_any_element(),
+        )
+    }
+
+    /// The quiet caps group headers the egui dropdown drew, with a rule between groups.
+    fn render_section_header(
+        &self,
+        section: usize,
+        _: &mut Window,
+        cx: &mut App,
+    ) -> Option<AnyElement> {
+        let (category, _) = &self.sections[section];
+        let (muted, border) = {
+            let theme = cx.theme();
+            (theme.muted_foreground, theme.border)
+        };
+        let header = div().px_2().pt_2().pb_1().text_size(px(9.0)).text_color(muted);
+        Some(
+            match category {
+                Some(category) => header
+                    .font_weight(FontWeight::BOLD)
+                    .child(category.to_uppercase()),
+                None => header.child(
+                    div().h(px(1.0)).w_full().bg(border),
+                ),
+            }
+            .into_any_element(),
+        )
+    }
 }

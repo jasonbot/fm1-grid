@@ -1,36 +1,17 @@
-mod affinity;
-mod app;
-mod audio;
-mod builtin;
-mod clock;
-mod devices;
-mod emulator;
-mod firmware_picker;
-mod graph;
-mod grid;
-mod hardware;
-mod keys;
-mod lcd;
-mod midi_keys;
-mod panel;
-mod routing;
-mod sidebar;
-mod theme;
-mod transport;
+//! CLI and window bootstrap; the app itself lives in the `fm1_grid` library.
 
-use eframe::egui;
+use fm1_grid::MAX_SLOTS;
+use fm1_grid::app::GridApp;
+use gpui_kit::component::TitleBar;
+use gpui_kit::*;
 use std::path::PathBuf;
 
-/// The 3x3 grid of emulator panes. The arrays in the app, audio mixer and clock are sized
-/// for this. Panes are powered off by default, so idle panes cost nothing.
-pub const MAX_SLOTS: usize = 9;
-
 const USAGE: &str = "\
-fm1-grid — a 3x3 grid of FM-1 emulators with a shared MIDI-clock metronome
+fm1-grid — a 2x2 grid of FM-1 emulators with a shared MIDI-clock metronome
 
 usage: fm1-grid [FIRMWARE ...]
 
-Each FIRMWARE argument (up to nine) is loaded into a pane, left to right, top to bottom. A
+Each FIRMWARE argument (up to four) is loaded into a pane, left to right, top to bottom. A
 firmware is either a .fwsc update package or a raw .bin/.xip image (entry 0x02000120). With
 no firmware arguments the embedded firmwares load into the first panes. Panes are powered
 off at startup; the power switch in the device sidebar starts and stops each pane's
@@ -48,12 +29,12 @@ fn usage_error(message: &str) -> ! {
     std::process::exit(2);
 }
 
-fn main() -> eframe::Result {
+fn main() {
     let mut initial = Vec::new();
     for arg in std::env::args_os().skip(1) {
         if arg == "-h" || arg == "--help" {
             print!("{USAGE}");
-            return Ok(());
+            return;
         }
         let path = PathBuf::from(arg);
         if path.to_string_lossy().starts_with('-') {
@@ -69,18 +50,28 @@ fn main() -> eframe::Result {
         ));
     }
 
-    // Room for three card rows, the device sidebar and the transport bar.
-    let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_title("FM-1 Grid")
-            .with_inner_size([1180.0, 1160.0])
-            .with_min_inner_size([900.0, 700.0]),
-        ..Default::default()
-    };
-
-    eframe::run_native(
-        "FM-1 Grid",
-        options,
-        Box::new(move |cc| Ok(Box::new(app::GridApp::new(cc, &initial)))),
-    )
+    // Room for two card rows, the device sidebar and the transport bar.
+    application()
+        .with_assets(assets::Assets)
+        .run(move |cx| {
+            init(cx);
+            let bounds = Bounds::centered(None, size(px(1180.0), px(950.0)), cx);
+            open_window(
+                WindowOptions {
+                    window_bounds: Some(WindowBounds::Windowed(bounds)),
+                    // The grid + sidebar stop making sense below this.
+                    window_min_size: Some(size(px(1024.0), px(700.0))),
+                    titlebar: Some(TitlebarOptions {
+                        title: Some("FM-1 Grid".into()),
+                        ..TitleBar::title_bar_options()
+                    }),
+                    // TitleBar::window_options: the in-app title bar owns dragging and
+                    // draws the window controls where the platform lacks them (GNOME).
+                    ..TitleBar::window_options()
+                },
+                cx,
+                move |window, cx| cx.new(|cx| GridApp::new(window, cx, &initial)),
+            )
+            .expect("failed to open window");
+        });
 }

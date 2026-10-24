@@ -1,55 +1,55 @@
 //! The FM-1 control map: which computer key plays which FM-1 key/button, and the layout
 //! of the miniature front panel (function rows, note keys). Pure data, no logic.
-
-use eframe::egui;
+//! Computer keys are gpui keystroke names (`KeyDownEvent::keystroke.key`): lowercase
+//! letters, digits, and the literal punctuation keys.
 
 /// The computer-keyboard layout shared with fm1-live: C4..F5 on the piano keys. The low
 /// octave F3..B3 uses the seven letters nothing else claims: the bottom-row run C V B N M
 /// (below the home row, like F3..B3 sits below C4), then Q and I for the top two notes.
-pub const PIANO: [(egui::Key, u8); 25] = [
-    (egui::Key::C, 14),
-    (egui::Key::V, 15),
-    (egui::Key::B, 16),
-    (egui::Key::N, 17),
-    (egui::Key::M, 18),
-    (egui::Key::Q, 19),
-    (egui::Key::I, 20),
-    (egui::Key::A, 21),
-    (egui::Key::W, 22),
-    (egui::Key::S, 23),
-    (egui::Key::E, 24),
-    (egui::Key::D, 25),
-    (egui::Key::F, 26),
-    (egui::Key::T, 27),
-    (egui::Key::G, 28),
-    (egui::Key::Y, 29),
-    (egui::Key::H, 30),
-    (egui::Key::U, 31),
-    (egui::Key::J, 32),
-    (egui::Key::K, 33),
-    (egui::Key::O, 34),
-    (egui::Key::L, 35),
-    (egui::Key::P, 36),
-    (egui::Key::Semicolon, 37),
-    (egui::Key::Quote, 38),
+pub const PIANO: [(&str, u8); 25] = [
+    ("c", 14),
+    ("v", 15),
+    ("b", 16),
+    ("n", 17),
+    ("m", 18),
+    ("q", 19),
+    ("i", 20),
+    ("a", 21),
+    ("w", 22),
+    ("s", 23),
+    ("e", 24),
+    ("d", 25),
+    ("f", 26),
+    ("t", 27),
+    ("g", 28),
+    ("y", 29),
+    ("h", 30),
+    ("u", 31),
+    ("j", 32),
+    ("k", 33),
+    ("o", 34),
+    ("l", 35),
+    ("p", 36),
+    (";", 37),
+    ("'", 38),
 ];
 
 /// The FM-1's octave and function buttons.
-pub const BUTTONS: [(egui::Key, u8); 14] = [
-    (egui::Key::Z, 0),
-    (egui::Key::X, 1),
-    (egui::Key::Num1, 2),
-    (egui::Key::Num2, 3),
-    (egui::Key::Num3, 4),
-    (egui::Key::Num4, 5),
-    (egui::Key::Num5, 6),
-    (egui::Key::Num6, 7),
-    (egui::Key::Num7, 8),
-    (egui::Key::Num8, 9),
-    (egui::Key::Num9, 10),
-    (egui::Key::Num0, 11),
-    (egui::Key::Space, 12),
-    (egui::Key::R, 13),
+pub const BUTTONS: [(&str, u8); 14] = [
+    ("z", 0),
+    ("x", 1),
+    ("1", 2),
+    ("2", 3),
+    ("3", 4),
+    ("4", 5),
+    ("5", 6),
+    ("6", 7),
+    ("7", 8),
+    ("8", 9),
+    ("9", 10),
+    ("0", 11),
+    ("space", 12),
+    ("r", 13),
 ];
 
 /// The FM-1's two rows of six function buttons: (label, key id, computer key).

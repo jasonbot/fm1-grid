@@ -7,8 +7,13 @@
 //! emulator panes (`Action::Midi`, one byte at a time, exactly like the metronome feeds
 //! them) and the live FM-1 units.
 //!
-//! An emulated pane is a sink only: the FM-1 board has no MIDI TX pin (fm1-soc's UART1
-//! models the TRS MIDI IN jack alone), so emulated firmwares never emit MIDI bytes.
+//! An emulated pane is a sink only here, but that is an emulator limit, not a firmware
+//! one: the FM-1's TRS jack is MIDI-in alone and its firmwares instead talk MIDI both
+//! ways over USB-C — their images carry a USB MIDIStreaming interface (see
+//! [`crate::usbmidi`]), which is how the live units below get their bidirectional ports.
+//! The emulated SoC stubs the USB controller at register level (and UART1 TX is not
+//! wired either), so nothing a pane's firmware sends ever leaves it. The graph UI says
+//! so where a running pane advertises USB-MIDI.
 //!
 //! A poller thread refreshes the system port list twice a second (the same rhythm the
 //! hardware scanner uses) and keeps one MIDI input connection open per system source

@@ -112,11 +112,6 @@ impl Clock {
             .store(bpm.clamp(MIN_BPM, MAX_BPM), Ordering::Relaxed);
     }
 
-    pub fn adjust_bpm(&self, delta: i32) {
-        let now = self.bpm() as i32;
-        self.set_bpm((now + delta).clamp(MIN_BPM as i32, MAX_BPM as i32) as u32);
-    }
-
     /// True on every other beat: the little on/off light in the toolbar.
     pub fn beat_light(&self) -> bool {
         self.enabled.load(Ordering::Relaxed) && self.beat.load(Ordering::Relaxed) % 2 == 1

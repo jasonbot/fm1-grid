@@ -6,8 +6,10 @@ description = "An FM-1 emulator grid with a MIDI clock metronome"
 license = "MIT"
 
 [dependencies]
-# GUI
-eframe = "0.33.3"
+# GUI (see GPUI_PORT.md for the egui → gpui-kit port)
+gpui-kit = "=0.8.0"
+# Pixel frames for gpui's RenderImage (the LCD views).
+image = "0.25"
 rfd = "0.17.2"
 # MIDI ports for the live USB devices (hardware.rs)
 midir = "0.11.1"
@@ -21,8 +23,21 @@ fm1-core = { git = "https://github.com/joakimeriksson/fm1-emu.git", rev = "9f0f6
 fm1-soc = { git = "https://github.com/joakimeriksson/fm1-emu.git", rev = "9f0f65afc1b30c94daf295edc4b23ed71490849e" }
 hqx = "0.1.1"
 
+[dev-dependencies]
+# Headless UI tests (src/tests); unifies with the dependency above for test builds.
+gpui-kit = { version = "=0.8.0", features = ["test-support"] }
+
 [profile.release]
 opt-level = 3
 lto = "fat"
 codegen-units = 1
 panic = "abort"
+
+# The CPU emulator needs optimization even in debug builds to run in realtime; without
+# these, `cargo run` gives ~0.3x speed and the audio queue underruns (no sound).
+[profile.dev.package.fm1-core]
+opt-level = 3
+[profile.dev.package.fm1-soc]
+opt-level = 3
+[profile.dev.package.fm1-isa]
+opt-level = 3

@@ -8,8 +8,6 @@
 //! plus its vintage/beta flags; the first tag is the group the dropdowns show a firmware
 //! under. See `firmware/README.md` for sources and licences.
 
-use eframe::egui::{RichText, Ui};
-
 pub struct BuiltinFirmware {
     pub name: &'static str,
     pub version: &'static str,
@@ -53,11 +51,3 @@ pub fn groups() -> Vec<(&'static str, Vec<usize>)> {
     out
 }
 
-/// A dropdown's group header: the category name in the quiet caps the section headers
-/// use elsewhere, with a separator between the groups.
-pub(crate) fn group_header(ui: &mut Ui, group: &str, first: bool) {
-    if !first {
-        ui.separator();
-    }
-    ui.label(RichText::new(group.to_uppercase()).strong().size(9.0).color(crate::theme::DIM));
-}

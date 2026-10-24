@@ -1,212 +1,201 @@
-//! The device sidebar: everything right of the grid, full height. From the top: the
-//! heading, the selected screen live at 4x, the pane's attributes, the placeholder
-//! for firmware-specific controls, then the MIDI graph ([`crate::graph`]).
+//! The device sidebar: the selected pane's screen, its power switch, firmware selector
+//! and status, and the MIDI graph editor at the bottom. Theme colours throughout; the
+//! only computed colour in the window is the grid background behind it.
 
 use crate::app::{GridApp, Source};
-use crate::firmware_picker::{self, Pick};
 use crate::lcd;
-use crate::theme::{ambient_tint, paint_card, toggle_switch, DIM, INK, RED};
-use eframe::egui;
-use egui::{Align, Color32, CornerRadius, Layout, Pos2, Rect, RichText, Sense, UiBuilder, Vec2};
-
-enum Choice {
-    Builtin(usize),
-    Other,
-}
+use gpui_kit::base::{ElementExt, h_flex, v_flex};
+use gpui_kit::component::tooltip::Tooltip;
+use gpui_kit::component::{ActiveTheme, Icon, IconName, Sizable};
+use gpui_kit::component::combobox::Combobox;
+use gpui_kit::component::switch::Switch;
+use gpui_kit::*;
 
 impl GridApp {
-    /// The device sidebar: greedy for all space right of the grid, full height. From the
-    /// top: the heading, the selected screen live at 4x, the pane's attributes, the
-    /// placeholder for firmware-specific controls (a registry of those will dispatch here
-    /// once one exists), then the MIDI graph in a scroll region capped at 1.5x the grid's
-    /// screen size. Its background is the ambient grid colour, slightly desaturated and
-    /// strongly lightened so dark text and controls stay readable.
+    /// The sidebar takes a fixed share of the window's width (the grid keeps the rest)
+    /// and its full height. The selected screen shows at an exact pixel multiple —
+    /// 4x, 2x or 1x (960/480/240), the largest that fits the width the sidebar had
+    /// last frame — so every LCD pixel maps to a clean block of screen pixels (the
+    /// image arrives hqx-upscaled to match).
     pub fn device_sidebar(
         &mut self,
-        ui: &mut egui::Ui,
-        rect: Rect,
-        ambient: Color32,
-        grid_screen: f32,
-    ) {
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
         let slot = self.active;
-        paint_card(ui.painter(), rect, CornerRadius::same(10), ambient_tint(ambient));
+        let (surface, border, ink, dim, danger) = {
+            let theme = cx.theme();
+            (
+                theme.popover,
+                theme.border,
+                theme.foreground,
+                theme.muted_foreground,
+                theme.danger,
+            )
+        };
 
-        // Contents align from the top, never centered in the leftover height.
-        let mut content = ui.new_child(
-            UiBuilder::new()
-                .id_salt("device-sidebar")
-                .max_rect(rect.shrink2(Vec2::splat(16.0)))
-                .layout(Layout::top_down(Align::Min)),
-        );
-        content.set_width(content.available_width());
-        content.set_clip_rect(rect);
-
-        let name = self.slots[slot]
-            .label
-            .clone()
-            .unwrap_or_else(|| "No firmware".to_string());
-        content.label(
-            RichText::new(format!("Device {}: {}", slot + 1, name))
-                .strong()
-                .size(20.0)
-                .color(INK),
-        );
-        content.add_space(12.0);
-
-        // The selected screen at an exact pixel multiple — 4x, 2x or 1x (960/480/240),
-        // the largest that fits the sidebar's width and what its height leaves for the
-        // attributes, placeholder and MIDI graph below — centered horizontally and
-        // aligned to whole screen pixels, so every LCD pixel maps to a clean block of
-        // screen pixels (the texture arrives hqx-upscaled to match). Only windows too
-        // small even for 1x fall back to a fractional fit. The graph reserves what it
-        // measured last frame (capped at 1.5x the grid screen), not its worst case:
-        // the worst-case reservation starved the screen of 2x on normal windows.
-        let graph_id = egui::Id::new("midi-graph-height");
-        let graph_max = 1.5 * grid_screen;
-        let graph_h = ui
-            .ctx()
-            .data(|data| data.get_temp::<f32>(graph_id))
-            .unwrap_or(96.0)
-            .clamp(60.0, graph_max);
-        let fit = 960.0_f32
-            .min(content.available_width() - 6.0)
-            .min((content.available_height() - 140.0 - graph_h).max(80.0));
+        // The exact-multiple fit, from the width measured during last frame's prepaint
+        // (the same one-frame lag the egui layout had with the graph's height).
+        let inner_w = (self.sidebar_width - 26.0).max(80.0);
+        let fit = inner_w.min(960.0);
         let side = [960.0, 480.0, 240.0]
             .into_iter()
             .find(|&exact| exact <= fit)
             .unwrap_or(fit);
         self.sidebar_scale = (side / 240.0).round() as usize;
-        let (bezel, _) = content.allocate_exact_size(Vec2::splat(side + 6.0), Sense::hover());
-        let bezel = bezel.translate(Vec2::new(
-            rect.left() + (rect.width() - bezel.width()) / 2.0 - bezel.left(),
-            0.0,
-        ));
-        let bezel = Rect::from_min_max(bezel.min.round(), bezel.max.round());
-        let texture = &self.textures[slot];
-        lcd::view_at(&mut content, bezel, texture);
-        content.add_space(12.0);
 
-        self.pane_attributes(&mut content);
-        content.add_space(12.0);
-
-        let text = match &self.slots[slot].label {
-            Some(label) => format!("No custom behavior for {label}"),
-            None => format!("No firmware loaded in pane {}", slot + 1),
-        };
-        content.add(egui::Label::new(RichText::new(text).size(11.0).color(DIM)).wrap());
-
-        // The MIDI graph, pinned to the bottom of the column: a top-down child anchored
-        // so the section's bottom edge meets the sidebar's. Its height is what it
-        // measured last frame (the first frame uses a rough estimate), so the block
-        // hugs the content exactly.
-        let max = content.max_rect();
-        let spare = (max.bottom() - content.min_rect().bottom() - 12.0).max(60.0);
-        let graph_h = ui
-            .ctx()
-            .data(|data| data.get_temp::<f32>(graph_id))
-            .unwrap_or(96.0)
-            .min(spare);
-        let graph_rect =
-            Rect::from_min_max(Pos2::new(max.left(), max.bottom() - graph_h), max.right_bottom());
-        let mut graph_ui = ui.new_child(
-            UiBuilder::new()
-                .id_salt("sidebar-graph")
-                .max_rect(graph_rect)
-                .layout(Layout::top_down(Align::Min)),
-        );
-        graph_ui.set_width(graph_ui.available_width());
-        graph_ui.set_clip_rect(rect);
-        self.graph_section(&mut graph_ui, graph_max);
-        ui.ctx()
-            .data_mut(|data| data.insert_temp(graph_id, graph_ui.min_rect().height()));
-    }
-
-    /// The selected pane's attributes — power switch, firmware selector and status — at
-    /// the top of the device sidebar. The cards are display-only, so this is where
-    /// firmware switching lives.
-    fn pane_attributes(&mut self, ui: &mut egui::Ui) {
-        let slot = self.active;
-
-        let mut choice = None;
-        ui.horizontal(|ui| {
-            let mut on = self.powered[slot];
-            let response = toggle_switch(ui, &mut on).on_hover_text(if on {
-                "Power this pane off"
-            } else {
-                "Power this pane on"
-            });
-            if response.changed() {
-                self.set_power(slot, on);
-            }
-
-            let current = self.slots[slot]
-                .label
-                .clone()
-                .unwrap_or_else(|| "Choose firmware…".to_string());
-            let path_tip = match &self.slots[slot].source {
-                Some(Source::File(path)) => Some(path.display().to_string()),
-                _ => None,
-            };
-            let selected_builtin = match self.slots[slot].source {
-                Some(Source::Builtin(index)) => Some(index),
-                _ => None,
-            };
-            let selected_file = matches!(self.slots[slot].source, Some(Source::File(_)));
-
-            let combo_width = (ui.available_width() - 8.0).clamp(120.0, 220.0);
-            // Firmware can only be changed while the pane is powered off.
-            let response = ui
-                .add_enabled_ui(!self.powered[slot], |ui| {
-                    let (response, picked) = firmware_picker::show(
-                        ui,
-                        ("firmware", slot),
-                        RichText::new(current).size(11.0),
-                        combo_width,
-                        selected_builtin,
-                        selected_file,
-                    );
-                    choice = picked.map(|picked| match picked {
-                        Pick::Builtin(index) => Choice::Builtin(index),
-                        Pick::File => Choice::Other,
-                    });
-
-                    // A focused menu would otherwise eat Space (PLAY) on the active
-                    // emulator.
-                    let response = match path_tip {
-                        Some(path) => response.on_hover_text(path),
-                        None => response,
-                    };
-                    if response.clicked() {
-                        response.surrender_focus();
-                    }
-                    response
-                })
-                .inner;
-            response.on_disabled_hover_text("Power the pane off to change its firmware");
-        });
+        let name = self.slots[slot]
+            .label
+            .clone()
+            .unwrap_or_else(|| "No firmware".to_string());
 
         let status = match (&self.slots[slot].error, &self.slots[slot].handle) {
             (Some(error), _) => error.clone(),
             (None, Some(handle)) => handle.status(),
             (None, None) => "Off".to_string(),
         };
-        let status_color = if self.slots[slot].error.is_some()
-            || self
-                .slots[slot]
+        let status_bad = self.slots[slot].error.is_some()
+            || self.slots[slot]
                 .handle
                 .as_ref()
-                .is_some_and(|handle| !handle.is_running())
-        {
-            RED
-        } else {
-            DIM
-        };
-        ui.label(RichText::new(status).size(10.0).color(status_color));
+                .is_some_and(|handle| !handle.is_running());
 
-        match choice {
-            Some(Choice::Builtin(index)) => self.load_builtin(slot, index),
-            Some(Choice::Other) => self.pick_file(slot),
-            None => {}
-        }
+        let note = match &self.slots[slot].label {
+            Some(label) => format!("No custom behavior for {label}"),
+            None => format!("No firmware loaded in pane {}", slot + 1),
+        };
+
+        // Record the rendered width for next frame's scale choice.
+        let app = cx.entity().clone();
+        v_flex()
+            .id("device-sidebar")
+            .w(DefiniteLength::Fraction(0.32))
+            .min_w(px(280.0))
+            .max_w(px(620.0))
+            .h_full()
+            .rounded(px(10.0))
+            .bg(surface)
+            .border_1()
+            .border_color(border)
+            .p_3()
+            .gap_3()
+            .on_prepaint(move |bounds, _, cx| {
+                let width: f32 = bounds.size.width.into();
+                app.update(cx, |this, _| {
+                    if (this.sidebar_width - width).abs() > 0.5 {
+                        this.sidebar_width = width;
+                    }
+                });
+            })
+            .child(
+                div()
+                    .w_full()
+                    .truncate()
+                    .text_size(px(20.0))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(ink)
+                    .child(format!("Device {}: {}", slot + 1, name)),
+            )
+            // The screen, centred horizontally.
+            .child(h_flex().w_full().justify_center().child(self.sidebar_screen(side)))
+            .child(self.pane_attributes(cx))
+            .child(
+                div()
+                    .w_full()
+                    .truncate()
+                    .text_size(px(10.0))
+                    .text_color(if status_bad { danger } else { dim })
+                    .child(status),
+            )
+            .child(
+                div()
+                    .w_full()
+                    .text_size(px(11.0))
+                    .text_color(dim)
+                    .child(note),
+            )
+            .child(self.graph_section(cx))
+    }
+
+    /// The selected pane's screen in its dark bezel, at the exact upscale the sidebar's
+    /// width allows.
+    fn sidebar_screen(&self, side: f32) -> impl IntoElement {
+        let picture = self.frames[self.active].clone();
+        div()
+            .rounded(px(6.0))
+            .bg(rgb(lcd::BEZEL))
+            .p(px(3.0))
+            .child(match picture {
+                Some(image) => img(image)
+                    .w(px(side))
+                    .h(px(side))
+                    .into_any_element(),
+                None => div()
+                    .w(px(side))
+                    .h(px(side))
+                    .bg(rgb(0x000000))
+                    .into_any_element(),
+            })
+    }
+
+    /// The selected pane's attributes — power switch and firmware selector — under the
+    /// screen. The cards are display-only, so this is where firmware switching lives.
+    fn pane_attributes(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
+        let slot = self.active;
+        let on = self.powered[slot];
+        let label = self.slots[slot]
+            .label
+            .clone()
+            .unwrap_or_else(|| "Choose firmware…".to_string());
+        let path_tip = match &self.slots[slot].source {
+            Some(Source::File(path)) => Some(path.display().to_string()),
+            _ => None,
+        };
+
+        // Firmware can only be changed while the pane is powered off.
+        let combo = Combobox::new(&self.firmware_combos[slot])
+            .placeholder("Choose firmware…")
+            .search_placeholder("Filter…")
+            .menu_width(px(260.0))
+            .disabled(on)
+            .render_trigger(move |_, _, _| {
+                h_flex()
+                    .w_full()
+                    .items_center()
+                    .justify_between()
+                    .gap_1()
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .truncate()
+                            .text_size(px(11.0))
+                            .child(label.clone()),
+                    )
+                    .child(Icon::new(IconName::ChevronDown).xsmall())
+            });
+
+        let combo_host = div().id(("firmware", slot)).flex_1().min_w_0();
+        let combo_host = match path_tip {
+            Some(tip) => combo_host.tooltip(move |window, cx| {
+                Tooltip::new(tip.clone()).build(window, cx)
+            }),
+            None => combo_host,
+        };
+
+        h_flex()
+            .w_full()
+            .items_center()
+            .gap_2()
+            .child(
+                Switch::new("pane-power")
+                    .checked(on)
+                    .on_change(cx.listener(move |this, &on, window, cx| {
+                        this.set_power(slot, on);
+                        this.refocus(window, cx);
+                        cx.notify();
+                    })),
+            )
+            .child(combo_host.child(combo))
     }
 }

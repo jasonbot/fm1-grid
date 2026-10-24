@@ -452,6 +452,9 @@ impl GridApp {
                 cx.listener(move |this, _, _, cx| {
                     this.panel_down[id as usize] = true;
                     this.sync_held();
+                    // A black key sits on top of a white one: the press must not fall
+                    // through to the key beneath.
+                    cx.stop_propagation();
                     cx.notify();
                 }),
             )

@@ -19,7 +19,10 @@
 > supplies window controls where the compositor has none (GNOME); min window size
 > 1024×700; the tick uploads only changed framebuffers, so an idle window renders
 > ~2×/s; and `[profile.dev.package.fm1-*] opt-level = 3` keeps plain `cargo run` at
-> realtime audio (unoptimized, the FM-1 core reaches only ~0.3x).
+> realtime audio (unoptimized, the FM-1 core reaches only ~0.3x). Known upstream issue
+> (gpui-pre 0.3.9, Wayland): a compositor that answers maximize with a 0×0 configure
+> gets maximized state without a resize — the title bar's maximize looks inert there.
+> Not fixable from here; revisit on a gpui bump.
 
 ## The original plan
 

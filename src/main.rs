@@ -59,10 +59,9 @@ fn main() {
             open_window(
                 WindowOptions {
                     window_bounds: Some(WindowBounds::Windowed(bounds)),
-                    // Fixed by the unscaled screens: two 1:1 cards across, the sidebar
-                    // tall enough for the 2x screen plus a usable graph, and the
-                    // transport bar below.
-                    window_min_size: Some(size(px(1072.0), px(1116.0))),
+                    // Two 1:1 cards across, the sidebar at its 1x floor, the tab bar
+                    // and the transport bar. Below this the layout degrades.
+                    window_min_size: Some(size(px(840.0), px(950.0))),
                     titlebar: Some(TitlebarOptions {
                         title: Some("FM-1 Grid".into()),
                         ..TitleBar::title_bar_options()

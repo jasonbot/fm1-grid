@@ -47,12 +47,13 @@ mod tests {
 
     #[test]
     fn bundled_firmwares() {
-        // Every hub firmware advertises USB-MIDI in/out; M-VAVE's stock package is the
-        // one that doesn't.
+        // Every hub firmware advertises USB-MIDI in/out; M-VAVE's own packages (the
+        // FM-1's stock image, the FM-1+VA's) are the exceptions.
+        const NO_USB_MIDI: [&str; 2] = ["FM-1_015.fwsc", "FM-1+VA-102.fwsc"];
         for firmware in crate::builtin::BUILTINS {
             assert_eq!(
                 advertised(firmware.bytes),
-                firmware.file != "FM-1_015.fwsc",
+                !NO_USB_MIDI.contains(&firmware.file),
                 "{} changed its USB-MIDI advertisement",
                 firmware.file
             );

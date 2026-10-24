@@ -55,22 +55,29 @@ case "${1:-}" in
         tags_json=$(printf '%s' "$tags" |
             jq -R 'split(",") | map(gsub("^\\s+|\\s+$"; "")) | map(select(length > 0))')
         [ "$tags_json" != "[]" ] || { echo "tags must not be empty" >&2; exit 1; }
-        # Replace any existing entry with the same file or name, keeping its recorded
-        # url (unless overridden), source and license.
+        # Replace any existing entry with the same file or name in place (the JSON
+        # order is the default pane order), keeping its recorded url (unless
+        # overridden), source and license. New entries are appended.
         jq --arg file "$file" --arg name "$name" --arg version "$version" \
            --arg sha256 "$sum" --arg url "$url" --argjson tags "$tags_json" '
             (map(select(.file == $file or .name == $name)) | .[0] // {}) as $old
-            | map(select(.file != $file and .name != $name))
-            + [ {
-                  name: $name,
-                  version: $version,
-                  file: $file,
-                  tags: $tags,
-                  url: (if $url != "" then $url else $old.url end),
-                  source: $old.source,
-                  sha256: $sha256,
-                  license: $old.license
-                } | with_entries(select(.value != null)) ]
+            | ({
+                name: $name,
+                version: $version,
+                file: $file,
+                tags: $tags,
+                url: (if $url != "" then $url else $old.url end),
+                source: $old.source,
+                sha256: $sha256,
+                license: $old.license
+              } | with_entries(select(.value != null))) as $new
+            | (reduce .[] as $e ({replaced: false, out: []};
+                if $e.file == $file or $e.name == $name then
+                    if .replaced then . else .replaced = true | .out += [$new] end
+                else
+                    .out += [$e]
+                end))
+            | if .replaced then .out else .out + [$new] end
         ' "$JSON" | save
         echo "added: $name $version ($file, sha256 $sum, tags $tags)"
         echo "rebuild with: cargo build --release"

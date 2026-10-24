@@ -23,7 +23,7 @@ non-zero, so you can re-run it any time to re-check integrity.
 ## Where the packages come from
 
 * Everything except the packages below is mirrored by The FM-1 Firmware Hub; hashes
-  were checked against the hub's catalogue on 2026-10-23.
+  were checked against the hub's catalogue on 2026-10-24.
 * The RedtailWorks pack (LOF-1, ECO-1, GRAV-1, CTY-1) downloads from RedtailWorks'
   own installer pages; hashes were recorded on download on 2026-10-23.
 * **FM1 Open V15** is M-VAVE's official `FM-1_015.fwsc`, shipped as the base image of

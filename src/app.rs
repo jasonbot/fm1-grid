@@ -767,8 +767,8 @@ impl GridApp {
                 )
                 .child(
                     resizable_panel()
-                        .size(px(512.0))
-                        .size_range(px(272.0)..px(992.0))
+                        .size(px(crate::theme::SIDEBAR_INITIAL))
+                        .size_range(px(crate::theme::SIDEBAR_MIN)..px(crate::theme::SIDEBAR_MAX))
                         .child(self.device_sidebar(window, cx)),
                 ),
         )

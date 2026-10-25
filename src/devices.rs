@@ -16,6 +16,14 @@ use gpui_kit::component::{ActiveTheme, Sizable};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 
+/// The flash progress bar's size.
+const PROGRESS_W: f32 = 180.0;
+const PROGRESS_H: f32 = 12.0;
+/// The flash outcome report's indent, aligning it under the row's text.
+const OUTCOME_INDENT: f32 = 52.0;
+/// The flash firmware combobox's width in the row.
+const FLASH_COMBO_W: f32 = 200.0;
+
 impl GridApp {
     /// The Devices tab's left half: the live USB units. Bare like the graph half —
     /// the split's divider is the only frame.
@@ -89,7 +97,7 @@ impl GridApp {
                     .when(!board.error, |el| {
                         el.when_some(board.progress, |el, progress| {
                             el.child(
-                                div().w(px(180.0)).h(px(12.0)).child(
+                                div().w(px(PROGRESS_W)).h(px(PROGRESS_H)).child(
                                     Progress::new("flash-progress").value(progress * 100.0),
                                 ),
                             )
@@ -185,11 +193,11 @@ impl GridApp {
                     .gap_1()
                     .when_some(combo, |el, state| {
                         el.child(
-                            div().w(px(200.0)).child(
+                            div().w(px(FLASH_COMBO_W)).child(
                                 Combobox::new(&state)
                                     .placeholder("flash firmware…")
                                     .search_placeholder("Filter…")
-                                    .menu_width(px(260.0))
+                                    .menu_width(px(crate::theme::COMBO_MENU_W))
                                     .empty(|_, cx| {
                                         div()
                                             .p_2()
@@ -245,7 +253,7 @@ impl GridApp {
             };
             out = out.child(
                 div()
-                    .pl(px(52.0))
+                    .pl(px(OUTCOME_INDENT))
                     .text_size(px(10.0))
                     .text_color(color)
                     .child(outcome.clone()),

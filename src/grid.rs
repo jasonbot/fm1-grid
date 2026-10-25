@@ -11,6 +11,8 @@ use gpui_kit::{TestSupportExt as _, *};
 
 /// Two 262 px cards plus one 3 px gap.
 pub(crate) const GRID_W: f32 = 527.0;
+/// The grid area's maximum width: side padding never passes ~1½ screen widths.
+const GRID_MAX_W: f32 = GRID_W + 720.0;
 
 impl GridApp {
     /// The 2x2 grid on the computed background: content-sized and centred, with the
@@ -32,7 +34,7 @@ impl GridApp {
             .child(
                 div()
                     .w_full()
-                    .max_w(px(GRID_W + 720.0))
+                    .max_w(px(GRID_MAX_W))
                     .flex()
                     .justify_center()
                     .child(self.grid_cards(cx)),

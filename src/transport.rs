@@ -15,6 +15,14 @@ use gpui_kit::component::{ActiveTheme, Sizable};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 
+/// The clock label column's fixed width (RUNNING and STOPPED stay put).
+const CLOCK_LABEL_W: f32 = 108.0;
+/// The tempo field: wide enough that the steppers and the BPM suffix cannot
+/// squeeze the digits out.
+const TEMPO_FIELD_W: f32 = 140.0;
+/// The beat light's diameter.
+const BEAT_LED: f32 = 18.0;
+
 impl GridApp {
     /// The transport sits in a flat theme-coloured bar at the bottom of the window.
     pub fn transport(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -139,7 +147,7 @@ impl GridApp {
                         // Fixed width: RUNNING and STOPPED have the same number of
                         // characters in a monospace font, so the tempo display never
                         // shifts by a pixel when the clock starts.
-                        v_flex().w(px(108.0)).child(
+                        v_flex().w(px(CLOCK_LABEL_W)).child(
                             div()
                                 .text_size(px(11.0))
                                 .font_weight(FontWeight::BOLD)
@@ -159,10 +167,8 @@ impl GridApp {
                         ),
                     )
                     .child(
-                        // Wide enough that the steppers and the BPM suffix cannot
-                        // squeeze the digits out of the field.
                         div()
-                            .w(px(140.0))
+                            .w(px(TEMPO_FIELD_W))
                             .child(NumberInput::new(&self.tempo_input).suffix(
                                 div()
                                     .text_size(px(9.0))
@@ -176,8 +182,8 @@ impl GridApp {
                             .gap_1()
                             .child(
                                 div()
-                                    .w(px(18.0))
-                                    .h(px(18.0))
+                                    .w(px(BEAT_LED))
+                                    .h(px(BEAT_LED))
                                     .rounded_full()
                                     .border_1()
                                     .border_color(border)

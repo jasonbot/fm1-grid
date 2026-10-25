@@ -38,6 +38,19 @@ pub(crate) fn mix(a: u32, b: u32, t: f32) -> u32 {
     (ch(16) << 16) | (ch(8) << 8) | ch(0)
 }
 
+/// Halfway between two theme colours, per channel in sRGB: the health ramp's orange
+/// sits between the theme's `warning` and `danger`.
+pub(crate) fn halfway(a: gpui_kit::Hsla, b: gpui_kit::Hsla) -> gpui_kit::Hsla {
+    let (a, b) = (gpui_kit::Rgba::from(a), gpui_kit::Rgba::from(b));
+    gpui_kit::Rgba {
+        r: (a.r + b.r) * 0.5,
+        g: (a.g + b.g) * 0.5,
+        b: (a.b + b.b) * 0.5,
+        a: (a.a + b.a) * 0.5,
+    }
+    .into()
+}
+
 /// Layout constants shared across the window.
 ///
 /// The sidebar split's initial/min/max widths: the screen at 2x, 1x and 4x plus its

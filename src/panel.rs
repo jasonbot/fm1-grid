@@ -19,8 +19,11 @@ use gpui_kit::component::ActiveTheme;
 use gpui_kit::*;
 
 const KEY_HEIGHT: f32 = 120.0;
+/// What the compact keyboard sheds when the window is too short for the full stack.
+const KEY_COMPACT_LOSS: f32 = 32.0;
 const KEY_MARGIN: f32 = 6.0;
-const PANEL_HEIGHT: f32 = 196.0 + (KEY_HEIGHT - 40.0);
+/// The panel's height above the key bed: header, control rows and margins.
+const PANEL_CONTROLS_H: f32 = 156.0;
 const GROUP_HEIGHT: f32 = 24.0;
 
 /// What a three-part rotary group turns: the MASTER pot or one of the FM-1's encoders.
@@ -34,8 +37,15 @@ impl GridApp {
     /// A miniature FM-1 front panel. It is a working control surface: note keys and
     /// buttons can be clicked, the knobs are turned with the -/+ ends or the mouse
     /// wheel, and both the computer keyboard and the emulated firmware's LEDs light
-    /// the indicators.
-    pub fn control_display(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
+    /// the indicators. `compact` shortens the keyboard by [`KEY_COMPACT_LOSS`] when
+    /// the window is too short for the full-height stack.
+    pub fn control_display(&mut self, cx: &mut Context<Self>, compact: bool) -> impl IntoElement {
+        let key_height = if compact {
+            KEY_HEIGHT - KEY_COMPACT_LOSS
+        } else {
+            KEY_HEIGHT
+        };
+        let panel_h = PANEL_CONTROLS_H + key_height;
         // Keep the panel roughly as wide as the card grid.
         let w = self.panel_width.clamp(320.0, 1040.0);
         let left = 14.0f32;
@@ -61,7 +71,7 @@ impl GridApp {
             .relative()
             .w(px(w))
             .max_w_full()
-            .h(px(PANEL_HEIGHT))
+            .h(px(panel_h))
             .rounded(px(8.0))
             .bg(rgb(PANEL_BODY))
             .on_prepaint(move |bounds, _, cx| {
@@ -157,8 +167,8 @@ impl GridApp {
         // The 27 pill keys: a row of white keys, then the black keys over them.
         let key_left = left;
         let key_right = right;
-        let key_bottom = PANEL_HEIGHT - KEY_MARGIN;
-        let key_top = key_bottom - KEY_HEIGHT;
+        let key_bottom = panel_h - KEY_MARGIN;
+        let key_top = key_bottom - key_height;
         let white_width = (key_right - key_left) / WHITE_KEYS.len() as f32;
         panel = panel.child(
             div()
@@ -166,13 +176,13 @@ impl GridApp {
                 .left(px(key_left))
                 .top(px(key_top))
                 .w(px(key_right - key_left))
-                .h(px(KEY_HEIGHT))
+                .h(px(key_height))
                 .flex()
                 .flex_row()
                 .gap(px(1.0))
                 .children(WHITE_KEYS.iter().map(|&id| self.white_key(cx, id))),
         );
-        let black_height = KEY_HEIGHT * 0.62;
+        let black_height = key_height * 0.62;
         for &(id, after) in BLACK_KEYS.iter() {
             let center_x = key_left + (after as f32 + 1.0) * white_width;
             let width = white_width * 0.62;

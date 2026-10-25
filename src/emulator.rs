@@ -7,7 +7,8 @@
 use crate::audio::{AudioRing, MAX_QUEUED};
 use fm1_core::{Bus, Cpu};
 use fm1_soc::{machine, Action, Board, Soc, CPU_HZ, RAM_BASE};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::collections::VecDeque;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
@@ -25,6 +26,8 @@ const PARAMS: u32 = RAM_BASE + 0x7fc00;
 
 /// 44.1 kHz stereo i16 is 88.2 samples per millisecond.
 const SAMPLES_PER_MS: f64 = 88.2;
+/// The dropout health window: only drops inside the trailing five seconds count.
+const DROP_WINDOW: Duration = Duration::from_secs(5);
 
 pub const LCD_W: usize = 240;
 pub const LCD_H: usize = 240;
@@ -96,6 +99,8 @@ pub struct EmulatorHandle {
     /// Brightness (0..1) of each of the 41 front-panel LEDs, as the firmware drives them.
     leds: Arc<Mutex<[f32; 41]>>,
     status: Arc<Mutex<String>>,
+    /// Audio dropouts inside the trailing five-second window, refreshed twice a second.
+    drops_5s: Arc<AtomicU64>,
     running: Arc<AtomicBool>,
     join: Option<JoinHandle<()>>,
     /// The SPI flash's contents once the thread has stopped (the emulated device's
@@ -129,6 +134,7 @@ impl EmulatorHandle {
         let lcd: SharedLcd = Arc::new(Mutex::new(vec![0u16; LCD_W * LCD_H]));
         let leds = Arc::new(Mutex::new([0.0f32; 41]));
         let status = Arc::new(Mutex::new("booting".to_string()));
+        let drops_5s = Arc::new(AtomicU64::new(0));
         let running = Arc::new(AtomicBool::new(true));
         let (tx, rx) = mpsc::channel::<Action>();
         let snapshot = Arc::new(Mutex::new(None));
@@ -137,6 +143,7 @@ impl EmulatorHandle {
             let lcd = lcd.clone();
             let leds = leds.clone();
             let status = status.clone();
+            let drops_5s = drops_5s.clone();
             let running = running.clone();
             let snapshot = snapshot.clone();
             thread::Builder::new()
@@ -154,6 +161,7 @@ impl EmulatorHandle {
                         lcd,
                         leds,
                         status,
+                        drops_5s,
                         running,
                         audio_enabled,
                         snapshot,
@@ -167,6 +175,7 @@ impl EmulatorHandle {
             tx,
             leds,
             status,
+            drops_5s,
             running,
             join: Some(thread),
             snapshot,
@@ -187,6 +196,11 @@ impl EmulatorHandle {
 
     pub fn status(&self) -> String {
         self.status.lock().map(|s| s.clone()).unwrap_or_default()
+    }
+
+    /// Audio dropouts inside the trailing five-second window.
+    pub fn drops_5s(&self) -> u64 {
+        self.drops_5s.load(Ordering::Relaxed)
     }
 
     /// The latest front-panel LED brightness values (0..1, one per key id).
@@ -220,6 +234,7 @@ fn run_emulator(
     lcd: SharedLcd,
     leds: Arc<Mutex<[f32; 41]>>,
     status: Arc<Mutex<String>>,
+    drops_5s: Arc<AtomicU64>,
     running: Arc<AtomicBool>,
     audio_enabled: bool,
     snapshot: Arc<Mutex<Option<Vec<u8>>>>,
@@ -231,6 +246,8 @@ fn run_emulator(
     let mut last_stat = Instant::now();
     let (mut stat_emu, mut stat_wall) = (0u64, Instant::now());
     let mut lcd_buf = vec![0u16; LCD_W * LCD_H];
+    // Samples of the from-zero underrun counter, kept to the trailing DROP_WINDOW.
+    let mut drop_log: VecDeque<(Instant, u64)> = VecDeque::new();
 
     while running.load(Ordering::Relaxed) {
         while let Ok(action) = rx.try_recv() {
@@ -291,8 +308,24 @@ fn run_emulator(
             let speed = (now - stat_emu) as f64 / stat_wall.elapsed().as_secs_f64() / 1000.0;
             let buffered = ring.q.lock().map(|q| q.len()).unwrap_or(0) as f64 / SAMPLES_PER_MS;
             let underruns = ring.underruns.load(Ordering::Relaxed);
+            // The underrun counter only grows from boot; fold it into the trailing
+            // window so the status and the health dot show the recent past, not the
+            // whole run.
+            let wall = Instant::now();
+            if drop_log.back().is_some_and(|&(_, total)| total > underruns) {
+                drop_log.clear(); // the counter reset with the ring
+            }
+            drop_log.push_back((wall, underruns));
+            while drop_log
+                .front()
+                .is_some_and(|&(t, _)| wall.duration_since(t) > DROP_WINDOW)
+            {
+                drop_log.pop_front();
+            }
+            let drops = underruns - drop_log.front().map(|&(_, total)| total).unwrap_or(underruns);
+            drops_5s.store(drops, Ordering::Relaxed);
             *status.lock().unwrap() = format!(
-                "{speed:.2}x · {:.0} ms audio · {underruns} dropouts",
+                "{speed:.2}x · {:.0} ms audio · {drops} drops/5s",
                 buffered.max(0.0)
             );
             stat_emu = now;

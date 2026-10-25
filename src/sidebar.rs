@@ -1,6 +1,7 @@
-//! The device sidebar: the selected pane's screen, its power switch, firmware selector
-//! and status, and the MIDI graph editor at the bottom. Theme colours throughout; the
-//! only computed colour in the window is the grid background behind it.
+//! The device sidebar: the selected pane's screen centred in the spare height, its
+//! power switch, firmware selector and status pinned to the bottom. Theme colours
+//! throughout; the only computed colour in the window is the grid background behind
+//! it.
 
 use crate::app::{GridApp, Source};
 use crate::lcd;
@@ -17,13 +18,16 @@ use gpui_kit::*;
 const SCREEN_SIDES: [f32; 3] = [960.0, 480.0, 240.0];
 /// Horizontal chrome around the screen: the card's padding and the bezel.
 const FIT_W_CHROME: f32 = 26.0;
-/// Vertical chrome: title, attributes, status, note, gaps and padding.
-const FIT_H_CHROME: f32 = 164.0;
+/// Vertical chrome: title, attributes, status, gaps and padding.
+const FIT_H_CHROME: f32 = 134.0;
 /// Smallest screen side the layout falls back to (fractional fit).
 const SCREEN_MIN: f32 = 80.0;
 /// The firmware combobox renders at the component's medium input height (32 px); the
 /// pinned label matches it, so pinning never changes the row's height.
 const COMBO_H: f32 = 32.0;
+/// The attributes row keeps a fixed content width: the controls pin to the bottom of
+/// the sidebar without stretching across it.
+const ATTRS_COMBO_W: f32 = 180.0;
 
 impl GridApp {
     /// The sidebar takes a fixed share of the window's width (the grid keeps the rest)
@@ -37,11 +41,10 @@ impl GridApp {
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let slot = self.active;
-        let (surface, border, ink, dim, danger) = {
+        let (surface, ink, dim, danger) = {
             let theme = cx.theme();
             (
                 theme.popover,
-                theme.border,
                 theme.foreground,
                 theme.muted_foreground,
                 theme.danger,
@@ -78,20 +81,12 @@ impl GridApp {
                 .as_ref()
                 .is_some_and(|handle| !handle.is_running());
 
-        let note = match &self.slots[slot].label {
-            Some(label) => format!("No custom behavior for {label}"),
-            None => format!("No firmware loaded in pane {}", slot + 1),
-        };
-
         // Record the rendered size for next frame's scale choice.
         let app = cx.entity().clone();
         v_flex()
             .id("device-sidebar")
             .size_full()
-            .rounded(px(10.0))
             .bg(surface)
-            .border_1()
-            .border_color(border)
             .p_3()
             .gap_3()
             .on_prepaint(move |bounds, _, cx| {
@@ -111,8 +106,18 @@ impl GridApp {
                     .text_color(ink)
                     .child(format!("Device {}: {}", slot + 1, name)),
             )
-            // The screen, centred horizontally.
-            .child(h_flex().w_full().justify_center().child(self.sidebar_screen(side)))
+            // The screen fills the spare height and centres itself in it; the
+            // controls and status pin to the bottom at their natural size.
+            .child(
+                div()
+                    .flex_1()
+                    .min_h_0()
+                    .w_full()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .child(self.sidebar_screen(side)),
+            )
             .child(self.pane_attributes(cx))
             .child(
                 div()
@@ -121,13 +126,6 @@ impl GridApp {
                     .text_size(px(10.0))
                     .text_color(if status_bad { danger } else { dim })
                     .child(status),
-            )
-            .child(
-                div()
-                    .w_full()
-                    .text_size(px(11.0))
-                    .text_color(dim)
-                    .child(note),
             )
     }
 
@@ -197,7 +195,7 @@ impl GridApp {
                     .child(Icon::new(IconName::ChevronDown).xsmall())
             });
 
-        let combo_host = div().id(("firmware", slot)).flex_1().min_w_0();
+        let combo_host = div().id(("firmware", slot)).w(px(ATTRS_COMBO_W));
         let combo_host = match path_tip {
             Some(tip) => combo_host.tooltip(move |window, cx| {
                 Tooltip::new(tip.clone()).build(window, cx)
@@ -213,7 +211,6 @@ impl GridApp {
         h_flex()
             .id("pane-attrs")
             .test_support()
-            .w_full()
             .items_center()
             .gap_2()
             .child(
@@ -228,8 +225,7 @@ impl GridApp {
             .child(if pinned {
                 div()
                     .id(("firmware", slot))
-                    .flex_1()
-                    .min_w_0()
+                    .w(px(ATTRS_COMBO_W))
                     .h(px(COMBO_H))
                     .flex()
                     .items_center()

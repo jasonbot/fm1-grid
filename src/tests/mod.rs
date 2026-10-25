@@ -9,13 +9,18 @@ use crate::app::GridApp;
 use gpui_kit::base::Root;
 use gpui_kit::test::TestWindowExt;
 use gpui_kit::{
-    AppContext, Bounds, Entity, Point, ScrollDelta, TestAppContext, WindowBounds,
-    WindowHandle, WindowOptions, open_window, point, px, size,
+    AppContext, Bounds, Entity, Focusable, Point, ScrollDelta, TestAppContext,
+    WindowBounds, WindowHandle, WindowOptions, open_window, point, px, size,
 };
 use std::time::Duration;
 
 /// Open the app in a test window at the real default size.
 fn open_app(cx: &mut TestAppContext) -> (WindowHandle<Root>, Entity<GridApp>) {
+    open_app_at(cx, 1180.0, 1160.0)
+}
+
+/// Open the app in a test window at a given size.
+fn open_app_at(cx: &mut TestAppContext, w: f32, h: f32) -> (WindowHandle<Root>, Entity<GridApp>) {
     // Tests share one throwaway store for the process (the pin test writes to it).
     if std::env::var_os("FM1_GRID_DATA_DIR").is_none() {
         unsafe {
@@ -29,7 +34,7 @@ fn open_app(cx: &mut TestAppContext) -> (WindowHandle<Root>, Entity<GridApp>) {
     cx.update(|cx| {
         let bounds = Bounds {
             origin: Point::default(),
-            size: size(px(1180.0), px(1160.0)),
+            size: size(px(w), px(h)),
         };
         let (window, content) = open_window(
             WindowOptions {
@@ -124,6 +129,112 @@ fn metronome_toggles(cx: &mut TestAppContext) {
     })
     .unwrap();
     cx.update(|cx| assert_eq!(app.read(cx).clock.enabled(), !before));
+}
+
+/// The tempo field is free-form while focused (nothing applies, whatever is typed)
+/// and sanitises onto the metronome on Enter and on blur.
+#[gpui_kit::test]
+fn tempo_sanitizes_on_blur(cx: &mut TestAppContext) {
+    let (window, app) = open_app(cx);
+
+    // Type an out-of-range tempo: the text takes it, the clock does not.
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        let tempo = app.read(cx).tempo_input.clone();
+        tempo.read(cx).focus_handle(cx).focus(window, cx);
+        window.press("ctrl-a", cx);
+        window.input("999", cx);
+    })
+    .unwrap();
+    cx.run_until_parked();
+    cx.update(|cx| {
+        let app = app.read(cx);
+        assert_eq!(app.tempo_input.read(cx).value().as_ref(), "999");
+        assert_eq!(app.clock.bpm(), 120, "a focused edit must not apply");
+    });
+
+    // Enter clamps and applies.
+    cx.update_window(window.into(), |_, window, cx| window.press("enter", cx))
+        .unwrap();
+    cx.run_until_parked();
+    cx.update(|cx| {
+        let app = app.read(cx);
+        assert_eq!(app.clock.bpm(), 300);
+        assert_eq!(app.tempo_input.read(cx).value().as_ref(), "300");
+    });
+
+    // Garbage snaps back to the live tempo on blur.
+    cx.update_window(window.into(), |_, window, cx| {
+        let tempo = app.read(cx).tempo_input.clone();
+        tempo.read(cx).focus_handle(cx).focus(window, cx);
+        window.press("ctrl-a", cx);
+        window.input("abc", cx);
+    })
+    .unwrap();
+    cx.run_until_parked();
+    cx.update(|cx| assert_eq!(app.read(cx).clock.bpm(), 300));
+    cx.update_window(window.into(), |_, window, cx| {
+        let root = app.read(cx).focus.clone();
+        root.focus(window, cx);
+    })
+    .unwrap();
+    cx.run_until_parked();
+    cx.update(|cx| {
+        let app = app.read(cx);
+        assert_eq!(app.clock.bpm(), 300);
+        assert_eq!(app.tempo_input.read(cx).value().as_ref(), "300");
+    });
+}
+
+/// The health dot appears on the first drop, lingers a second after recovery, then
+/// hides until the colour changes again.
+#[test]
+fn health_dot_lingers_then_hides() {
+    use crate::app::{DOT_LINGER, Health, SlotHealth};
+
+    let mut health = SlotHealth::default();
+    assert!(!health.shown, "green at boot stays hidden");
+
+    assert!(health.track(2, true));
+    assert!(health.shown && health.color == Health::Yellow);
+
+    assert!(health.track(0, true), "recovering to green repaints");
+    assert!(health.shown, "the dot lingers after recovery");
+    assert!(!health.track(0, true), "inside the linger nothing changes");
+
+    std::thread::sleep(DOT_LINGER + Duration::from_millis(50));
+    assert!(health.track(0, true), "the linger expiring hides the dot");
+    assert!(!health.shown);
+
+    assert!(health.track(30, true), "a colour change shows the dot again");
+    assert!(health.shown && health.color == Health::Red);
+    assert!(health.track(0, false), "powering off hides the dot at once");
+    assert!(!health.shown);
+}
+
+/// At the target device's logical size (1920x1200 at 150% = 1280x800) the grid cards
+/// snap to 0.5x and the window still renders.
+#[gpui_kit::test]
+fn grid_snaps_half_size(cx: &mut TestAppContext) {
+    let (window, app) = open_app_at(cx, 1280.0, 800.0);
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        // Everything still renders: cards, the power switch, the metronome.
+        for slot in 0..4usize {
+            assert!(window.find(("slot-card", slot)).visible());
+        }
+        assert!(window.find("midi-clock").visible());
+    })
+    .unwrap();
+    // The 16 ms pump snaps the scale from the recorded grid size.
+    for _ in 0..20 {
+        cx.background_executor.advance_clock(Duration::from_millis(100));
+        cx.run_until_parked();
+        if cx.update(|cx| app.read(cx).grid_scale) == 0.5 {
+            return;
+        }
+    }
+    cx.update(|cx| assert_eq!(app.read(cx).grid_scale, 0.5, "cards never snapped"));
 }
 
 /// Pinning: inert while the pane is off; on it snapshots the device's flash at

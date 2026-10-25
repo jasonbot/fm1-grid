@@ -126,11 +126,16 @@ FM1 Open V15, FM-1+VA — are the bundled firmwares with no USB-MIDI at all.)
 
 Starts **off**; the rocker switch starts and stops it. While running it sends a MIDI
 clock (24 PPQN) to every emulator, with MIDI Start/Stop on switch on/off. Tempo is
-20–300 BPM — type it or use the −/+ steppers. The small light blinks on every beat.
+20–300 BPM — the −/+ steppers apply at once; a typed value is free-form while you
+edit (an invalid or out-of-range draft paints the field's error border) and applies
+on Enter or when the field loses focus, clamped into range (unparsable text snaps
+back to the live tempo). The small light blinks on every beat.
 
 The clock thread runs independently of the window's frame rate, so timing never
 drifts. Audio from all slots is mixed into one output stream; a stalled slot cannot
-block the others.
+block the others. Each card's status dot reports its audio health from the trailing
+five seconds of dropouts (green → yellow → orange → red); a healthy slot's dot hides
+again a second after it recovers.
 
 ## Building
 
@@ -160,7 +165,7 @@ src/clock.rs         MIDI-clock thread, tempo, beat light
 src/emulator.rs      one thread + SoC + cores per slot, flash snapshot at exit
 src/audio.rs         four queues mixed into one output stream
 src/builtin.rs       embedded firmware catalogue (generated table)
-src/grid.rs          the 2x2 grid of cards and the background colour
+src/grid.rs          the 2x2 grid of cards (screens snap 1x/0.5x to fit) and the background colour
 src/sidebar.rs       the device sidebar: heading, upscaled screen, pane controls, pin
 src/panel.rs         the clickable FM-1 front panel
 src/transport.rs     the bottom bar: panel plus metronome

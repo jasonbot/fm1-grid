@@ -66,6 +66,75 @@ struct PinnedSlot {
     source: PinnedSource,
 }
 
+/// An emulator's audio health, from its five-second dropout window: the colour of
+/// the grid card's status dot.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Health {
+    Green,
+    Yellow,
+    Orange,
+    Red,
+}
+
+impl Health {
+    /// The ramp, in drops per window. Audio callbacks run every few milliseconds, so
+    /// [`RED_AT`] drops is already several percent of them running dry.
+    fn of(drops_5s: u64) -> Self {
+        const ORANGE_AT: u64 = 6;
+        const RED_AT: u64 = 26;
+        match drops_5s {
+            0 => Self::Green,
+            1..ORANGE_AT => Self::Yellow,
+            ORANGE_AT..RED_AT => Self::Orange,
+            _ => Self::Red,
+        }
+    }
+}
+
+/// The dot's painted state: it appears on any non-green colour and lingers
+/// [`DOT_LINGER`] after recovering to green, then hides until the colour changes.
+#[derive(Clone, Copy)]
+pub(crate) struct SlotHealth {
+    pub color: Health,
+    since: Instant,
+    pub shown: bool,
+}
+
+/// How long a recovered (green) dot stays visible before hiding.
+pub(crate) const DOT_LINGER: Duration = Duration::from_secs(1);
+
+impl SlotHealth {
+    /// Fold in the latest window count; true when the painted state changed.
+    pub(crate) fn track(&mut self, drops_5s: u64, running: bool) -> bool {
+        let color = if running {
+            Health::of(drops_5s)
+        } else {
+            Health::Green
+        };
+        if color != self.color {
+            *self = Self {
+                color,
+                since: Instant::now(),
+                shown: running,
+            };
+            return true;
+        }
+        let shown =
+            running && (color != Health::Green || self.since.elapsed() < DOT_LINGER);
+        std::mem::replace(&mut self.shown, shown) != shown
+    }
+}
+
+impl Default for SlotHealth {
+    fn default() -> Self {
+        Self {
+            color: Health::Green,
+            since: Instant::now(),
+            shown: false,
+        }
+    }
+}
+
 #[derive(serde::Serialize, serde::Deserialize)]
 #[serde(tag = "kind", rename_all = "lowercase")]
 enum PinnedSource {
@@ -152,6 +221,13 @@ pub struct GridApp {
     /// The sidebar panel's rendered size, recorded during prepaint (one frame of lag,
     /// the same trade the egui layout made with the graph height).
     pub(crate) sidebar_size: (f32, f32),
+    /// The grid area's rendered size, recorded the same way; the cards snap between
+    /// 1x and 0.5x screens to fit it.
+    pub(crate) grid_size: (f32, f32),
+    /// The grid cards' screen scale: exactly 1.0 or 0.5.
+    pub(crate) grid_scale: f32,
+    /// Per-slot audio health behind the grid cards' status dot.
+    pub(crate) health: [SlotHealth; MAX_SLOTS],
     /// The main area's tab: 0 = Emulator (grid + sidebar split), 1 = Devices (USB
     /// devices + MIDI graph split).
     pub(crate) active_tab: usize,
@@ -292,7 +368,10 @@ impl GridApp {
             },
         ));
 
-        // The tempo readout edits the metronome's BPM directly.
+        // The tempo field is free-form while it is focused — an invalid or
+        // out-of-range value only paints the error state — and the sanitise-and-apply
+        // pass runs on blur or Enter. The steppers edit the text without taking
+        // focus, so their Change events apply immediately.
         let tempo_input = cx.new(|cx| InputState::new(window, cx));
         tempo_input.update(cx, |state, cx| {
             state.set_value(format!("{:03}", clock.bpm()), window, cx);
@@ -301,21 +380,18 @@ impl GridApp {
             &tempo_input,
             window,
             |this, state, event, window, cx| {
-                if matches!(event, InputEvent::Change) {
-                    let text = state.read(cx).value().to_string();
-                    if let Ok(bpm) = text.trim().parse::<u32>() {
-                        let clamped = bpm.clamp(crate::clock::MIN_BPM, crate::clock::MAX_BPM);
-                        if clamped != this.clock.bpm() {
-                            this.clock.set_bpm(clamped);
-                        }
-                        if clamped != bpm {
-                            state.update(cx, |state, cx| {
-                                state.set_value(format!("{clamped:03}"), window, cx)
-                            });
-                        }
+                match event {
+                    InputEvent::Blur | InputEvent::PressEnter { .. } => {
+                        this.apply_tempo(state, window, cx);
                     }
-                    cx.notify();
+                    InputEvent::Change
+                        if !state.read(cx).focus_handle(cx).is_focused(window) =>
+                    {
+                        this.apply_tempo(state, window, cx);
+                    }
+                    _ => {}
                 }
+                cx.notify();
             },
         ));
 
@@ -384,6 +460,9 @@ impl GridApp {
             ghost_frame: 0,
             sidebar_scale: 1,
             sidebar_size: (512.0, 700.0),
+            grid_size: (crate::grid::GRID_W, crate::grid::GRID_W),
+            grid_scale: 1.0,
+            health: [SlotHealth::default(); MAX_SLOTS],
             active_tab: 0,
             panel_width: 1040.0,
             wheel_acc: (u32::MAX, 0.0),
@@ -841,6 +920,21 @@ impl GridApp {
         }
     }
 
+    /// Sanitise the tempo field onto the metronome: parse, clamp into the clock's
+    /// range, reformat. Text that is not a number snaps back to the live tempo.
+    fn apply_tempo(&mut self, state: &Entity<InputState>, window: &mut Window, cx: &mut Context<Self>) {
+        let text = state.read(cx).value().to_string();
+        let bpm = match text.trim().parse::<u32>() {
+            Ok(bpm) => bpm.clamp(crate::clock::MIN_BPM, crate::clock::MAX_BPM),
+            Err(_) => self.clock.bpm(),
+        };
+        self.clock.set_bpm(bpm);
+        let formatted = format!("{bpm:03}");
+        if text != formatted {
+            state.update(cx, |state, cx| state.set_value(formatted, window, cx));
+        }
+    }
+
     /// The 16 ms pump: merge inputs, upload LCD frames, refresh the ghost, decay the
     /// LEDs and ease the grid background. Replaces egui's per-frame `update()` work —
     /// with one retained-mode difference: nothing repaints unless something changed
@@ -862,6 +956,23 @@ impl GridApp {
         // The metronome's beat light flips without any UI input.
         let beat = self.clock.beat_light();
         dirty |= std::mem::replace(&mut self.last_beat, beat) != beat;
+        // The cards' health dots follow each emulator's five-second dropout window.
+        for slot in 0..MAX_SLOTS {
+            let (running, drops) = match &self.slots[slot].handle {
+                Some(handle) => (true, handle.drops_5s()),
+                None => (false, 0),
+            };
+            dirty |= self.health[slot].track(drops, running);
+        }
+        // The cards snap between 1x and 0.5x screens to fit the split panel.
+        let scale = if self.grid_size.0 >= crate::grid::GRID_W
+            && self.grid_size.1 >= crate::grid::GRID_W
+        {
+            1.0
+        } else {
+            0.5
+        };
+        dirty |= std::mem::replace(&mut self.grid_scale, scale) != scale;
         // Flash progress and hotplugged USB devices arrive on the hardware module's
         // threads; sweep them up twice a second.
         self.tick_count = self.tick_count.wrapping_add(1);
@@ -1039,14 +1150,14 @@ impl GridApp {
 
 impl GridApp {
     /// The Emulator tab: the 2x2 grid and the selected pane's sidebar in a draggable
-    /// split. The sidebar's range holds the screen at 1x to 4x; the grid panel's own
-    /// minimum keeps the cards whole.
+    /// split. The sidebar's range holds the screen at 1x to 4x; the grid panel's
+    /// minimum keeps the 0.5x cards whole (the cards snap down when it shrinks).
     fn emulator_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         div().size_full().child(
             h_resizable("emulator-split")
                 .child(
                     resizable_panel()
-                        .size_range(px(crate::grid::GRID_W)..Pixels::MAX)
+                        .size_range(px(crate::grid::GRID_MIN_W)..Pixels::MAX)
                         .child(self.grid_area(cx)),
                 )
                 .child(

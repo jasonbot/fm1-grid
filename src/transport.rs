@@ -23,6 +23,10 @@ const TEMPO_FIELD_W: f32 = 140.0;
 /// The beat light's diameter.
 const BEAT_LED: f32 = 18.0;
 
+/// The window height the full stack needs (title bar, tabs, full panel, 1x grid);
+/// below it the front panel's keyboard sheds its compact allowance.
+const PANEL_COMPACT_BELOW: f32 = 950.0;
+
 impl GridApp {
     /// The transport sits in a flat theme-coloured bar at the bottom of the window.
     pub fn transport(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -30,6 +34,7 @@ impl GridApp {
             let theme = cx.theme();
             (theme.background, theme.border)
         };
+        let compact = window.viewport_size().height < px(PANEL_COMPACT_BELOW);
         v_flex()
             .w_full()
             .bg(bar_bg)
@@ -38,14 +43,14 @@ impl GridApp {
             .px_3()
             .py_2()
             .gap_2()
-            .child(self.control_display(cx))
+            .child(self.control_display(cx, compact))
             .child(div().h(px(1.0)).w_full().bg(border))
             .child(self.metronome(window, cx))
     }
 
     /// The metronome row: clock switch, tempo readout, beat light, MIDI-keyboard
     /// selector; the range note and audio error sit on the right.
-    fn metronome(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn metronome(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let (surface, border, ink, dim, danger, accent, success) = {
             let theme = cx.theme();
             (
@@ -61,6 +66,14 @@ impl GridApp {
         let mono = cx.theme().mono_font_family.clone();
         let running = self.clock.enabled();
         let lit = self.clock.beat_light();
+
+        // While the tempo field is focused its text is free-form; an unparsable or
+        // out-of-range value paints the error border until the blur's sanitise pass.
+        let tempo_bad = {
+            let state = self.tempo_input.read(cx);
+            state.focus_handle(cx).is_focused(window)
+                && !matches!(state.value().trim().parse::<u32>(), Ok(bpm) if (MIN_BPM..=MAX_BPM).contains(&bpm))
+        };
 
         // The physical MIDI keyboard whose notes play the on-screen virtual keyboard;
         // the port list comes from the graph's poller.
@@ -169,12 +182,16 @@ impl GridApp {
                     .child(
                         div()
                             .w(px(TEMPO_FIELD_W))
-                            .child(NumberInput::new(&self.tempo_input).suffix(
-                                div()
-                                    .text_size(px(9.0))
-                                    .text_color(dim)
-                                    .child("BPM"),
-                            )),
+                            .child(
+                                NumberInput::new(&self.tempo_input)
+                                    .when(tempo_bad, |this| this.border_color(danger))
+                                    .suffix(
+                                        div()
+                                            .text_size(px(9.0))
+                                            .text_color(dim)
+                                            .child("BPM"),
+                                    ),
+                            ),
                     )
                     .child(
                         h_flex()

@@ -5,19 +5,27 @@
 
 use crate::app::GridApp;
 use crate::lcd;
-use gpui_kit::base::{h_flex, v_flex};
+use gpui_kit::base::{ElementExt, h_flex, v_flex};
 use gpui_kit::component::ActiveTheme;
+use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{TestSupportExt as _, *};
 
 /// Two 262 px cards plus one 3 px gap.
 pub(crate) const GRID_W: f32 = 527.0;
+/// The grid's 0.5x footprint: two 142 px cards plus one 3 px gap. The split panel's
+/// minimum, so the cards always stay whole.
+pub(crate) const GRID_MIN_W: f32 = 287.0;
 /// The grid area's maximum width: side padding never passes ~1½ screen widths.
 const GRID_MAX_W: f32 = GRID_W + 720.0;
+/// The status dot's diameter and its inset from the screen's corner.
+const DOT_D: f32 = 10.0;
+const DOT_INSET: f32 = 5.0;
 
 impl GridApp {
     /// The 2x2 grid on the computed background: content-sized and centred, with the
     /// side padding capped at ~1½ screen widths (past that, the sidebar's split takes
-    /// the window's extra width).
+    /// the window's extra width). The rendered size is recorded during prepaint; the
+    /// tick snaps the cards between 1x and 0.5x to fit it.
     pub(crate) fn grid_area(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
         let bg = Rgba {
             r: self.bg[0],
@@ -25,12 +33,23 @@ impl GridApp {
             b: self.bg[2],
             a: 1.0,
         };
+        let app = cx.entity().clone();
         div()
+            .id("grid-area")
             .size_full()
             .bg(bg)
             .flex()
             .items_center()
             .justify_center()
+            .overflow_hidden()
+            .on_prepaint(move |bounds, _, cx| {
+                let size = (bounds.size.width.into(), bounds.size.height.into());
+                app.update(cx, |this, _| {
+                    if this.grid_size != size {
+                        this.grid_size = size;
+                    }
+                });
+            })
             .child(
                 div()
                     .w_full()
@@ -41,8 +60,8 @@ impl GridApp {
             )
     }
 
-    /// The 2x2 card grid. Cards and screens are fixed-size — the LCD picture is always
-    /// 240x240, never scaled.
+    /// The 2x2 card grid. Cards are fixed-size at the current scale; screens are
+    /// exactly 1x or 0.5x the 240 px LCD, never a fractional size.
     fn grid_cards(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
         let mut cards = Vec::with_capacity(crate::MAX_SLOTS);
         for slot in 0..crate::MAX_SLOTS {
@@ -62,7 +81,9 @@ impl GridApp {
 
     /// One pane card: the pane's picture (the NTSC-distorted realtime snapshot for the
     /// selected pane, the receding live picture for the rest) on the dark LCD bezel.
-    /// Clicking routes the computer keyboard to that pane. The selection ring is a
+    /// Screens snap between 1x (240 px) and 0.5x (120 px) to fit the split panel. A
+    /// status dot in the screen's corner shows the slot's dropout health. Clicking
+    /// routes the computer keyboard to that pane. The selection ring is a
     /// constant-width border — selecting never changes the card's size, so nothing
     /// jumps.
     fn slot_card(&mut self, slot: usize, cx: &mut Context<Self>) -> AnyElement {
@@ -75,6 +96,20 @@ impl GridApp {
             Some(self.ghost.clone())
         } else {
             self.frames[slot].clone()
+        };
+        let side = crate::emulator::LCD_W as f32 * self.grid_scale;
+        // The health dot: the five-second dropout window's colour; hidden once the
+        // slot has been green for a second (see `SlotHealth::track`).
+        let dot = if self.health[slot].shown {
+            let theme = cx.theme();
+            Some(match self.health[slot].color {
+                crate::app::Health::Green => theme.success,
+                crate::app::Health::Yellow => theme.warning,
+                crate::app::Health::Orange => crate::theme::halfway(theme.warning, theme.danger),
+                crate::app::Health::Red => theme.danger,
+            })
+        } else {
+            None
         };
 
         div()
@@ -100,22 +135,40 @@ impl GridApp {
             )
             .child(
                 div().p(px(6.0)).child(
-                    // The bezel hugs the screen exactly: 240x240, 1:1, never scaled.
+                    // The bezel hugs the screen exactly: 1:1 or 1:2, never fractional.
                     div()
                         .rounded(px(6.0))
                         .bg(rgb(lcd::BEZEL))
                         .p(px(3.0))
-                        .child(match picture {
-                            Some(image) => img(image)
-                                .w(px(crate::emulator::LCD_W as f32))
-                                .h(px(crate::emulator::LCD_H as f32))
-                                .into_any_element(),
-                            None => div()
-                                .w(px(crate::emulator::LCD_W as f32))
-                                .h(px(crate::emulator::LCD_H as f32))
-                                .bg(rgb(0x000000))
-                                .into_any_element(),
-                        }),
+                        .child(
+                            div()
+                                .relative()
+                                .child(match picture {
+                                    Some(image) => img(image)
+                                        .w(px(side))
+                                        .h(px(side))
+                                        .into_any_element(),
+                                    None => div()
+                                        .w(px(side))
+                                        .h(px(side))
+                                        .bg(rgb(0x000000))
+                                        .into_any_element(),
+                                })
+                                .when_some(dot, |el, color| {
+                                    el.child(
+                                        div()
+                                            .absolute()
+                                            .bottom(px(DOT_INSET))
+                                            .right(px(DOT_INSET))
+                                            .w(px(DOT_D))
+                                            .h(px(DOT_D))
+                                            .rounded_full()
+                                            .border_1()
+                                            .border_color(rgb(0x000000))
+                                            .bg(color),
+                                    )
+                                }),
+                        ),
                 ),
             )
             .into_any_element()

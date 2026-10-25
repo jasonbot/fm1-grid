@@ -50,18 +50,21 @@ fn main() {
         ));
     }
 
-    // Room for two card rows, the device sidebar and the transport bar.
+    // Room for two card rows, the device sidebar and the transport bar. The target
+    // display is 1920x1200 at 150% — 1280x800 logical — so the default and minimum
+    // sizes must live inside that: the panel's compact keyboard and the grid's 0.5x
+    // cards take over below the full-height stack.
     application()
         .with_assets(assets::Assets)
         .run(move |cx| {
             init(cx);
-            let bounds = Bounds::centered(None, size(px(1180.0), px(1160.0)), cx);
+            let bounds = Bounds::centered(None, size(px(1152.0), px(740.0)), cx);
             let (_, app) = open_window(
                 WindowOptions {
                     window_bounds: Some(WindowBounds::Windowed(bounds)),
-                    // Two 1:1 cards across, the sidebar at its 1x floor, the tab bar
-                    // and the transport bar. Below this the layout degrades.
-                    window_min_size: Some(size(px(840.0), px(950.0))),
+                    // Grid at 0.5x plus the sidebar's floor across; title bar, tabs,
+                    // compact transport and the 0.5x card rows down.
+                    window_min_size: Some(size(px(620.0), px(680.0))),
                     titlebar: Some(TitlebarOptions {
                         title: Some("FM-1 Grid".into()),
                         ..TitleBar::title_bar_options()

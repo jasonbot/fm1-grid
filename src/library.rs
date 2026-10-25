@@ -69,6 +69,15 @@ struct Download {
     outcome: Mutex<Option<Result<Firmware, String>>>,
 }
 
+/// Where a hub refresh stands (the Library tab's status item reads it).
+#[derive(Clone)]
+pub(crate) enum HubStatus {
+    /// Not fetching right now.
+    Idle,
+    Loading,
+    Failed(String),
+}
+
 pub(crate) struct Library {
     store: Store,
     builtins: Vec<Firmware>,
@@ -76,6 +85,8 @@ pub(crate) struct Library {
     stored: Vec<Firmware>,
     /// The online hub listing; a refresh thread swaps it in.
     hub: Arc<Mutex<Vec<Firmware>>>,
+    /// The refresh's status; the thread updates it.
+    hub_status: Arc<Mutex<HubStatus>>,
     downloads: HashMap<String, Arc<Download>>,
     /// What the last `list()` returned.
     view: Vec<Firmware>,
@@ -92,6 +103,7 @@ impl Library {
             builtins: BUILTINS.iter().map(builtin_entry).collect(),
             stored,
             hub: Arc::new(Mutex::new(Vec::new())),
+            hub_status: Arc::new(Mutex::new(HubStatus::Idle)),
             downloads: HashMap::new(),
             view: Vec::new(),
             generation: 0,
@@ -161,15 +173,37 @@ impl Library {
         self.downloads.get(name).map(|d| d.percent.load(Ordering::Relaxed))
     }
 
+    /// The hub refresh's status (the Library tab's status item reads it).
+    pub(crate) fn hub_status(&self) -> HubStatus {
+        self.hub_status.lock().unwrap().clone()
+    }
+
+    /// The online listing's size (0 until the first successful fetch).
+    pub(crate) fn hub_len(&self) -> usize {
+        self.hub.lock().unwrap().len()
+    }
+
     /// Fetch today's hub catalog on a background thread and swap the listing in.
-    /// Offline quietly keeps the old (or empty) list.
+    /// A failure keeps the old (or empty) list and shows in the status item.
     pub(crate) fn refresh_hub(&mut self) {
+        self.refresh_hub_from(format!("{HUB_BASE}/catalog.json?{}", today_utc()));
+    }
+
+    /// The workhorse, with the URL injectable so tests stay offline (a port that's
+    /// closed is a deterministic failure).
+    fn refresh_hub_from(&mut self, url: String) {
+        *self.hub_status.lock().unwrap() = HubStatus::Loading;
         let hub = Arc::clone(&self.hub);
+        let status = Arc::clone(&self.hub_status);
         std::thread::spawn(move || {
-            let url = format!("{HUB_BASE}/catalog.json?{}", today_utc());
-            let Ok(body) = fetch_text(&url) else { return };
-            let Ok(listing) = parse_catalog(&body) else { return };
-            *hub.lock().unwrap() = listing;
+            let next = match fetch_text(&url).and_then(|body| parse_catalog(&body)) {
+                Ok(listing) => {
+                    *hub.lock().unwrap() = listing;
+                    HubStatus::Idle
+                }
+                Err(e) => HubStatus::Failed(e),
+            };
+            *status.lock().unwrap() = next;
         });
     }
 
@@ -647,6 +681,23 @@ mod tests {
         let listing = parse_catalog(r#"[{"name": "x", "pkg": "fw/x.fwsc"}]"#).unwrap();
         assert_eq!(listing.len(), 1);
         assert!(parse_catalog("not json").is_err());
+    }
+
+    #[test]
+    fn hub_status_reports_loading_then_failure() {
+        let (store, dir) = temp_store("hubstatus");
+        let mut library = Library::load(&store);
+        // A closed port fails fast and deterministically.
+        library.refresh_hub_from("http://127.0.0.1:1/catalog.json".to_string());
+        assert!(matches!(library.hub_status(), HubStatus::Loading));
+        for _ in 0..50 {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            if matches!(library.hub_status(), HubStatus::Failed(_)) {
+                break;
+            }
+        }
+        assert!(matches!(library.hub_status(), HubStatus::Failed(_)));
+        std::fs::remove_dir_all(dir).ok();
     }
 
     #[test]

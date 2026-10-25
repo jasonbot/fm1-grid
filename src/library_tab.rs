@@ -12,6 +12,7 @@ use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::input::Input;
 use gpui_kit::component::menu::{DropdownMenu, PopupMenuItem};
 use gpui_kit::component::progress::Progress;
+use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::{ActiveTheme, Disableable, Sizable};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
@@ -113,11 +114,15 @@ impl GridApp {
             );
         }
 
+        // The hub's status sits at the very bottom of the list.
+        list = list.child(self.hub_status_item(cx));
+
         v_flex()
             .size_full()
             .child(
                 div()
                     .id("library-list")
+                    .test_support()
                     .flex_1()
                     .min_h_0()
                     .w_full()
@@ -125,6 +130,75 @@ impl GridApp {
                     .child(list),
             )
             .child(self.library_add_form(window, cx))
+    }
+
+    /// The list's last item: the hub's fetch status — a spinner while it loads, a
+    /// reload button ("retry" after a failure).
+    fn hub_status_item(&mut self, cx: &mut Context<Self>) -> AnyElement {
+        use crate::library::HubStatus;
+        let (dim, danger) = {
+            let theme = cx.theme();
+            (theme.muted_foreground, theme.danger)
+        };
+        let status = self.library.hub_status();
+        let loading = matches!(status, HubStatus::Loading);
+        let failed = matches!(status, HubStatus::Failed(_));
+
+        let text = match &status {
+            HubStatus::Loading => "checking the FM-1 Firmware Hub…".to_string(),
+            HubStatus::Failed(e) => format!("the hub didn't answer: {e}"),
+            HubStatus::Idle => {
+                let n = self.library.hub_len();
+                if n > 0 {
+                    format!("{n} firmwares on the hub")
+                } else {
+                    "the hub hasn't been checked".to_string()
+                }
+            }
+        };
+
+        h_flex()
+            .id("hub-status")
+            .test_support()
+            .w_full()
+            .items_center()
+            .gap_2()
+            .pt_2()
+            .child(
+                div()
+                    .w(px(14.0))
+                    .h(px(14.0))
+                    .child(if loading {
+                        Spinner::new().into_any_element()
+                    } else {
+                        div()
+                            .size_full()
+                            .rounded_full()
+                            .bg(if failed { danger } else { dim })
+                            .into_any_element()
+                    }),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .truncate()
+                    .text_size(px(10.0))
+                    .text_color(if failed { danger } else { dim })
+                    .child(text),
+            )
+            .child(
+                Button::new("hub-reload")
+                    .label(if failed { "retry" } else { "reload" })
+                    .xsmall()
+                    .disabled(loading)
+                    .tooltip("Fetch the hub's catalog again")
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.library.refresh_hub();
+                        cx.notify();
+                    })),
+            )
+            .into_any_element()
     }
 
     /// One firmware row: name + pills over byline + description, then the actions.

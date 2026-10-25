@@ -9,8 +9,8 @@ use crate::app::GridApp;
 use gpui_kit::base::Root;
 use gpui_kit::test::TestWindowExt;
 use gpui_kit::{
-    AppContext, Bounds, Entity, Point, TestAppContext, WindowBounds, WindowHandle,
-    WindowOptions, open_window, px, size,
+    AppContext, Bounds, Entity, Point, ScrollDelta, TestAppContext, WindowBounds,
+    WindowHandle, WindowOptions, open_window, point, px, size,
 };
 use std::time::Duration;
 
@@ -219,6 +219,16 @@ fn library_tab_lists(cx: &mut TestAppContext) {
         let flash = window.find("lib-flash-SLOOP");
         assert!(flash.visible(), "SLOOP should list with a Flash To… button");
         assert!(window.find("lib-add-file").visible());
+        // The hub status item sits at the bottom of the list, spinner while fetching;
+        // scroll the list to the end to bring it into view first.
+        window.scroll(
+            "library-list",
+            ScrollDelta::Pixels(point(px(0.0), px(-100000.0))),
+            cx,
+        );
+        window.render_frame(cx);
+        assert!(window.find("hub-status").visible());
+        assert!(window.find("hub-reload").visible());
         // Nothing to remove on a builtin.
         assert!(window.try_find("lib-remove-SLOOP").is_none());
     })

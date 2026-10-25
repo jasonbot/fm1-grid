@@ -141,24 +141,30 @@ impl GridApp {
         v_flex()
             .size_full()
             .child(
+                // The scrollbar pins to this outer element; the scrolling child is
+                // inside it (stacking them on one element scrolled the bar away).
                 div()
-                    .id("library-list")
-                    .test_support()
                     .flex_1()
                     .min_h_0()
                     .w_full()
-                    .overflow_y_scroll()
-                    .track_scroll(&self.lib_scroll)
                     .vertical_scrollbar(&self.lib_scroll)
-                    // PgUp/PgDn scroll by the viewport; record it.
-                    .on_prepaint({
-                        let app = cx.entity().clone();
-                        move |bounds, _, cx| {
-                            let height: f32 = bounds.size.height.into();
-                            app.update(cx, |this, _| this.lib_view_h = height);
-                        }
-                    })
-                    .child(list),
+                    .child(
+                        div()
+                            .id("library-list")
+                            .test_support()
+                            .size_full()
+                            .overflow_y_scroll()
+                            .track_scroll(&self.lib_scroll)
+                            // PgUp/PgDn scroll by the viewport; record it.
+                            .on_prepaint({
+                                let app = cx.entity().clone();
+                                move |bounds, _, cx| {
+                                    let height: f32 = bounds.size.height.into();
+                                    app.update(cx, |this, _| this.lib_view_h = height);
+                                }
+                            })
+                            .child(list),
+                    ),
             )
             .child(self.library_add_form(window, cx))
     }

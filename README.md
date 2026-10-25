@@ -68,6 +68,9 @@ scripts/firmware.sh list
 `add` copies the package into `firmware/` and records its hash; `del` removes both.
 The JSON order is the default pane order.
 
+Run `cargo run --manifest-path firmware/download/Cargo.toml` before building to get the
+embedded firmwares.
+
 ## Keyboard
 
 The selected pane gets these keys:

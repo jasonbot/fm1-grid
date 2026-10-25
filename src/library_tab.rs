@@ -287,6 +287,7 @@ impl GridApp {
                     .label("Remove")
                     .small()
                     .ghost()
+                        .rounded_none()
                     .disabled(!locally)
                     .tooltip(if locally {
                         "Forget this firmware (the package stays on disk)"
@@ -308,6 +309,7 @@ impl GridApp {
                         .label(format!("{}%", percent.unwrap_or(0)))
                         .small()
                         .ghost()
+                        .rounded_none()
                         .disabled(true)
                         .into_any_element(),
                 );
@@ -318,6 +320,7 @@ impl GridApp {
                         .label("Download")
                         .small()
                         .ghost()
+                        .rounded_none()
                         .tooltip("Download from the FM-1 Firmware Hub into the library")
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.library.start_download(&name);
@@ -337,6 +340,7 @@ impl GridApp {
 
         v_flex()
             .w_full()
+            .items_start()
             .gap_1()
             .py_1()
             .child(
@@ -401,6 +405,8 @@ impl GridApp {
         Button::new(format!("lib-flash-{name}"))
             .label("Flash To…")
             .small()
+            .ghost()
+            .rounded_none()
             .disabled(!flashable || !has_targets)
             .when(!(flashable && has_targets), |button| {
                 button.tooltip(

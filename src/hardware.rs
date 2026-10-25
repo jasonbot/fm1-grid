@@ -725,7 +725,7 @@ fn scan(
     // MIDI graph.
     if let Ok(mut list) = devices.lock() {
         list.retain(|device| {
-            if seen.iter().any(|name| *name == device.name) {
+            if seen.contains(&device.name) {
                 true
             } else {
                 clock.set_hw_target(device.hw_id, None);
@@ -938,6 +938,15 @@ fn publish_progress(
     }
 }
 
+/// What a successful device wait hands back: the link, its identity slot, its flash
+/// state slot and the outcome slot (the two Strings are identity and outcome).
+type FoundDevice = Option<(
+    Arc<DeviceLink>,
+    Arc<Mutex<Option<String>>>,
+    Arc<Mutex<Option<FlashState>>>,
+    Arc<Mutex<Option<String>>>,
+)>;
+
 /// Wait for a device the scanner (re-)registered whose identity matches `pred`, up to
 /// `timeout`. Returns its handles, claimed for flashing (row state set, clock unplugged).
 #[allow(clippy::too_many_arguments)]
@@ -947,12 +956,7 @@ fn wait_for_device(
     board: &Board,
     timeout: Duration,
     pred: impl Fn(&str) -> bool,
-) -> Option<(
-    Arc<DeviceLink>,
-    Arc<Mutex<Option<String>>>,
-    Arc<Mutex<Option<FlashState>>>,
-    Arc<Mutex<Option<String>>>,
-)> {
+) -> FoundDevice {
     let deadline = Instant::now() + timeout;
     loop {
         if let Ok(list) = devices.lock() {
@@ -991,6 +995,7 @@ fn wait_for_device(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn flash_flow(
     devices: &Mutex<Vec<Device>>,
     board: &Board,

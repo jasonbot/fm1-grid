@@ -52,7 +52,7 @@ impl GridApp {
         let (panel_w, panel_h) = self.sidebar_size;
         let fit_w = panel_w - FIT_W_CHROME;
         let fit_h = panel_h - FIT_H_CHROME;
-        let fit = fit_w.min(fit_h).min(SCREEN_SIDES[0]).max(SCREEN_MIN);
+        let fit = fit_w.min(fit_h).clamp(SCREEN_MIN, SCREEN_SIDES[0]);
         let side = SCREEN_SIDES
             .into_iter()
             .find(|&exact| exact <= fit)

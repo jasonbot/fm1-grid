@@ -207,6 +207,7 @@ impl GridApp {
     /// A three-part rotary group: an inert label in the middle and clickable - / +
     /// ends. The knob's mouse-wheel input: while the pointer is over the group, each
     /// wheel click turns it one detent — up clockwise, down counter-clockwise.
+    #[allow(clippy::too_many_arguments)]
     fn turn_group(
         &self,
         cx: &mut Context<Self>,

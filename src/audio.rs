@@ -93,7 +93,7 @@ where
 
     let stream = device
         .build_output_stream(
-            config.clone(),
+            *config,
             move |out: &mut [T], _| {
                 // Locking once per callback is much cheaper than once per sample.
                 let mut queues: [std::sync::MutexGuard<'_, VecDeque<i16>>; MAX_SLOTS] =

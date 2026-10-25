@@ -43,6 +43,7 @@ pub(crate) enum Source {
     Blob { key: String, label: String },
 }
 
+#[derive(Default)]
 pub(crate) struct Slot {
     pub handle: Option<EmulatorHandle>,
     pub source: Option<Source>,
@@ -56,18 +57,7 @@ pub(crate) struct Slot {
     pub pinned: bool,
 }
 
-impl Default for Slot {
-    fn default() -> Self {
-        Self {
-            handle: None,
-            source: None,
-            label: None,
-            error: None,
-            usb_midi: false,
-            pinned: false,
-        }
-    }
-}
+
 
 /// A pinned slot's record in the store, `slot-N`.
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -545,7 +535,7 @@ impl GridApp {
             self.firmware_combos[slot].update(cx, |state, cx| {
                 state.set_items(delegate, window, cx);
                 if let Some(selected) = &selected {
-                    state.set_selected_values(&[selected.clone()], window, cx);
+                    state.set_selected_values(std::slice::from_ref(selected), window, cx);
                 }
             });
         }
@@ -830,7 +820,7 @@ impl GridApp {
         // Flash progress and hotplugged USB devices arrive on the hardware module's
         // threads; sweep them up twice a second.
         self.tick_count = self.tick_count.wrapping_add(1);
-        dirty |= self.hardware.flash_state().is_some() || self.tick_count % 30 == 0;
+        dirty |= self.hardware.flash_state().is_some() || self.tick_count.is_multiple_of(30);
         if dirty {
             cx.notify();
         }
@@ -1040,6 +1030,8 @@ impl Render for GridApp {
             )
             .child(
                 TabBar::new("main-tabs")
+                    .segmented()
+                    .w_full()
                     .selected_index(self.active_tab)
                     .on_click(cx.listener(|this, ix: &usize, window, cx| {
                         this.active_tab = *ix;
@@ -1051,9 +1043,9 @@ impl Render for GridApp {
                         cx.notify();
                     }))
                     .children([
-                        Tab::new().label("Emulator"),
-                        Tab::new().label("Devices"),
-                        Tab::new().label("Library"),
+                        Tab::new().label("Emulator").flex_1(),
+                        Tab::new().label("Devices").flex_1(),
+                        Tab::new().label("Library").flex_1(),
                     ]),
             )
             .child(

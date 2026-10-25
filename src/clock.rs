@@ -41,6 +41,11 @@ fn broadcast(
     }
 }
 
+/// The per-slot MIDI targets the clock sends to.
+type SlotTargets = Arc<Mutex<Vec<Option<Sender<Action>>>>>;
+/// The live USB units on the clock, by device id.
+type HwTargets = Arc<Mutex<Vec<Option<Arc<dyn MidiSink>>>>>;
+
 pub struct Clock {
     bpm: Arc<AtomicU32>,
     /// Number of complete quarter notes (beats) since startup.
@@ -54,9 +59,9 @@ pub struct Clock {
     quit: Arc<AtomicBool>,
     /// One optional sender per grid slot. Wrapped in a Mutex because slots are reloaded
     /// from the GUI thread while the clock thread is sending.
-    targets: Arc<Mutex<Vec<Option<Sender<Action>>>>>,
+    targets: SlotTargets,
     /// The live USB devices on the clock, indexed by the hardware module's device ids.
-    hw_targets: Arc<Mutex<Vec<Option<Arc<dyn MidiSink>>>>>,
+    hw_targets: HwTargets,
     thread: Option<JoinHandle<()>>,
 }
 
@@ -69,9 +74,8 @@ impl Clock {
         let enabled = Arc::new(AtomicBool::new(false));
         let running = Arc::new(AtomicBool::new(true));
         let quit = Arc::new(AtomicBool::new(false));
-        let targets = Arc::new(Mutex::new(vec![None; slot_count]));
-        let hw_targets: Arc<Mutex<Vec<Option<Arc<dyn MidiSink>>>>> =
-            Arc::new(Mutex::new(Vec::new()));
+        let targets: SlotTargets = Arc::new(Mutex::new(vec![None; slot_count]));
+        let hw_targets: HwTargets = Arc::new(Mutex::new(Vec::new()));
 
         let thread = {
             let bpm = bpm.clone();
@@ -188,6 +192,7 @@ impl Drop for Clock {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn clock_loop(
     bpm: Arc<AtomicU32>,
     beat: Arc<AtomicU64>,
@@ -195,8 +200,8 @@ fn clock_loop(
     enabled: Arc<AtomicBool>,
     running: Arc<AtomicBool>,
     quit: Arc<AtomicBool>,
-    targets: Arc<Mutex<Vec<Option<Sender<Action>>>>>,
-    hw_targets: Arc<Mutex<Vec<Option<Arc<dyn MidiSink>>>>>,
+    targets: SlotTargets,
+    hw_targets: HwTargets,
 ) {
     let mut next = Instant::now();
     let mut was_enabled = false;
@@ -247,7 +252,7 @@ fn clock_loop(
         broadcast(&targets, &hw_targets, 0xF8);
 
         let count = tick.fetch_add(1, Ordering::Relaxed) + 1;
-        if count % 24 == 0 {
+        if count.is_multiple_of(24) {
             beat.fetch_add(1, Ordering::Relaxed);
         }
     }

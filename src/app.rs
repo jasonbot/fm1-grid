@@ -39,6 +39,8 @@ use std::time::{Duration, Instant};
 pub(crate) enum Source {
     Builtin(usize),
     File(PathBuf),
+    /// A downloaded hub package, by blob-store key (the label is its display name).
+    Blob { key: String, label: String },
 }
 
 pub(crate) struct Slot {
@@ -79,6 +81,15 @@ struct PinnedSlot {
 enum PinnedSource {
     Builtin { index: usize },
     File { path: PathBuf },
+    Blob { key: String, label: String },
+}
+
+/// The Library tab's add-file form: three text fields and the chosen file.
+pub(crate) struct LibForm {
+    pub name: Entity<InputState>,
+    pub version: Entity<InputState>,
+    pub description: Entity<InputState>,
+    pub file: Option<PathBuf>,
 }
 
 pub struct GridApp {
@@ -168,6 +179,12 @@ pub struct GridApp {
     /// On-disk state (pinned slots' firmware records and flash snapshots). None if the
     /// platform has no data directory.
     pub(crate) store: Option<crate::store::Store>,
+    /// The firmware library (the Library tab's data; pickers read it too).
+    pub(crate) library: crate::library::Library,
+    /// The Library tab's add-file form.
+    pub(crate) lib_form: LibForm,
+    /// The library generation the firmware pickers were last built from.
+    combos_at_generation: u64,
     _tick: Task<()>,
     /// Event subscriptions: the firmware comboboxes, the tempo input, the flash picker.
     pub(crate) _subscriptions: Vec<Subscription>,
@@ -224,10 +241,12 @@ impl GridApp {
         }));
 
         // One firmware combobox per slot; picking an entry loads it into that slot.
+        // The delegates start empty; refresh_firmware_combos fills them from the
+        // library once it (and any pins) are loaded.
         let firmware_combos: [Entity<ComboboxState<FirmwareDelegate>>; MAX_SLOTS] =
             std::array::from_fn(|slot| {
                 let state = cx.new(|cx| {
-                    ComboboxState::new(FirmwareDelegate::new(), vec![], window, cx)
+                    ComboboxState::new(FirmwareDelegate::default(), vec![], window, cx)
                         .searchable(true)
                 });
                 // Change fires on the click that selects; Confirm fires when the
@@ -237,10 +256,8 @@ impl GridApp {
                     window,
                     move |this, _, event, window, cx| {
                         if let ComboboxEvent::Change(values) = event {
-                            match values.last() {
-                                Some(&Some(index)) => this.load_builtin(slot, index),
-                                Some(&None) => this.pick_file(slot),
-                                None => {}
+                            if let Some(pick) = values.last() {
+                                this.install_pick(slot, pick.clone());
                             }
                             this.focus.focus(window, cx);
                             cx.notify();
@@ -257,6 +274,14 @@ impl GridApp {
                 ));
                 state
             });
+
+        // The Library tab's add-file form.
+        let lib_form = LibForm {
+            name: cx.new(|cx| InputState::new(window, cx).placeholder("Name")),
+            version: cx.new(|cx| InputState::new(window, cx).placeholder("Version")),
+            description: cx.new(|cx| InputState::new(window, cx).placeholder("Description")),
+            file: None,
+        };
 
         // The tempo readout edits the metronome's BPM directly.
         let tempo_input = cx.new(|cx| InputState::new(window, cx));
@@ -285,17 +310,34 @@ impl GridApp {
             },
         ));
 
-        // The frame pump: 16 ms, replacing egui's request_repaint_after.
-        let tick = cx.spawn(async move |this, cx| {
+        // The frame pump: 16 ms, replacing egui's request_repaint_after. spawn_in
+        // carries the window — the library-generation sweep rebuilds pickers, and
+        // that needs one.
+        let tick = cx.spawn_in(window, async move |this, cx| {
             loop {
                 cx.background_executor()
                     .timer(Duration::from_millis(16))
                     .await;
-                if this.update(cx, |this, cx| this.tick(cx)).is_err() {
+                if this
+                    .update_in(cx, |this, window, cx| this.tick(window, cx))
+                    .is_err()
+                {
                     break; // the window is gone
                 }
             }
         });
+
+        // The library needs a store even when the platform has none (a throwaway one).
+        let fallback_store;
+        let store_ref = match &store {
+            Some(store) => store,
+            None => {
+                fallback_store =
+                    crate::store::Store::in_dir(&std::env::temp_dir().join("fm1-grid-nostore"));
+                &fallback_store
+            }
+        };
+        let library = crate::library::Library::load(store_ref);
 
         let mut app = Self {
             slots: std::array::from_fn(|_| Slot::default()),
@@ -340,6 +382,9 @@ impl GridApp {
             firmware_combos,
             tempo_input,
             store,
+            library,
+            lib_form,
+            combos_at_generation: 0,
             _tick: tick,
             _subscriptions: subscriptions,
         };
@@ -354,15 +399,6 @@ impl GridApp {
                 app.load_file(slot, path.clone());
             }
         }
-        // Reflect the CLI/builtin firmware choices in the comboboxes.
-        for slot in 0..MAX_SLOTS {
-            if let Some(Source::Builtin(index)) = app.slots[slot].source {
-                app.firmware_combos[slot].update(cx, |state, cx| {
-                    state.set_selected_values(&[Some(index)], window, cx);
-                });
-            }
-        }
-
         // Pinned slots come back: their firmware record is in the store. CLI firmware
         // arguments win over a stored pin (the explicit now beats the remembered).
         // Read every record first (the store borrows the app immutably; applying them
@@ -388,12 +424,25 @@ impl GridApp {
                     app.load_file(slot, path.clone());
                     true
                 }
+                PinnedSource::Blob { key, .. }
+                    if app
+                        .store
+                        .as_ref()
+                        .is_some_and(|store| store.fetch_blob(key).is_ok()) =>
+                {
+                    app.load_blob(slot, key);
+                    true
+                }
                 _ => false,
             };
             if restored {
                 app.slots[slot].pinned = true;
             }
         }
+
+        // The pickers' lists and selections come from the library.
+        app.combos_at_generation = app.library.generation();
+        app.refresh_firmware_combos(window, cx);
 
         app
     }
@@ -449,16 +498,57 @@ impl GridApp {
         self.install(slot, label, bytes, package, Source::File(path));
     }
 
-    pub(crate) fn pick_file(&mut self, slot: usize) {
-        let Some(path) = rfd::FileDialog::new()
-            .set_title("Choose an FM-1 firmware")
-            .add_filter("FM-1 firmware", &["fwsc", "bin", "xip"])
-            .add_filter("All files", &["*"])
-            .pick_file()
-        else {
-            return;
-        };
-        self.load_file(slot, path);
+    /// What a picker selected, installed into the slot.
+    pub(crate) fn install_pick(&mut self, slot: usize, pick: crate::firmware_picker::FirmwarePick) {
+        use crate::firmware_picker::FirmwarePick;
+        match pick {
+            FirmwarePick::Builtin(index) => self.load_builtin(slot, index),
+            FirmwarePick::File(path) => self.load_file(slot, path),
+            FirmwarePick::HubBlob(key) => self.load_blob(slot, &key),
+        }
+    }
+
+    /// A downloaded hub package from the blob store into a slot.
+    fn load_blob(&mut self, slot: usize, key: &str) {
+        let Some(store) = &self.store else { return };
+        match store.fetch_blob(key) {
+            Ok(bytes) => {
+                let label = key.rsplit('/').next().unwrap_or(key).to_string();
+                self.install(
+                    slot,
+                    label.clone(),
+                    bytes,
+                    true,
+                    Source::Blob {
+                        key: key.to_string(),
+                        label,
+                    },
+                );
+            }
+            Err(e) => self.slots[slot].error = Some(e),
+        }
+    }
+
+    /// Rebuild every slot's firmware combobox from the library and re-select the
+    /// slot's current firmware (a download, import or removal changed the list).
+    pub(crate) fn refresh_firmware_combos(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        for slot in 0..MAX_SLOTS {
+            let delegate = crate::firmware_picker::FirmwareDelegate::from_app(self);
+            let selected = match &self.slots[slot].source {
+                Some(Source::Builtin(index)) => Some(crate::firmware_picker::FirmwarePick::Builtin(*index)),
+                Some(Source::File(path)) => Some(crate::firmware_picker::FirmwarePick::File(path.clone())),
+                Some(Source::Blob { key, .. }) => {
+                    Some(crate::firmware_picker::FirmwarePick::HubBlob(key.clone()))
+                }
+                None => None,
+            };
+            self.firmware_combos[slot].update(cx, |state, cx| {
+                state.set_items(delegate, window, cx);
+                if let Some(selected) = &selected {
+                    state.set_selected_values(&[selected.clone()], window, cx);
+                }
+            });
+        }
     }
 
     fn install(
@@ -539,6 +629,7 @@ impl GridApp {
             match self.slots[slot].source.clone() {
                 Some(Source::Builtin(index)) => self.load_builtin(slot, index),
                 Some(Source::File(path)) => self.load_file(slot, path),
+                Some(Source::Blob { key, .. }) => self.load_blob(slot, &key),
                 // Nothing to run yet; the switch stays off until a firmware is chosen.
                 None => self.powered[slot] = false,
             }
@@ -579,6 +670,10 @@ impl GridApp {
                 let source = match &self.slots[slot].source {
                     Some(Source::Builtin(index)) => PinnedSource::Builtin { index: *index },
                     Some(Source::File(path)) => PinnedSource::File { path: path.clone() },
+                    Some(Source::Blob { key, label }) => PinnedSource::Blob {
+                        key: key.clone(),
+                        label: label.clone(),
+                    },
                     // A pinned slot always has a source; be quiet anyway.
                     None => return,
                 };
@@ -716,7 +811,15 @@ impl GridApp {
     /// with one retained-mode difference: nothing repaints unless something changed
     /// (plus a half-second sweep for state arriving on background threads), so an idle
     /// window costs a few memcmps instead of 60 renders a second.
-    fn tick(&mut self, cx: &mut Context<Self>) {
+    fn tick(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        // The pickers rebuild when the library's installed list moved (a download
+        // landed, an import, a removal).
+        let generation = self.library.generation();
+        if generation != self.combos_at_generation {
+            self.combos_at_generation = generation;
+            self.refresh_firmware_combos(window, cx);
+        }
+
         let mut dirty = self.sync_held();
         dirty |= self.upload_lcds();
         dirty |= self.refresh_ghost();
@@ -938,16 +1041,26 @@ impl Render for GridApp {
             .child(
                 TabBar::new("main-tabs")
                     .selected_index(self.active_tab)
-                    .on_click(cx.listener(|this, ix: &usize, _, cx| {
+                    .on_click(cx.listener(|this, ix: &usize, window, cx| {
                         this.active_tab = *ix;
+                        if *ix == 2 {
+                            // Opening the library refreshes the online listing.
+                            this.library.refresh_hub();
+                        }
+                        this.refocus(window, cx);
                         cx.notify();
                     }))
-                    .children([Tab::new().label("Emulator"), Tab::new().label("Devices")]),
+                    .children([
+                        Tab::new().label("Emulator"),
+                        Tab::new().label("Devices"),
+                        Tab::new().label("Library"),
+                    ]),
             )
             .child(
                 div().flex_1().min_h_0().w_full().child(match self.active_tab {
                     0 => self.emulator_tab(window, cx).into_any_element(),
-                    _ => self.devices_tab(window, cx).into_any_element(),
+                    1 => self.devices_tab(window, cx).into_any_element(),
+                    _ => self.library_tab(window, cx).into_any_element(),
                 }),
             )
             .child(self.transport(window, cx))

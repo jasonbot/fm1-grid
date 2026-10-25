@@ -22,6 +22,8 @@ mod midi_keys;
 mod panel;
 mod routing;
 mod sidebar;
+mod flash_dialog;
+mod library_tab;
 mod store;
 mod theme;
 mod transport;

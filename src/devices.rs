@@ -3,7 +3,6 @@
 //! state lives in [`crate::hardware`]; this only draws it and posts commands.
 
 use crate::app::GridApp;
-use crate::builtin::BUILTINS;
 use crate::firmware_picker::FirmwareDelegate;
 use crate::hardware::DeviceRow;
 use gpui_kit::base::{h_flex, v_flex};
@@ -262,14 +261,15 @@ impl GridApp {
         out.into_any_element()
     }
 
-    /// Open the row's firmware combobox: a fresh state with its pick and dismiss
-    /// subscriptions. Picking flashes the device; dismissing (Escape, click away)
-    /// closes the row's selector.
+    /// Open the row's firmware combobox: a fresh state listing the library's available
+    /// firmwares, with its pick and dismiss subscriptions. Picking flashes the device;
+    /// dismissing (Escape, click away) closes the row's selector.
     /// shortcut: each open leaves two inert Subscriptions in `_subscriptions` (their
     /// source entity is dropped on close); worth pruning only if this ever runs hot.
     fn open_flash_picker(&mut self, device: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let delegate = FirmwareDelegate::from_app(self);
         let state = cx.new(|cx| {
-            ComboboxState::new(FirmwareDelegate::new(), vec![], window, cx).searchable(true)
+            ComboboxState::new(delegate, vec![], window, cx).searchable(true)
         });
         let picked = device.to_string();
         self._subscriptions.push(cx.subscribe_in(
@@ -277,13 +277,11 @@ impl GridApp {
             window,
             move |this, _, event, window, cx| {
                 if let ComboboxEvent::Change(values) = event {
-                    match values.last() {
-                        Some(&Some(index)) => {
-                            this.hardware
-                                .flash(&picked, BUILTINS[index].bytes.to_vec());
+                    if let Some(pick) = values.last() {
+                        match pick.bytes(this.store.as_ref()) {
+                            Ok(bytes) => this.hardware.flash(&picked, bytes),
+                            Err(e) => this.hardware.report(&picked, e),
                         }
-                        Some(&None) => this.flash_file(&picked),
-                        None => {}
                     }
                     this.flash_pick = None;
                     this.flash_combo = None;
@@ -304,22 +302,5 @@ impl GridApp {
         self.flash_pick = Some(device.to_string());
         self.flash_combo = Some(state);
         cx.notify();
-    }
-
-    /// Pick a package and hand it to the hardware module; the flash itself runs on its
-    /// own thread and reports through the device's row.
-    fn flash_file(&mut self, name: &str) {
-        let Some(path) = rfd::FileDialog::new()
-            .set_title("Choose an FM-1 firmware package")
-            .add_filter("FM-1 package", &["fwsc"])
-            .add_filter("All files", &["*"])
-            .pick_file()
-        else {
-            return;
-        };
-        match std::fs::read(&path) {
-            Ok(bytes) => self.hardware.flash(name, bytes),
-            Err(e) => self.hardware.report(name, format!("{}: {e}", path.display())),
-        }
     }
 }

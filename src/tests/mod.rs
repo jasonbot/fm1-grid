@@ -202,3 +202,25 @@ fn pin_cycle(cx: &mut TestAppContext) {
         assert!(app.slots[0].error.is_none(), "{:?}", app.slots[0].error);
     });
 }
+
+/// The Library tab lists the builtins with flash targets (panes are off and unpinned
+/// at startup), and its add form gates Save on a chosen file.
+#[gpui_kit::test]
+fn library_tab_lists(cx: &mut TestAppContext) {
+    let (window, app) = open_app(cx);
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        window.click(2usize, cx); // the Library tab
+    })
+    .unwrap();
+    cx.update(|cx| assert_eq!(app.read(cx).active_tab, 2));
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        let flash = window.find("lib-flash-SLOOP");
+        assert!(flash.visible(), "SLOOP should list with a Flash To… button");
+        assert!(window.find("lib-add-file").visible());
+        // Nothing to remove on a builtin.
+        assert!(window.try_find("lib-remove-SLOOP").is_none());
+    })
+    .unwrap();
+}

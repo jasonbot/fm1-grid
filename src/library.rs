@@ -79,6 +79,9 @@ pub(crate) struct Library {
     downloads: HashMap<String, Arc<Download>>,
     /// What the last `list()` returned.
     view: Vec<Firmware>,
+    /// Bumped whenever the installed list changes (import, remove, a download folded
+    /// in); the app's pickers rebuild when it moves.
+    generation: u64,
 }
 
 impl Library {
@@ -91,6 +94,7 @@ impl Library {
             hub: Arc::new(Mutex::new(Vec::new())),
             downloads: HashMap::new(),
             view: Vec::new(),
+            generation: 0,
         }
     }
 
@@ -145,6 +149,11 @@ impl Library {
         }
         self.view = view;
         &self.view
+    }
+
+    /// An owned copy of the current view, for UI code that borrows the app elsewhere.
+    pub(crate) fn list_clone(&mut self) -> Vec<Firmware> {
+        self.list().to_vec()
     }
 
     /// The percent of a download in flight, for the UI's progress display.
@@ -269,8 +278,14 @@ impl Library {
         }
     }
 
-    fn persist(&self) {
+    fn persist(&mut self) {
         self.store.store_object(LIBRARY_OBJECT, &self.stored).ok();
+        self.generation = self.generation.wrapping_add(1);
+    }
+
+    /// The installed list's change counter (see the field).
+    pub(crate) fn generation(&self) -> u64 {
+        self.generation
     }
 }
 

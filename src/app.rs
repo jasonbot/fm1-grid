@@ -49,6 +49,9 @@ pub(crate) struct Slot {
     /// The firmware advertises USB-MIDI on real hardware (the emulator cannot bridge
     /// it; the MIDI graph shows it for context).
     pub usb_midi: bool,
+    /// Pinned: the pane's device storage persists across power-offs and runs (the
+    /// flash snapshot lives in the store).
+    pub pinned: bool,
 }
 
 impl Default for Slot {
@@ -59,8 +62,23 @@ impl Default for Slot {
             label: None,
             error: None,
             usb_midi: false,
+            pinned: false,
         }
     }
+}
+
+/// A pinned slot's record in the store, `slot-N`.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct PinnedSlot {
+    firmware: String,
+    source: PinnedSource,
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(tag = "kind", rename_all = "lowercase")]
+enum PinnedSource {
+    Builtin { index: usize },
+    File { path: PathBuf },
 }
 
 pub struct GridApp {
@@ -147,6 +165,9 @@ pub struct GridApp {
     pub(crate) firmware_combos: [Entity<ComboboxState<FirmwareDelegate>>; MAX_SLOTS],
     /// The tempo readout's text field.
     pub(crate) tempo_input: Entity<InputState>,
+    /// On-disk state (pinned slots' firmware records and flash snapshots). None if the
+    /// platform has no data directory.
+    pub(crate) store: Option<crate::store::Store>,
     _tick: Task<()>,
     /// Event subscriptions: the firmware comboboxes, the tempo input, the flash picker.
     pub(crate) _subscriptions: Vec<Subscription>,
@@ -167,6 +188,13 @@ impl GridApp {
         let routing = Routing::start();
         let midi_keys = MidiKeys::start();
         let hardware = Hardware::start(clock.clone(), routing.clone());
+        let store = match crate::store::Store::new() {
+            Ok(store) => Some(store),
+            Err(e) => {
+                eprintln!("fm1-grid: no on-disk store: {e}");
+                None
+            }
+        };
 
         let focus = cx.focus_handle().tab_stop(true);
         focus.focus(window, cx);
@@ -311,6 +339,7 @@ impl GridApp {
             focus,
             firmware_combos,
             tempo_input,
+            store,
             _tick: tick,
             _subscriptions: subscriptions,
         };
@@ -331,6 +360,38 @@ impl GridApp {
                 app.firmware_combos[slot].update(cx, |state, cx| {
                     state.set_selected_values(&[Some(index)], window, cx);
                 });
+            }
+        }
+
+        // Pinned slots come back: their firmware record is in the store. CLI firmware
+        // arguments win over a stored pin (the explicit now beats the remembered).
+        // Read every record first (the store borrows the app immutably; applying them
+        // mutates it).
+        let records: Vec<(usize, PinnedSlot)> = match &app.store {
+            Some(store) => (initial.len()..MAX_SLOTS)
+                .filter_map(|slot| {
+                    store
+                        .fetch_object::<PinnedSlot>(&format!("slot-{slot}"))
+                        .ok()
+                        .map(|record| (slot, record))
+                })
+                .collect(),
+            None => Vec::new(),
+        };
+        for (slot, record) in records {
+            let restored = match &record.source {
+                PinnedSource::Builtin { index } if *index < BUILTINS.len() => {
+                    app.load_builtin(slot, *index);
+                    true
+                }
+                PinnedSource::File { path } if path.is_file() => {
+                    app.load_file(slot, path.clone());
+                    true
+                }
+                _ => false,
+            };
+            if restored {
+                app.slots[slot].pinned = true;
             }
         }
 
@@ -428,6 +489,15 @@ impl GridApp {
             return;
         }
 
+        // A pinned slot's device storage comes back with the boot.
+        let resume_flash = if self.slots[slot].pinned {
+            self.store
+                .as_ref()
+                .and_then(|store| store.fetch_blob(&format!("slot-{slot}.flash")).ok())
+        } else {
+            None
+        };
+
         match EmulatorHandle::start(
             label,
             bytes,
@@ -435,6 +505,7 @@ impl GridApp {
             self.rings[slot].clone(),
             self._audio.is_some(),
             self.core_cpus.get(slot).copied(),
+            resume_flash,
         ) {
             Ok(handle) => {
                 self.clock.set_target(slot, Some(handle.tx.clone()));
@@ -476,6 +547,10 @@ impl GridApp {
                 self.release_held_keys();
             }
             self.clock.set_target(slot, None);
+            // A pinned slot's flash goes to the store before the thread dies.
+            if self.slots[slot].pinned {
+                self.save_pinned_slot(slot);
+            }
             self.slots[slot].handle = None;
             self.sync_pane(slot);
             self.rings[slot].reset();
@@ -483,6 +558,51 @@ impl GridApp {
                 self.leds = [0.0; 41];
             }
             self.frames[slot] = None;
+        }
+    }
+
+    /// The sidebar's pin toggle. It only moves while the pane's emulator runs — a
+    /// stopped pane keeps its state (and its pin) as is.
+    pub(crate) fn set_pinned(&mut self, slot: usize, on: bool) {
+        if self.slots[slot].handle.is_none() {
+            return;
+        }
+        self.slots[slot].pinned = on;
+    }
+
+    /// Snapshot and store a pinned slot's running emulator (the power-off and quit
+    /// paths share this). Takes and stops the handle either way.
+    fn save_pinned_slot(&mut self, slot: usize) {
+        let mut handle = self.slots[slot].handle.take();
+        if let (Some(store), Some(handle)) = (&self.store, handle.as_mut()) {
+            if let Some(flash) = handle.stop_with_snapshot() {
+                let source = match &self.slots[slot].source {
+                    Some(Source::Builtin(index)) => PinnedSource::Builtin { index: *index },
+                    Some(Source::File(path)) => PinnedSource::File { path: path.clone() },
+                    // A pinned slot always has a source; be quiet anyway.
+                    None => return,
+                };
+                let record = PinnedSlot {
+                    firmware: self.slots[slot].label.clone().unwrap_or_default(),
+                    source,
+                };
+                if let Err(e) = store.store_blob(&format!("slot-{slot}.flash"), &flash) {
+                    eprintln!("fm1-grid: {e}");
+                }
+                if let Err(e) = store.store_object(&format!("slot-{slot}"), &record) {
+                    eprintln!("fm1-grid: {e}");
+                }
+            }
+        }
+    }
+
+    /// The app is going away (the quit hook in main.rs): snapshot and store every
+    /// pinned slot that still runs. Pinned slots already off saved at power-off.
+    pub fn save_pinned(&mut self) {
+        for slot in 0..MAX_SLOTS {
+            if self.slots[slot].pinned && self.slots[slot].handle.is_some() {
+                self.save_pinned_slot(slot);
+            }
         }
     }
 

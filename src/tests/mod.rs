@@ -16,6 +16,15 @@ use std::time::Duration;
 
 /// Open the app in a test window at the real default size.
 fn open_app(cx: &mut TestAppContext) -> (WindowHandle<Root>, Entity<GridApp>) {
+    // Tests share one throwaway store for the process (the pin test writes to it).
+    if std::env::var_os("FM1_GRID_DATA_DIR").is_none() {
+        unsafe {
+            std::env::set_var(
+                "FM1_GRID_DATA_DIR",
+                std::env::temp_dir().join(format!("fm1-grid-uitest-{}", std::process::id())),
+            );
+        }
+    }
     cx.update(gpui_kit::init);
     cx.update(|cx| {
         let bounds = Bounds {
@@ -115,4 +124,81 @@ fn metronome_toggles(cx: &mut TestAppContext) {
     })
     .unwrap();
     cx.update(|cx| assert_eq!(app.read(cx).clock.enabled(), !before));
+}
+
+/// Pinning: inert while the pane is off; on it snapshots the device's flash at
+/// power-off and the next boot restores it.
+#[gpui_kit::test]
+fn pin_cycle(cx: &mut TestAppContext) {
+    let (window, app) = open_app(cx);
+
+    // Off: the toggle is inert.
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        window.click(("pin", 0usize), cx);
+    })
+    .unwrap();
+    cx.update(|cx| assert!(!app.read(cx).slots[0].pinned, "off pane must not pin"));
+
+    // On: pin, then power off and on again.
+    cx.update_window(window.into(), |_, window, cx| {
+        window.click("pane-power", cx);
+    })
+    .unwrap();
+    for _ in 0..10 {
+        std::thread::sleep(Duration::from_millis(100));
+        cx.background_executor.advance_clock(Duration::from_millis(100));
+        cx.run_until_parked();
+        if cx.update(|cx| app.read(cx).slots[0].handle.is_some()) {
+            break;
+        }
+    }
+    cx.update_window(window.into(), |_, window, cx| {
+        window.click(("pin", 0usize), cx);
+    })
+    .unwrap();
+    cx.update(|cx| assert!(app.read(cx).slots[0].pinned, "running pane pins"));
+
+    cx.update_window(window.into(), |_, window, cx| {
+        window.click("pane-power", cx); // off: snapshot to the store
+    })
+    .unwrap();
+    cx.update(|cx| {
+        let app = app.read(cx);
+        let store = app.store.as_ref().expect("a store");
+        assert!(
+            store
+                .list_blobs(None)
+                .unwrap()
+                .iter()
+                .any(|p| p == "slot-0.flash"),
+            "no flash snapshot in the store"
+        );
+        assert!(
+            store.list_objects(None).iter().any(|p| p == "slot-0"),
+            "no slot record in the store"
+        );
+    });
+
+    // Power back on: the flash blob restores into the boot.
+    cx.update_window(window.into(), |_, window, cx| {
+        window.click("pane-power", cx);
+    })
+    .unwrap();
+    let mut framed = false;
+    for _ in 0..30 {
+        std::thread::sleep(Duration::from_millis(100));
+        cx.background_executor.advance_clock(Duration::from_millis(100));
+        cx.run_until_parked();
+        framed = cx.update(|cx| app.read(cx).frames[0].is_some());
+        if framed {
+            break;
+        }
+    }
+    assert!(framed, "the restored pane drew nothing");
+    cx.update(|cx| {
+        let app = app.read(cx);
+        assert!(app.slots[0].pinned);
+        assert!(app.slots[0].error.is_none(), "{:?}", app.slots[0].error);
+    });
 }

@@ -19,6 +19,7 @@ pub(crate) struct Store {
 
 /// `*` matching, the whole string (no `?`, no character classes — the store's paths
 /// are app-chosen, so this stays tiny).
+#[cfg_attr(not(test), allow(dead_code))]
 fn wildcard_match(pattern: &str, text: &str) -> bool {
     wildcard_match_bytes(pattern.as_bytes(), text.as_bytes())
 }
@@ -50,8 +51,11 @@ fn check_path(path: &str) -> Result<(), String> {
 #[cfg(not(target_arch = "wasm32"))]
 impl Store {
     /// The app's data store under the platform's data directory
-    /// (~/.local/share/fm1-grid on Linux).
+    /// (~/.local/share/fm1-grid on Linux). FM1_GRID_DATA_DIR overrides it (tests).
     pub fn new() -> Result<Self, String> {
+        if let Some(dir) = std::env::var_os("FM1_GRID_DATA_DIR") {
+            return Ok(Self::in_dir(Path::new(&dir)));
+        }
         let dirs = directories::ProjectDirs::from("com", "fm1-grid", "fm1-grid")
             .ok_or("no home directory for the data store")?;
         Ok(Self::in_dirs(dirs.data_dir().to_path_buf()))
@@ -79,6 +83,8 @@ impl Store {
     }
 
     /// The names (without `.json`) of every stored object, optionally filtered.
+    /// (The listing side of the API serves the library tab; pins only fetch/store.)
+    #[allow(dead_code)]
     pub fn list_objects(&self, wildcard: Option<&str>) -> Vec<String> {
         let mut out = Vec::new();
         walk(&self.root.join("objects"), "", &mut |rel| {
@@ -93,6 +99,7 @@ impl Store {
     }
 
     /// The objects that parse as `T`.
+    #[allow(dead_code)]
     pub fn list_objects_of_type<T: DeserializeOwned>(&self, wildcard: Option<&str>) -> Vec<String> {
         self.list_objects(wildcard)
             .into_iter()
@@ -117,6 +124,7 @@ impl Store {
     }
 
     /// Every stored blob's path, optionally filtered.
+    #[allow(dead_code)]
     pub fn list_blobs(&self, wildcard: Option<&str>) -> Result<Vec<String>, String> {
         let mut out = Vec::new();
         walk(&self.root.join("blobs"), "", &mut |rel| {

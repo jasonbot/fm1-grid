@@ -56,7 +56,7 @@ fn main() {
         .run(move |cx| {
             init(cx);
             let bounds = Bounds::centered(None, size(px(1180.0), px(1160.0)), cx);
-            open_window(
+            let (_, app) = open_window(
                 WindowOptions {
                     window_bounds: Some(WindowBounds::Windowed(bounds)),
                     // Two 1:1 cards across, the sidebar at its 1x floor, the tab bar
@@ -74,5 +74,12 @@ fn main() {
                 move |window, cx| cx.new(|cx| GridApp::new(window, cx, &initial)),
             )
             .expect("failed to open window");
-        });
+
+        // Going away: pinned slots snapshot their device storage to the store.
+        cx.on_app_quit(move |cx| {
+            app.update(cx, |app, _| app.save_pinned());
+            async {}
+        })
+        .detach();
+    });
 }

@@ -5,8 +5,10 @@
 use crate::app::{GridApp, Source};
 use crate::lcd;
 use gpui_kit::base::{ElementExt, h_flex, v_flex};
+use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::tooltip::Tooltip;
-use gpui_kit::component::{ActiveTheme, Icon, IconName, Sizable};
+use gpui_kit::component::{ActiveTheme, Disableable, Icon, IconName, Sizable};
+use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::component::combobox::Combobox;
 use gpui_kit::component::switch::Switch;
 use gpui_kit::*;
@@ -162,6 +164,7 @@ impl GridApp {
         };
 
         // Firmware can only be changed while the pane is powered off.
+        let combo_label = label.clone();
         let combo = Combobox::new(&self.firmware_combos[slot])
             .placeholder("Choose firmware…")
             .search_placeholder("Filter…")
@@ -186,7 +189,7 @@ impl GridApp {
                             .min_w_0()
                             .truncate()
                             .text_size(px(11.0))
-                            .child(label.clone()),
+                            .child(combo_label.clone()),
                     )
                     .child(Icon::new(IconName::ChevronDown).xsmall())
             });
@@ -199,6 +202,11 @@ impl GridApp {
             None => combo_host,
         };
 
+        // A pinned pane keeps its device storage across power-offs and runs; the
+        // selector collapses to the pinned firmware's name. The toggle only moves
+        // while the pane runs — a stopped pane keeps its state as is.
+        let pinned = self.slots[slot].pinned;
+        let running = self.slots[slot].handle.is_some();
         h_flex()
             .w_full()
             .items_center()
@@ -212,6 +220,34 @@ impl GridApp {
                         cx.notify();
                     })),
             )
-            .child(combo_host.child(combo))
+            .child(if pinned {
+                div()
+                    .id(("firmware", slot))
+                    .flex_1()
+                    .min_w_0()
+                    .truncate()
+                    .text_size(px(11.0))
+                    .child(label)
+                    .into_any_element()
+            } else {
+                combo_host.child(combo).into_any_element()
+            })
+            .child(
+                Button::new(("pin", slot))
+                    .xsmall()
+                    .label("pinned")
+                    .tooltip(if running {
+                        "Keep this pane's device storage across runs"
+                    } else {
+                        "Start the pane to pin or unpin it"
+                    })
+                    .when(pinned, |button| button.primary())
+                    .disabled(!running)
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.set_pinned(slot, !pinned);
+                        this.refocus(window, cx);
+                        cx.notify();
+                    })),
+            )
     }
 }

@@ -327,7 +327,9 @@ impl GridApp {
                 &fallback_store
             }
         };
-        let library = crate::library::Library::load(store_ref);
+        // The hub catalog comes in at app load; later refreshes keep an hourly cadence.
+        let mut library = crate::library::Library::load(store_ref);
+        library.refresh_hub();
 
         let mut app = Self {
             slots: std::array::from_fn(|_| Slot::default()),

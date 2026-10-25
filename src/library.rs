@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use crate::builtin::BUILTINS;
 use crate::store::Store;
@@ -87,6 +88,8 @@ pub(crate) struct Library {
     hub: Arc<Mutex<Vec<Firmware>>>,
     /// The refresh's status; the thread updates it.
     hub_status: Arc<Mutex<HubStatus>>,
+    /// When the last fetch started — automatic refreshes keep an hourly cadence.
+    last_refresh: Arc<Mutex<Option<Instant>>>,
     downloads: HashMap<String, Arc<Download>>,
     /// What the last `list()` returned.
     view: Vec<Firmware>,
@@ -104,6 +107,7 @@ impl Library {
             stored,
             hub: Arc::new(Mutex::new(Vec::new())),
             hub_status: Arc::new(Mutex::new(HubStatus::Idle)),
+            last_refresh: Arc::new(Mutex::new(None)),
             downloads: HashMap::new(),
             view: Vec::new(),
             generation: 0,
@@ -183,15 +187,36 @@ impl Library {
         self.hub.lock().unwrap().len()
     }
 
-    /// Fetch today's hub catalog on a background thread and swap the listing in.
-    /// A failure keeps the old (or empty) list and shows in the status item.
+    /// Fetch today's hub catalog on a background thread and swap the listing in, at
+    /// most once an hour (app load and tab opens call this; within the hour it's a
+    /// no-op). A failure keeps the old (or empty) list and shows in the status item.
     pub(crate) fn refresh_hub(&mut self) {
+        self.refresh_hub_inner(false);
+    }
+
+    /// The reload/retry button's fetch: always goes.
+    pub(crate) fn reload_hub(&mut self) {
+        self.refresh_hub_inner(true);
+    }
+
+    fn refresh_hub_inner(&mut self, force: bool) {
+        if !force
+            && self
+                .last_refresh
+                .lock()
+                .unwrap()
+                .is_some_and(|t| t.elapsed() < Duration::from_secs(3600))
+        {
+            return;
+        }
         self.refresh_hub_from(format!("{HUB_BASE}/catalog.json?{}", today_utc()));
     }
 
     /// The workhorse, with the URL injectable so tests stay offline (a port that's
-    /// closed is a deterministic failure).
+    /// closed is a deterministic failure). Every fetch — cadence or forced — counts
+    /// for the cadence, so the timestamp is set here, the single funnel.
     fn refresh_hub_from(&mut self, url: String) {
+        *self.last_refresh.lock().unwrap() = Some(Instant::now());
         *self.hub_status.lock().unwrap() = HubStatus::Loading;
         let hub = Arc::clone(&self.hub);
         let status = Arc::clone(&self.hub_status);
@@ -681,6 +706,28 @@ mod tests {
         let listing = parse_catalog(r#"[{"name": "x", "pkg": "fw/x.fwsc"}]"#).unwrap();
         assert_eq!(listing.len(), 1);
         assert!(parse_catalog("not json").is_err());
+    }
+
+    #[test]
+    fn hub_refresh_keeps_an_hourly_cadence() {
+        let (store, dir) = temp_store("cadence");
+        let mut library = Library::load(&store);
+        library.refresh_hub_from("http://127.0.0.1:1/catalog.json".to_string());
+        for _ in 0..50 {
+            std::thread::sleep(Duration::from_millis(50));
+            if matches!(library.hub_status(), HubStatus::Failed(_)) {
+                break;
+            }
+        }
+        assert!(matches!(library.hub_status(), HubStatus::Failed(_)));
+        // Within the hour, an automatic refresh is a no-op — the status must not
+        // flick back to Loading (and nothing goes on the network).
+        library.refresh_hub();
+        assert!(matches!(library.hub_status(), HubStatus::Failed(_)));
+        // The button always goes.
+        library.reload_hub();
+        assert!(matches!(library.hub_status(), HubStatus::Loading));
+        std::fs::remove_dir_all(dir).ok();
     }
 
     #[test]

@@ -13,7 +13,7 @@ use gpui_kit::component::input::Input;
 use gpui_kit::component::menu::{DropdownMenu, PopupMenuItem};
 use gpui_kit::component::scroll::ScrollableElement;
 use gpui_kit::component::spinner::Spinner;
-use gpui_kit::component::{ActiveTheme, Disableable, Sizable};
+use gpui_kit::component::{ActiveTheme, Disableable, Icon, IconName, Sizable};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 
@@ -60,6 +60,24 @@ fn action_group(items: Vec<AnyElement>, border: Hsla) -> AnyElement {
     group.into_any_element()
 }
 
+/// The filter box's match: the needle (already lowercase) against name, version, tags,
+/// byline and description.
+fn matches_filter(firmware: &Firmware, needle: &str) -> bool {
+    if needle.is_empty() {
+        return true;
+    }
+    format!(
+        "{} {} {} {} {}",
+        firmware.name,
+        firmware.version,
+        firmware.tags.join(" "),
+        firmware.byline,
+        firmware.description
+    )
+    .to_lowercase()
+    .contains(needle)
+}
+
 /// The list's sections, in order: installed first, hub offers at the bottom.
 const SECTIONS: [(&str, Section); 4] = [
     ("INSTALLED", Section::Installed),
@@ -99,6 +117,17 @@ impl GridApp {
             (theme.muted_foreground, theme.border)
         };
         let items = self.library.list_clone();
+        let needle = self
+            .lib_form
+            .filter
+            .read(cx)
+            .value()
+            .trim()
+            .to_lowercase();
+        let items: Vec<Firmware> = items
+            .into_iter()
+            .filter(|firmware| matches_filter(firmware, &needle))
+            .collect();
 
         // The scrollbar overlays the list's right edge (16 px, gpui-base's WIDTH);
         // keep the content out from under it.
@@ -133,7 +162,11 @@ impl GridApp {
                 div()
                     .text_size(px(11.0))
                     .text_color(dim)
-                    .child("No firmwares? That can't be right."),
+                    .child(if needle.is_empty() {
+                        "No firmwares? That can't be right."
+                    } else {
+                        "No firmware matches the filter."
+                    }),
             );
         }
 
@@ -142,6 +175,13 @@ impl GridApp {
 
         v_flex()
             .size_full()
+            .child(
+                div().w_full().px_2().pt_2().child(
+                    Input::new(&self.lib_form.filter)
+                        .id("library-filter")
+                        .prefix(Icon::new(IconName::Search).xsmall()),
+                ),
+            )
             .child(
                 // The scrollbar pins to this outer element; the scrolling child is
                 // inside it (stacking them on one element scrolled the bar away).

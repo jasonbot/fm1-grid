@@ -80,6 +80,8 @@ pub(crate) struct LibForm {
     pub version: Entity<InputState>,
     pub description: Entity<InputState>,
     pub file: Option<PathBuf>,
+    /// The list's filter box.
+    pub filter: Entity<InputState>,
 }
 
 pub struct GridApp {
@@ -271,13 +273,24 @@ impl GridApp {
                 state
             });
 
-        // The Library tab's add-file form.
+        // The Library tab's add-file form, and the list's filter box (its Change just
+        // repaints — the list re-reads the text).
         let lib_form = LibForm {
             name: cx.new(|cx| InputState::new(window, cx).placeholder("Name")),
             version: cx.new(|cx| InputState::new(window, cx).placeholder("Version")),
             description: cx.new(|cx| InputState::new(window, cx).placeholder("Description")),
             file: None,
+            filter: cx.new(|cx| InputState::new(window, cx).placeholder("Filter firmwares…")),
         };
+        subscriptions.push(cx.subscribe_in(
+            &lib_form.filter,
+            window,
+            |_, _, event, _, cx| {
+                if matches!(event, InputEvent::Change) {
+                    cx.notify();
+                }
+            },
+        ));
 
         // The tempo readout edits the metronome's BPM directly.
         let tempo_input = cx.new(|cx| InputState::new(window, cx));

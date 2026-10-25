@@ -255,6 +255,23 @@ fn library_tab_lists(cx: &mut TestAppContext) {
         window.press("pagedown", cx);
         let down = app.read(cx).lib_scroll.offset().y;
         assert!(down < up, "pagedown should scroll back down: {up} -> {down}");
+
+        // The filter box narrows the list (back to the top first — the list was
+        // scrolled to the bottom above).
+        window.scroll(
+            "library-list",
+            ScrollDelta::Pixels(point(px(0.0), px(100000.0))),
+            cx,
+        );
+        window.render_frame(cx);
+        window.click("library-filter", cx);
+        window.input("sloop", cx);
+        window.render_frame(cx);
+        assert!(window.find("lib-flash-SLOOP").visible());
+        assert!(
+            window.try_find("lib-flash-Felucca").is_none(),
+            "the filter should hide non-matching firmwares"
+        );
     })
     .unwrap();
 }

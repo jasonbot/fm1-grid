@@ -7,11 +7,11 @@
 use crate::app::GridApp;
 use crate::firmware_picker::{FirmwarePick, pick_of};
 use crate::library::{Firmware, FirmwareDevice, FirmwareSource, Status};
-use gpui_kit::base::{h_flex, v_flex};
+use gpui_kit::base::{ElementExt, h_flex, v_flex};
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::input::Input;
 use gpui_kit::component::menu::{DropdownMenu, PopupMenuItem};
-use gpui_kit::component::progress::Progress;
+use gpui_kit::component::scroll::ScrollableElement;
 use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::{ActiveTheme, Disableable, Sizable};
 use gpui_kit::prelude::FluentBuilder;
@@ -37,6 +37,27 @@ fn tag_color(tag: &str) -> u32 {
         hash = (hash ^ byte as u32).wrapping_mul(0x0100_0193);
     }
     TAG_COLORS[(hash % TAG_COLORS.len() as u32) as usize]
+}
+
+/// The row's actions as one button group: ghost buttons fused in a bordered rounded
+/// container with hairline dividers. (The component's ButtonGroup would do the fusion,
+/// but it overwrites each button's own `disabled` at push time, and this row's buttons
+/// gate independently.)
+fn action_group(items: Vec<AnyElement>, border: Hsla) -> AnyElement {
+    let mut group = h_flex()
+        .border_1()
+        .border_color(border)
+        .rounded_md()
+        .overflow_hidden();
+    let mut first = true;
+    for item in items {
+        if !first {
+            group = group.child(div().w(px(1.0)).h_full().bg(border));
+        }
+        first = false;
+        group = group.child(item);
+    }
+    group.into_any_element()
 }
 
 /// The list's sections, in order: installed first, hub offers at the bottom.
@@ -127,6 +148,16 @@ impl GridApp {
                     .min_h_0()
                     .w_full()
                     .overflow_y_scroll()
+                    .track_scroll(&self.lib_scroll)
+                    .vertical_scrollbar(&self.lib_scroll)
+                    // PgUp/PgDn scroll by the viewport; record it.
+                    .on_prepaint({
+                        let app = cx.entity().clone();
+                        move |bounds, _, cx| {
+                            let height: f32 = bounds.size.height.into();
+                            app.update(cx, |this, _| this.lib_view_h = height);
+                        }
+                    })
                     .child(list),
             )
             .child(self.library_add_form(window, cx))
@@ -203,9 +234,9 @@ impl GridApp {
 
     /// One firmware row: name + pills over byline + description, then the actions.
     fn library_item(&mut self, firmware: &Firmware, cx: &mut Context<Self>) -> AnyElement {
-        let (ink, dim) = {
+        let (ink, dim, border) = {
             let theme = cx.theme();
-            (theme.foreground, theme.muted_foreground)
+            (theme.foreground, theme.muted_foreground, theme.border)
         };
         let firmware = firmware.clone();
         let name = firmware.name.clone();
@@ -244,47 +275,59 @@ impl GridApp {
                 .child(device),
         );
 
-        // The actions: Remove (not builtins), Download (hub offers), Flash To…
-        let mut actions = h_flex().gap_2().items_center();
+        // The actions as one fused group: Remove (never builtins, and only when the
+        // package is at hand), Download (hub offers; its percent while in flight),
+        // Flash To…
+        let locally = pick.is_some() && firmware.status == Status::Available;
+        let mut buttons: Vec<AnyElement> = Vec::new();
         if !matches!(firmware.source, FirmwareSource::Builtin) {
             let name = name.clone();
-            actions = actions.child(
+            buttons.push(
                 Button::new(format!("lib-remove-{name}"))
                     .label("Remove")
                     .small()
-                    .tooltip("Forget this firmware (the package stays on disk)")
+                    .ghost()
+                    .disabled(!locally)
+                    .tooltip(if locally {
+                        "Forget this firmware (the package stays on disk)"
+                    } else {
+                        "Only a firmware that's here can be removed"
+                    })
                     .on_click(cx.listener(move |this, _, window, cx| {
                         this.library.remove(&name);
                         this.refresh_firmware_combos(window, cx);
                         cx.notify();
-                    })),
+                    }))
+                    .into_any_element(),
             );
         }
         if let FirmwareSource::Hub { blob: None, .. } = &firmware.source {
             if downloading {
-                actions = actions.child(
-                    div()
-                        .w(px(140.0))
-                        .child(
-                            Progress::new(format!("lib-download-{name}"))
-                                .value(percent.unwrap_or(0) as f32),
-                        ),
+                buttons.push(
+                    Button::new(format!("lib-download-{name}"))
+                        .label(format!("{}%", percent.unwrap_or(0)))
+                        .small()
+                        .ghost()
+                        .disabled(true)
+                        .into_any_element(),
                 );
             } else {
                 let name = name.clone();
-                actions = actions.child(
+                buttons.push(
                     Button::new(format!("lib-download-{name}"))
                         .label("Download")
                         .small()
+                        .ghost()
                         .tooltip("Download from the FM-1 Firmware Hub into the library")
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.library.start_download(&name);
                             cx.notify();
-                        })),
+                        }))
+                        .into_any_element(),
                 );
             }
         }
-        actions = actions.child(self.flash_to_menu(&firmware, pick, flashable, cx));
+        buttons.push(self.flash_to_menu(&firmware, pick, flashable, cx));
 
         let mut line = String::new();
         if !firmware.byline.is_empty() {
@@ -330,7 +373,7 @@ impl GridApp {
                         .child(line),
                 )
             })
-            .child(actions)
+            .child(action_group(buttons, border))
             .into_any_element()
     }
 

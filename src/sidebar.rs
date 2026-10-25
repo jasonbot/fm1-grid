@@ -21,6 +21,9 @@ const FIT_W_CHROME: f32 = 26.0;
 const FIT_H_CHROME: f32 = 164.0;
 /// Smallest screen side the layout falls back to (fractional fit).
 const SCREEN_MIN: f32 = 80.0;
+/// The firmware combobox renders at the component's medium input height (32 px); the
+/// pinned label matches it, so pinning never changes the row's height.
+const COMBO_H: f32 = 32.0;
 
 impl GridApp {
     /// The sidebar takes a fixed share of the window's width (the grid keeps the rest)
@@ -208,6 +211,8 @@ impl GridApp {
         let pinned = self.slots[slot].pinned;
         let running = self.slots[slot].handle.is_some();
         h_flex()
+            .id("pane-attrs")
+            .test_support()
             .w_full()
             .items_center()
             .gap_2()
@@ -225,6 +230,9 @@ impl GridApp {
                     .id(("firmware", slot))
                     .flex_1()
                     .min_w_0()
+                    .h(px(COMBO_H))
+                    .flex()
+                    .items_center()
                     .truncate()
                     .text_size(px(11.0))
                     .child(label)

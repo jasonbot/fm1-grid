@@ -99,10 +99,12 @@ pub struct GridApp {
     pub(crate) midi_keys: MidiKeys,
     /// The graph source waiting for its first sink (the graph UI's pending row).
     pub(crate) pending_source: Option<crate::routing::Port>,
-    /// The live device whose flash selector is open (the devices pane UI state).
-    pub(crate) flash_pick: Option<String>,
-    /// The flash selector's combobox state, created when the picker opens.
-    pub(crate) flash_combo: Option<Entity<ComboboxState<FirmwareDelegate>>>,
+    /// Per-device flash arming (the row's "Flash" toggle) and its combobox, and the
+    /// was-flashing marker that re-safes the toggle when a flash succeeds.
+    pub(crate) flash_armed: std::collections::HashMap<String, bool>,
+    pub(crate) flash_combos:
+        std::collections::HashMap<String, Entity<ComboboxState<FirmwareDelegate>>>,
+    flash_was: std::collections::HashMap<String, bool>,
     rings: [Arc<AudioRing>; MAX_SLOTS],
     /// Kept alive for as long as the app wants sound.
     _audio: Option<cpal::Stream>,
@@ -173,6 +175,10 @@ pub struct GridApp {
     pub(crate) library: crate::library::Library,
     /// The Library tab's add-file form.
     pub(crate) lib_form: LibForm,
+    /// The library list's scroll state (shared with its scrollbar and PgUp/PgDn).
+    pub(crate) lib_scroll: ScrollHandle,
+    /// The library list's viewport height, for page scrolling.
+    pub(crate) lib_view_h: f32,
     /// The library generation the firmware pickers were last built from.
     combos_at_generation: u64,
     _tick: Task<()>,
@@ -340,8 +346,9 @@ impl GridApp {
             routing,
             midi_keys,
             pending_source: None,
-            flash_pick: None,
-            flash_combo: None,
+            flash_armed: Default::default(),
+            flash_combos: Default::default(),
+            flash_was: Default::default(),
             rings,
             _audio: audio,
             audio_error,
@@ -376,6 +383,8 @@ impl GridApp {
             store,
             library,
             lib_form,
+            lib_scroll: ScrollHandle::new(),
+            lib_view_h: 400.0,
             combos_at_generation: 0,
             _tick: tick,
             _subscriptions: subscriptions,
@@ -539,6 +548,15 @@ impl GridApp {
                 if let Some(selected) = &selected {
                     state.set_selected_values(std::slice::from_ref(selected), window, cx);
                 }
+            });
+        }
+        // The devices' flash comboboxes list the same library (no selection to keep:
+        // each flash is a fresh choice).
+        let flash_combos: Vec<_> = self.flash_combos.values().cloned().collect();
+        for combo in flash_combos {
+            let delegate = crate::firmware_picker::FirmwareDelegate::from_app(self);
+            combo.update(cx, |state, cx| {
+                state.set_items(delegate, window, cx);
             });
         }
     }
@@ -727,6 +745,15 @@ impl GridApp {
         before != self.held
     }
 
+    /// PgUp/PgDn on the Library tab: scroll the list by ~a viewport. (The offset runs
+    /// negative going down; clamp to the content.)
+    fn scroll_library(&mut self, pages: f32) {
+        let current: f32 = self.lib_scroll.offset().y.into();
+        let max: f32 = f32::from(self.lib_scroll.max_offset().y).abs();
+        let next: f32 = (current - pages * self.lib_view_h * 0.9).clamp(-max, 0.0);
+        self.lib_scroll.set_offset(point(px(0.0), px(next)));
+    }
+
     pub(crate) fn turn_encoder(&self, enc: u8, clicks: i32) {
         if let Some(handle) = &self.slots[self.active].handle {
             handle.send(Action::Enc { enc, clicks });
@@ -752,6 +779,9 @@ impl GridApp {
             return;
         }
         match stroke.key.as_str() {
+            // The Library tab pages its list.
+            "pageup" if self.active_tab == 2 => self.scroll_library(-1.0),
+            "pagedown" if self.active_tab == 2 => self.scroll_library(1.0),
             "left" => self.turn_encoder(6, -1),
             "right" => self.turn_encoder(6, 1),
             "down" => self.turn_encoder(1, 1),
@@ -822,7 +852,33 @@ impl GridApp {
         // Flash progress and hotplugged USB devices arrive on the hardware module's
         // threads; sweep them up twice a second.
         self.tick_count = self.tick_count.wrapping_add(1);
-        dirty |= self.hardware.flash_state().is_some() || self.tick_count.is_multiple_of(30);
+        let sweeping = self.tick_count.is_multiple_of(30);
+        dirty |= self.hardware.flash_state().is_some() || sweeping;
+        if sweeping {
+            // Every connected unit gets a flash combobox (built here, where a window
+            // lives); gone units drop theirs. A flash that just succeeded re-safes the
+            // row's toggle.
+            let rows = self.hardware.devices();
+            let names: Vec<String> = rows.iter().map(|row| row.name.clone()).collect();
+            self.flash_combos.retain(|name, _| names.contains(name));
+            for row in rows {
+                if !self.flash_combos.contains_key(&row.name) {
+                    self.open_flash_picker(&row.name.clone(), window, cx);
+                    dirty = true;
+                }
+                let was = self.flash_was.insert(row.name.clone(), row.flash.is_some());
+                if was == Some(true)
+                    && row.flash.is_none()
+                    && row
+                        .outcome
+                        .as_deref()
+                        .is_some_and(|outcome| outcome.starts_with("flashed:"))
+                {
+                    self.flash_armed.insert(row.name.clone(), false);
+                    dirty = true;
+                }
+            }
+        }
         if dirty {
             cx.notify();
         }

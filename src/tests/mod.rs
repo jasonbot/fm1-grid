@@ -153,11 +153,26 @@ fn pin_cycle(cx: &mut TestAppContext) {
             break;
         }
     }
+    // Pinning swaps the combobox for the firmware's name — the row must not jump.
+    let row_h = cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        window.find("pane-attrs").bounds().size.height
+    })
+    .unwrap();
     cx.update_window(window.into(), |_, window, cx| {
         window.click(("pin", 0usize), cx);
     })
     .unwrap();
     cx.update(|cx| assert!(app.read(cx).slots[0].pinned, "running pane pins"));
+    let pinned_h = cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        window.find("pane-attrs").bounds().size.height
+    })
+    .unwrap();
+    assert!(
+        (row_h - pinned_h).abs() < px(1.0),
+        "the attributes row jumps on pin: {row_h} -> {pinned_h}"
+    );
 
     cx.update_window(window.into(), |_, window, cx| {
         window.click("pane-power", cx); // off: snapshot to the store
@@ -231,6 +246,15 @@ fn library_tab_lists(cx: &mut TestAppContext) {
         assert!(window.find("hub-reload").visible());
         // Nothing to remove on a builtin.
         assert!(window.try_find("lib-remove-SLOOP").is_none());
+
+        // PgUp/PgDn page the list (we scrolled to the bottom above: up first).
+        let bottom = app.read(cx).lib_scroll.offset().y;
+        window.press("pageup", cx);
+        let up = app.read(cx).lib_scroll.offset().y;
+        assert!(up > bottom, "pageup should scroll up: {bottom} -> {up}");
+        window.press("pagedown", cx);
+        let down = app.read(cx).lib_scroll.offset().y;
+        assert!(down < up, "pagedown should scroll back down: {up} -> {down}");
     })
     .unwrap();
 }

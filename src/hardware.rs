@@ -30,7 +30,6 @@ use crate::clock::{Clock, MidiSink};
 use crate::routing::Routing;
 use midir::{MidiInput, MidiInputConnection, MidiOutput, MidiOutputConnection};
 use std::collections::VecDeque;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -465,8 +464,6 @@ pub(crate) struct DeviceRow {
     pub usb: Option<String>,
     /// What the row shows: the friendly firmware name, or a state.
     pub display: String,
-    /// Whether the metronome's MIDI clock is routed to the device.
-    pub clock: bool,
     /// What the running flash is doing, if one is running.
     pub flash: Option<FlashState>,
     /// The last flash's outcome, until the next flash.
@@ -482,14 +479,12 @@ struct Device {
     hw_id: usize,
     link: Arc<DeviceLink>,
     identity: Arc<Mutex<Option<String>>>,
-    clock_on: Arc<AtomicBool>,
     flash: Arc<Mutex<Option<FlashState>>>,
     outcome: Arc<Mutex<Option<String>>>,
 }
 
 enum Command {
     Flash { name: String, bytes: Vec<u8> },
-    SetClock { name: String, on: bool },
 }
 
 /// The live USB devices: a background scanner thread owns discovery, the GUI reads the
@@ -557,7 +552,6 @@ impl Hardware {
                     number: device.number,
                     usb: device.usb.clone(),
                     display,
-                    clock: device.clock_on.load(Ordering::Relaxed),
                     flash,
                     outcome: device.outcome.lock().ok().and_then(|o| o.clone()),
                 }
@@ -571,20 +565,6 @@ impl Hardware {
         let _ = self.commands.send(Command::Flash {
             name: name.to_string(),
             bytes,
-        });
-    }
-
-    /// Route the metronome's MIDI clock to the named device, or stop routing it. The
-    /// row's switch flips immediately; the scanner thread does the clock plumbing.
-    pub fn set_clock(&self, name: &str, on: bool) {
-        if let Ok(list) = self.devices.lock() {
-            if let Some(device) = list.iter().find(|device| device.name == name) {
-                device.clock_on.store(on, Ordering::Relaxed);
-            }
-        }
-        let _ = self.commands.send(Command::SetClock {
-            name: name.to_string(),
-            on,
         });
     }
 
@@ -612,31 +592,6 @@ fn scan_loop(
         // Commands first, so a clock toggle never waits behind a scan.
         while let Ok(command) = commands.try_recv() {
             match command {
-                Command::SetClock { name, on } => {
-                    let found = devices.lock().ok().and_then(|list| {
-                        list.iter()
-                            .find(|device| device.name == name)
-                            .map(|device| {
-                                (
-                                    device.hw_id,
-                                    device.clock_on.clone(),
-                                    device.flash.clone(),
-                                    device.link.clone(),
-                                )
-                            })
-                    });
-                    if let Some((hw_id, flag, flash, link)) = found {
-                        flag.store(on, Ordering::Relaxed);
-                        // Never route clock bytes into a running update; the flash
-                        // thread re-plugs the device when it is done.
-                        let busy = flash.lock().ok().is_some_and(|state| state.is_some());
-                        if !busy {
-                            let target: Option<Arc<dyn MidiSink>> =
-                                on.then_some(link as Arc<dyn MidiSink>);
-                            clock.set_hw_target(hw_id, target);
-                        }
-                    }
-                }
                 Command::Flash { name, bytes } => {
                     let found = devices.lock().ok().and_then(|list| {
                         list.iter()
@@ -646,13 +601,12 @@ fn scan_loop(
                                     device.hw_id,
                                     device.link.clone(),
                                     device.identity.clone(),
-                                    device.clock_on.clone(),
                                     device.flash.clone(),
                                     device.outcome.clone(),
                                 )
                             })
                     });
-                    let Some((hw_id, link, identity, clock_on, flash, outcome)) = found else {
+                    let Some((hw_id, link, identity, flash, outcome)) = found else {
                         continue;
                     };
                     {
@@ -680,7 +634,7 @@ fn scan_loop(
                         .name("fm1-usb-flash".into())
                         .spawn(move || {
                             flash_task(
-                                devices, board, link, identity, clock_on, flash, outcome, clock,
+                                devices, board, link, identity, flash, outcome, clock,
                                 hw_id, bytes,
                             )
                         })
@@ -796,6 +750,9 @@ fn scan(
         let usb = usb_path(&name);
         let hw_id = *next_hw_id;
         *next_hw_id += 1;
+        // Every connected unit gets the metronome's clock (the clock thread gates on
+        // the metronome's switch); a flash unplugs it for the update's duration.
+        clock.set_hw_target(hw_id, Some(link.clone()));
         if let Ok(mut list) = devices.lock() {
             list.push(Device {
                 name,
@@ -805,7 +762,6 @@ fn scan(
                 hw_id,
                 link,
                 identity: Arc::new(Mutex::new(identity)),
-                clock_on: Arc::new(AtomicBool::new(false)),
                 flash: Arc::new(Mutex::new(None)),
                 outcome: Arc::new(Mutex::new(None)),
             });
@@ -844,7 +800,6 @@ fn flash_task(
     board: Board,
     link: Arc<DeviceLink>,
     identity: Arc<Mutex<Option<String>>>,
-    clock_on: Arc<AtomicBool>,
     flash: Arc<Mutex<Option<FlashState>>>,
     outcome: Arc<Mutex<Option<String>>>,
     clock: Arc<Clock>,
@@ -861,7 +816,7 @@ fn flash_task(
         .lock()
         .ok()
         .is_some_and(|list| list.iter().any(|device| Arc::ptr_eq(&device.link, &link)));
-    if registered && clock_on.load(Ordering::Relaxed) {
+    if registered {
         let target: Option<Arc<dyn MidiSink>> = Some(link.clone() as Arc<dyn MidiSink>);
         clock.set_hw_target(hw_id, target);
     }

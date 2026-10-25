@@ -17,6 +17,19 @@ the live USB units and the MIDI graph.
 The large FM-1 front panel above the metronome mirrors the active pane: click its keys
 and buttons, turn knobs with the −/+ ends, and watch its LEDs follow the firmware.
 
+A running pane can be **pinned** (the toggle beside its firmware selector): its flash
+contents — the device's settings and project data — are written to disk at power-off
+and when the app quits, and come back at the next boot. Pinned panes restore at
+startup (still powered off). State lives in the com.fm1-grid data directory
+(`~/.local/share/fm1-grid` on Linux).
+
+The **Library** tab lists every firmware the app knows — the bundled set with the
+hub's descriptions, files you import, and (online) everything the
+[FM-1 Firmware Hub](https://thefirmwarehub.com/) offers, downloadable in place. Items
+remove (not builtins), download with progress, and **Flash To…** a live unit (modal
+progress + log) or a powered-off unpinned pane (boots it). The bottom form imports a
+firmware file with a name, version and description.
+
 ![Screenshot](./screenshot/screen.png)
 
 ## Run
@@ -141,17 +154,21 @@ scripts/firmware.sh  add/del/list for the embedded firmware list
 src/affinity.rs      Linux physical-core detection and per-emulator pinning
 src/app.rs           grid state: pane power, firmware install, key routing, LCD upload
 src/clock.rs         MIDI-clock thread, tempo, beat light
-src/emulator.rs      one thread + SoC + cores per slot
+src/emulator.rs      one thread + SoC + cores per slot, flash snapshot at exit
 src/audio.rs         four queues mixed into one output stream
 src/builtin.rs       embedded firmware catalogue (generated table)
 src/grid.rs          the 2x2 grid of cards and the background colour
-src/sidebar.rs       the device sidebar: heading, upscaled screen, pane controls
+src/sidebar.rs       the device sidebar: heading, upscaled screen, pane controls, pin
 src/panel.rs         the clickable FM-1 front panel
 src/transport.rs     the bottom bar: panel plus metronome
 src/lcd.rs           RGB565 decode, colours, NTSC/ghost/hqx image filters
 src/keys.rs          keyboard layout and panel key tables
 src/theme.rs         the FM-1 hardware colours; app chrome follows gpui-kit
-src/main.rs          startup and CLI firmware arguments
+src/store.rs         on-disk objects (JSON) and blobs (desktop dir / localStorage)
+src/library.rs       the firmware library: model, hub fetch/downloads, persistence
+src/library_tab.rs   the Library tab's list, pills, actions and add-file form
+src/flash_dialog.rs  the modal flash progress + message terminal
+src/main.rs          startup, CLI firmware arguments, the quit hook saving pins
 src/tests/           headless UI smoke tests
 firmware/            the embedded .fwsc packages plus firmwares.json
 ```

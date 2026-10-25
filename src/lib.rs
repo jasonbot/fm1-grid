@@ -16,10 +16,15 @@ mod grid;
 mod hardware;
 mod keys;
 mod lcd;
+#[cfg(not(target_arch = "wasm32"))]
+mod library;
 mod midi_keys;
 mod panel;
 mod routing;
 mod sidebar;
+mod flash_dialog;
+mod library_tab;
+mod store;
 mod theme;
 mod transport;
 mod usbmidi;

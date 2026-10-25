@@ -98,6 +98,9 @@ pub struct EmulatorHandle {
     status: Arc<Mutex<String>>,
     running: Arc<AtomicBool>,
     join: Option<JoinHandle<()>>,
+    /// The SPI flash's contents once the thread has stopped (the emulated device's
+    /// persistent storage, for pinned slots).
+    snapshot: Arc<Mutex<Option<Vec<u8>>>>,
 }
 
 impl EmulatorHandle {
@@ -110,24 +113,32 @@ impl EmulatorHandle {
         ring: Arc<AudioRing>,
         audio_enabled: bool,
         pin_cpu: Option<usize>,
+        resume_flash: Option<Vec<u8>>,
     ) -> Result<Self, String> {
-        let engine = if package {
+        let mut engine = if package {
             Machine::from_package(&bytes)?
         } else {
             Machine::from_raw(bytes)?
         };
+        if let Some(saved) = resume_flash {
+            // A pinned slot's device storage comes back: boot the firmware fresh, but
+            // with its flash chip's contents from the last run.
+            engine.soc.flash.mem = saved;
+        }
 
         let lcd: SharedLcd = Arc::new(Mutex::new(vec![0u16; LCD_W * LCD_H]));
         let leds = Arc::new(Mutex::new([0.0f32; 41]));
         let status = Arc::new(Mutex::new("booting".to_string()));
         let running = Arc::new(AtomicBool::new(true));
         let (tx, rx) = mpsc::channel::<Action>();
+        let snapshot = Arc::new(Mutex::new(None));
 
         let thread = {
             let lcd = lcd.clone();
             let leds = leds.clone();
             let status = status.clone();
             let running = running.clone();
+            let snapshot = snapshot.clone();
             thread::Builder::new()
                 .name(format!("fm1-{name}"))
                 .spawn(move || {
@@ -136,12 +147,37 @@ impl EmulatorHandle {
                     if let Some(cpu) = pin_cpu {
                         crate::affinity::pin_current_thread(cpu);
                     }
-                    run_emulator(engine, rx, ring, lcd, leds, status, running, audio_enabled)
+                    run_emulator(
+                        engine,
+                        rx,
+                        ring,
+                        lcd,
+                        leds,
+                        status,
+                        running,
+                        audio_enabled,
+                        snapshot,
+                    )
                 })
                 .map_err(|e| format!("cannot start emulator thread: {e}"))?
         };
 
-        Ok(Self { lcd, tx, leds, status, running, join: Some(thread) })
+        Ok(Self {
+            lcd,
+            tx,
+            leds,
+            status,
+            running,
+            join: Some(thread),
+            snapshot,
+        })
+    }
+
+    /// Stop the thread and take the emulated device's flash contents (None if the
+    /// thread never produced one — e.g. it halted at boot).
+    pub fn stop_with_snapshot(&mut self) -> Option<Vec<u8>> {
+        self.stop();
+        self.snapshot.lock().ok()?.take()
     }
 
     pub fn send(&self, action: Action) {
@@ -176,6 +212,7 @@ impl Drop for EmulatorHandle {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn run_emulator(
     mut m: Machine,
     rx: mpsc::Receiver<Action>,
@@ -185,6 +222,7 @@ fn run_emulator(
     status: Arc<Mutex<String>>,
     running: Arc<AtomicBool>,
     audio_enabled: bool,
+    snapshot: Arc<Mutex<Option<Vec<u8>>>>,
 ) {
     let start = Instant::now();
     // Wall-clock time given up after falling too far behind.
@@ -261,5 +299,58 @@ fn run_emulator(
             stat_wall = Instant::now();
             last_stat = Instant::now();
         }
+    }
+
+    // The device is off: its flash chip's contents are the slot's snapshot, for the
+    // pinned-slot restore on the next boot.
+    if let Ok(mut snapshot) = snapshot.lock() {
+        *snapshot = Some(m.soc.flash.mem.clone());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::audio::AudioRing;
+    use crate::builtin::BUILTINS;
+
+    /// Boot a bundled firmware, stop it (snapshot taken), boot again with the saved
+    /// flash — the pinned-slot cycle. The restored device must run and draw.
+    #[test]
+    fn snapshot_restore_cycle() {
+        let firmware = &BUILTINS[0];
+        let ring = Arc::new(AudioRing::new());
+        let mut first = EmulatorHandle::start(
+            firmware.label(),
+            firmware.bytes.to_vec(),
+            true,
+            ring.clone(),
+            false,
+            None,
+            None,
+        )
+        .expect("first boot");
+        std::thread::sleep(Duration::from_millis(1500));
+        let saved = first.stop_with_snapshot().expect("a flash snapshot");
+        assert!(!saved.is_empty(), "the flash snapshot is empty");
+
+        let mut second = EmulatorHandle::start(
+            firmware.label(),
+            firmware.bytes.to_vec(),
+            true,
+            ring,
+            false,
+            None,
+            Some(saved),
+        )
+        .expect("restored boot");
+        std::thread::sleep(Duration::from_millis(1500));
+        let lcd = second.lcd.lock().unwrap().clone();
+        second.stop();
+        assert!(
+            lcd.iter().any(|&px| px != 0),
+            "the restored device drew nothing"
+        );
+        assert!(second.status().contains('x'), "status: {}", second.status());
     }
 }

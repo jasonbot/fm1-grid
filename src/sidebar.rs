@@ -5,11 +5,25 @@
 use crate::app::{GridApp, Source};
 use crate::lcd;
 use gpui_kit::base::{ElementExt, h_flex, v_flex};
+use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::tooltip::Tooltip;
-use gpui_kit::component::{ActiveTheme, Icon, IconName, Sizable};
+use gpui_kit::component::{ActiveTheme, Disableable, Icon, IconName, Sizable};
+use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::component::combobox::Combobox;
 use gpui_kit::component::switch::Switch;
 use gpui_kit::*;
+
+/// Exact pixel multiples the screen can show at, largest first (4x, 2x, 1x).
+const SCREEN_SIDES: [f32; 3] = [960.0, 480.0, 240.0];
+/// Horizontal chrome around the screen: the card's padding and the bezel.
+const FIT_W_CHROME: f32 = 26.0;
+/// Vertical chrome: title, attributes, status, note, gaps and padding.
+const FIT_H_CHROME: f32 = 164.0;
+/// Smallest screen side the layout falls back to (fractional fit).
+const SCREEN_MIN: f32 = 80.0;
+/// The firmware combobox renders at the component's medium input height (32 px); the
+/// pinned label matches it, so pinning never changes the row's height.
+const COMBO_H: f32 = 32.0;
 
 impl GridApp {
     /// The sidebar takes a fixed share of the window's width (the grid keeps the rest)
@@ -39,14 +53,14 @@ impl GridApp {
         // title/attributes/status/note leave. Computed from last frame's measured
         // content size (one frame of lag, as with the graph height in the egui app).
         let (panel_w, panel_h) = self.sidebar_size;
-        let fit_w = panel_w - 26.0; // padding and bezel
-        let fit_h = panel_h - 164.0; // everything but the screen
-        let fit = fit_w.min(fit_h).min(960.0).max(80.0);
-        let side = [960.0, 480.0, 240.0]
+        let fit_w = panel_w - FIT_W_CHROME;
+        let fit_h = panel_h - FIT_H_CHROME;
+        let fit = fit_w.min(fit_h).clamp(SCREEN_MIN, SCREEN_SIDES[0]);
+        let side = SCREEN_SIDES
             .into_iter()
             .find(|&exact| exact <= fit)
             .unwrap_or(fit);
-        self.sidebar_scale = (side / 240.0).round() as usize;
+        self.sidebar_scale = (side / SCREEN_SIDES[2]).round() as usize;
 
         let name = self.slots[slot]
             .label
@@ -153,10 +167,11 @@ impl GridApp {
         };
 
         // Firmware can only be changed while the pane is powered off.
+        let combo_label = label.clone();
         let combo = Combobox::new(&self.firmware_combos[slot])
             .placeholder("Choose firmware…")
             .search_placeholder("Filter…")
-            .menu_width(px(260.0))
+            .menu_width(px(crate::theme::COMBO_MENU_W))
             .disabled(on)
             .empty(|_, cx| {
                 div()
@@ -177,7 +192,7 @@ impl GridApp {
                             .min_w_0()
                             .truncate()
                             .text_size(px(11.0))
-                            .child(label.clone()),
+                            .child(combo_label.clone()),
                     )
                     .child(Icon::new(IconName::ChevronDown).xsmall())
             });
@@ -190,7 +205,14 @@ impl GridApp {
             None => combo_host,
         };
 
+        // A pinned pane keeps its device storage across power-offs and runs; the
+        // selector collapses to the pinned firmware's name. The toggle only moves
+        // while the pane runs — a stopped pane keeps its state as is.
+        let pinned = self.slots[slot].pinned;
+        let running = self.slots[slot].handle.is_some();
         h_flex()
+            .id("pane-attrs")
+            .test_support()
             .w_full()
             .items_center()
             .gap_2()
@@ -203,6 +225,37 @@ impl GridApp {
                         cx.notify();
                     })),
             )
-            .child(combo_host.child(combo))
+            .child(if pinned {
+                div()
+                    .id(("firmware", slot))
+                    .flex_1()
+                    .min_w_0()
+                    .h(px(COMBO_H))
+                    .flex()
+                    .items_center()
+                    .truncate()
+                    .text_size(px(11.0))
+                    .child(label)
+                    .into_any_element()
+            } else {
+                combo_host.child(combo).into_any_element()
+            })
+            .child(
+                Button::new(("pin", slot))
+                    .xsmall()
+                    .label("pinned")
+                    .tooltip(if running {
+                        "Keep this pane's device storage across runs"
+                    } else {
+                        "Start the pane to pin or unpin it"
+                    })
+                    .when(pinned, |button| button.primary())
+                    .disabled(!running)
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.set_pinned(slot, !pinned);
+                        this.refocus(window, cx);
+                        cx.notify();
+                    })),
+            )
     }
 }

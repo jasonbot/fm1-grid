@@ -18,6 +18,13 @@ struct Firmware {
     file: String,
     sha256: String,
     tags: Vec<String>,
+    /// Hub catalog text; empty when the package isn't in the catalog (M-VAVE's own).
+    #[serde(default)]
+    description: String,
+    #[serde(default)]
+    byline: String,
+    #[serde(default)]
+    device: String,
 }
 
 fn escape(text: &str) -> String {
@@ -60,12 +67,15 @@ fn main() {
         }
         println!("cargo:rerun-if-changed={}", path.display());
         code.push_str(&format!(
-            "    BuiltinFirmware {{\n        name: \"{}\",\n        version: \"{}\",\n        file: \"{}\",\n        sha256: \"{}\",\n        tags: \"{}\",\n        bytes: include_bytes!(\"{}\"),\n    }},\n",
+            "    BuiltinFirmware {{\n        name: \"{}\",\n        version: \"{}\",\n        file: \"{}\",\n        sha256: \"{}\",\n        tags: \"{}\",\n        description: \"{}\",\n        byline: \"{}\",\n        device: \"{}\",\n        bytes: include_bytes!(\"{}\"),\n    }},\n",
             escape(&fw.name),
             escape(&fw.version),
             escape(&fw.file),
             escape(&fw.sha256),
             escape(&fw.tags.join(",")),
+            escape(&fw.description),
+            escape(&fw.byline),
+            escape(&fw.device),
             escape(&path.to_string_lossy()),
         ));
     }

@@ -3,18 +3,24 @@
 //! state lives in [`crate::hardware`]; this only draws it and posts commands.
 
 use crate::app::GridApp;
-use crate::builtin::BUILTINS;
 use crate::firmware_picker::FirmwareDelegate;
 use crate::hardware::DeviceRow;
 use gpui_kit::base::{h_flex, v_flex};
-use gpui_kit::component::button::Button;
 use gpui_kit::component::combobox::{Combobox, ComboboxEvent, ComboboxState};
 use gpui_kit::component::progress::Progress;
 use gpui_kit::component::switch::Switch;
 use gpui_kit::component::tooltip::Tooltip;
-use gpui_kit::component::{ActiveTheme, Sizable};
+use gpui_kit::component::ActiveTheme;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
+
+/// The flash progress bar's size.
+const PROGRESS_W: f32 = 180.0;
+const PROGRESS_H: f32 = 12.0;
+/// The flash outcome report's indent, aligning it under the row's text.
+const OUTCOME_INDENT: f32 = 52.0;
+/// The flash firmware combobox's width in the row.
+const FLASH_COMBO_W: f32 = 200.0;
 
 impl GridApp {
     /// The Devices tab's left half: the live USB units. Bare like the graph half —
@@ -89,7 +95,7 @@ impl GridApp {
                     .when(!board.error, |el| {
                         el.when_some(board.progress, |el, progress| {
                             el.child(
-                                div().w(px(180.0)).h(px(12.0)).child(
+                                div().w(px(PROGRESS_W)).h(px(PROGRESS_H)).child(
                                     Progress::new("flash-progress").value(progress * 100.0),
                                 ),
                             )
@@ -112,23 +118,11 @@ impl GridApp {
                 theme.primary,
             )
         };
-        let name = row.name.clone();
-
         let mut line = h_flex()
             .w_full()
             .items_center()
             .flex_wrap()
             .gap_2()
-            .child(
-                Switch::new(("dev-clock", ix))
-                    .checked(row.clock)
-                    .tooltip("Send the metronome's MIDI clock to this device")
-                    .on_change(cx.listener(move |this, &on, window, cx| {
-                        this.hardware.set_clock(&name, on);
-                        this.refocus(window, cx);
-                        cx.notify();
-                    })),
-            )
             .child(
                 div()
                     .id(("dev-port", ix))
@@ -173,23 +167,38 @@ impl GridApp {
                     .child(row.display.clone()),
             );
 
-        // The flash control on the right: a button that gives way to the searchable
-        // firmware combobox and a dismiss button, or nothing while a flash runs.
+        // The flash control on the right: the "Flash" toggle arms the always-present
+        // firmware combobox. While a flash runs, the row shows the flash state.
+        let armed = self.flash_armed.get(&row.name).copied().unwrap_or(false);
         let right: Option<AnyElement> = if row.flash.is_some() {
             None
-        } else if self.flash_pick.as_deref() == Some(row.name.as_str()) {
-            let combo = self.flash_combo.clone();
+        } else {
+            let combo = self.flash_combos.get(&row.name).cloned();
+            let name = row.name.clone();
             Some(
                 h_flex()
                     .items_center()
-                    .gap_1()
-                    .when_some(combo, |el, state| {
-                        el.child(
-                            div().w(px(200.0)).child(
+                    .gap_2()
+                    .child(
+                        Switch::new(("dev-flash", ix))
+                            .label("Flash")
+                            .checked(armed)
+                            .tooltip("Arm flashing, then pick a firmware to flash this unit")
+                            .on_change(cx.listener(move |this, &on, window, cx| {
+                                this.flash_armed.insert(name.clone(), on);
+                                this.refocus(window, cx);
+                                cx.notify();
+                            })),
+                    )
+                    .child(match combo {
+                        Some(state) => div()
+                            .w(px(FLASH_COMBO_W))
+                            .child(
                                 Combobox::new(&state)
                                     .placeholder("flash firmware…")
                                     .search_placeholder("Filter…")
-                                    .menu_width(px(260.0))
+                                    .menu_width(px(crate::theme::COMBO_MENU_W))
+                                    .disabled(!armed)
                                     .empty(|_, cx| {
                                         div()
                                             .p_2()
@@ -197,35 +206,15 @@ impl GridApp {
                                             .text_color(cx.theme().muted_foreground)
                                             .child("No firmware matches")
                                     }),
-                            ),
-                        )
+                            )
+                            .into_any_element(),
+                        // The sweep builds the combobox the moment a device appears;
+                        // hold its space until then so the row doesn't jump.
+                        None => div()
+                            .w(px(FLASH_COMBO_W))
+                            .h(px(28.0))
+                            .into_any_element(),
                     })
-                    .child(
-                        Button::new(("flash-dismiss", ix))
-                            .label("×")
-                            .compact()
-                            .small()
-                            .tooltip("Dismiss")
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                this.flash_pick = None;
-                                this.flash_combo = None;
-                                this.refocus(window, cx);
-                                cx.notify();
-                            })),
-                    )
-                    .into_any_element(),
-            )
-        } else {
-            let name = row.name.clone();
-            Some(
-                Button::new(("flash", ix))
-                    .label("Flash")
-                    .compact()
-                    .small()
-                    .tooltip("Flash a firmware to this device")
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        this.open_flash_picker(&name, window, cx);
-                    }))
                     .into_any_element(),
             )
         };
@@ -245,7 +234,7 @@ impl GridApp {
             };
             out = out.child(
                 div()
-                    .pl(px(52.0))
+                    .pl(px(OUTCOME_INDENT))
                     .text_size(px(10.0))
                     .text_color(color)
                     .child(outcome.clone()),
@@ -254,32 +243,28 @@ impl GridApp {
         out.into_any_element()
     }
 
-    /// Open the row's firmware combobox: a fresh state with its pick and dismiss
-    /// subscriptions. Picking flashes the device; dismissing (Escape, click away)
-    /// closes the row's selector.
-    /// shortcut: each open leaves two inert Subscriptions in `_subscriptions` (their
-    /// source entity is dropped on close); worth pruning only if this ever runs hot.
-    fn open_flash_picker(&mut self, device: &str, window: &mut Window, cx: &mut Context<Self>) {
+    /// Build a row's flash combobox with its subscriptions: a pick flashes the device.
+    /// Called from the sweep (which has the window) when a device first appears;
+    /// dropped when it goes.
+    /// shortcut: each combo leaves two inert Subscriptions in `_subscriptions` after
+    /// its device goes away; worth pruning only if hotplug churn ever runs hot.
+    pub(crate) fn open_flash_picker(&mut self, device: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let delegate = FirmwareDelegate::from_app(self);
         let state = cx.new(|cx| {
-            ComboboxState::new(FirmwareDelegate::new(), vec![], window, cx).searchable(true)
+            ComboboxState::new(delegate, vec![], window, cx).searchable(true)
         });
         let picked = device.to_string();
         self._subscriptions.push(cx.subscribe_in(
             &state,
             window,
-            move |this, _, event, window, cx| {
+            move |this, _, event, _window, cx| {
                 if let ComboboxEvent::Change(values) = event {
-                    match values.last() {
-                        Some(&Some(index)) => {
-                            this.hardware
-                                .flash(&picked, BUILTINS[index].bytes.to_vec());
+                    if let Some(pick) = values.last() {
+                        match pick.bytes(this.store.as_ref()) {
+                            Ok(bytes) => this.hardware.flash(&picked, bytes),
+                            Err(e) => this.hardware.report(&picked, e),
                         }
-                        Some(&None) => this.flash_file(&picked),
-                        None => {}
                     }
-                    this.flash_pick = None;
-                    this.flash_combo = None;
-                    this.focus.focus(window, cx);
                     cx.notify();
                 }
             },
@@ -287,31 +272,10 @@ impl GridApp {
         self._subscriptions.push(cx.subscribe_in(
             &state,
             window,
-            |this, _, _: &DismissEvent, _, cx| {
-                this.flash_pick = None;
-                this.flash_combo = None;
-                cx.notify();
+            |this, _, _: &DismissEvent, window, cx| {
+                this.focus.focus(window, cx);
             },
         ));
-        self.flash_pick = Some(device.to_string());
-        self.flash_combo = Some(state);
-        cx.notify();
-    }
-
-    /// Pick a package and hand it to the hardware module; the flash itself runs on its
-    /// own thread and reports through the device's row.
-    fn flash_file(&mut self, name: &str) {
-        let Some(path) = rfd::FileDialog::new()
-            .set_title("Choose an FM-1 firmware package")
-            .add_filter("FM-1 package", &["fwsc"])
-            .add_filter("All files", &["*"])
-            .pick_file()
-        else {
-            return;
-        };
-        match std::fs::read(&path) {
-            Ok(bytes) => self.hardware.flash(name, bytes),
-            Err(e) => self.hardware.report(name, format!("{}: {e}", path.display())),
-        }
+        self.flash_combos.insert(device.to_string(), state);
     }
 }

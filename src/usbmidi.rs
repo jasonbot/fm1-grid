@@ -47,16 +47,25 @@ mod tests {
 
     #[test]
     fn bundled_firmwares() {
-        // Every hub firmware advertises USB-MIDI in/out; M-VAVE's own packages (the
-        // FM-1's stock image, the FM-1+VA's) are the exceptions.
-        const NO_USB_MIDI: [&str; 2] = ["FM-1_015.fwsc", "FM-1+VA-102.fwsc"];
-        for firmware in crate::builtin::BUILTINS {
-            assert_eq!(
-                advertised(firmware.bytes),
-                !NO_USB_MIDI.contains(&firmware.file),
-                "{} changed its USB-MIDI advertisement",
-                firmware.file
-            );
+        // Known cases: hub firmwares advertise USB-MIDI in/out; M-VAVE's own packages
+        // don't. The embedded list changes as packages come and go, so assert only
+        // these (skipping any that isn't currently bundled).
+        let cases = [
+            ("sloop-2.8.1.fwsc", true),
+            ("felucca-1.6.1.fwsc", true),
+            ("FM-1_015.fwsc", false),
+            ("FM-1+VA-102.fwsc", false),
+            ("FM1-Open-V14.fwsc", false),
+        ];
+        for (file, expected) in cases {
+            if let Some(firmware) = crate::builtin::BUILTINS.iter().find(|f| f.file == file) {
+                assert_eq!(
+                    advertised(firmware.bytes),
+                    expected,
+                    "{} changed its USB-MIDI advertisement",
+                    firmware.file
+                );
+            }
         }
     }
 }

@@ -1,9 +1,12 @@
-//! The searchable firmware list behind the sidebar's combobox: the embedded builtins
-//! grouped by hub category, plus the "Other…" file escape hatch while unfiltered.
-//! egui needed a hand-rolled ComboBox popup for this; gpui-kit's `Combobox` provides
-//! the search box and the list, this module only provides the data.
+//! The firmware dropdown's data: the library's available entries (builtins, imported
+//! files, downloaded hub packages), grouped by their first tag. There is no "Other…"
+//! file escape hatch anymore — imports happen on the Library tab. gpui-kit's
+//! `Combobox` provides the search box and the list; this module provides the data and
+//! what a pick means.
 
-use crate::builtin::{BUILTINS, groups};
+use crate::app::GridApp;
+use crate::builtin::BUILTINS;
+use crate::library::{FirmwareSource, Status};
 use gpui_kit::component::searchable_list::{SearchableListDelegate, SearchableListItem};
 use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::{ActiveTheme, IndexPath};
@@ -15,102 +18,154 @@ use gpui_kit::{
     ParentElement as _, SharedString, StatefulInteractiveElement as _, Styled as _, Task,
     Window, div, px,
 };
+use std::path::PathBuf;
 
-/// What a pick produces: an embedded firmware by index into `BUILTINS`, or the
-/// "Other…" file dialog (`None`).
-pub(crate) type Pick = Option<usize>;
+/// What a pick installs (or flashes).
+#[derive(Clone, PartialEq)]
+pub(crate) enum FirmwarePick {
+    Builtin(usize),
+    File(PathBuf),
+    /// A downloaded hub package, by its blob-store key.
+    HubBlob(String),
+}
+
+impl FirmwarePick {
+    /// The package bytes: the builtin table, the filesystem, or the blob store.
+    pub(crate) fn bytes(&self, store: Option<&crate::store::Store>) -> Result<Vec<u8>, String> {
+        match self {
+            FirmwarePick::Builtin(index) => Ok(BUILTINS[*index].bytes.to_vec()),
+            FirmwarePick::File(path) => {
+                std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))
+            }
+            FirmwarePick::HubBlob(key) => store
+                .ok_or("no on-disk store".to_string())
+                .and_then(|store| store.fetch_blob(key)),
+        }
+    }
+
+}
+
+/// The install/flash target for a library entry: None when the package isn't at hand
+/// (a hub offer not downloaded yet, or a file that's gone).
+pub(crate) fn pick_of(firmware: &crate::library::Firmware) -> Option<FirmwarePick> {
+    match &firmware.source {
+        FirmwareSource::Builtin => BUILTINS
+            .iter()
+            .position(|b| b.name == firmware.name && b.version == firmware.version)
+            .map(FirmwarePick::Builtin),
+        FirmwareSource::File { path } => Some(FirmwarePick::File(PathBuf::from(path))),
+        FirmwareSource::Hub { blob: Some(key), .. } => Some(FirmwarePick::HubBlob(key.clone())),
+        FirmwareSource::Hub { blob: None, .. } => None,
+    }
+}
 
 #[derive(Clone)]
-pub(crate) struct FirmwareItem {
-    value: Pick,
+pub(crate) struct Item {
+    pick: FirmwarePick,
     title: SharedString,
     /// Lowercase name + version + tags, searched by the filter box.
     haystack: String,
-    /// Tooltip: the package file name and its SHA-256 (provenance from the hub).
+    /// Tooltip: byline and description, then the file and its digest when known.
     tip: SharedString,
+    /// The group header: the first tag.
+    group: String,
 }
 
-impl SearchableListItem for FirmwareItem {
-    type Value = Pick;
+impl SearchableListItem for Item {
+    type Value = FirmwarePick;
 
     fn title(&self) -> SharedString {
         self.title.clone()
     }
 
     fn value(&self) -> &Self::Value {
-        &self.value
+        &self.pick
     }
 
-    /// An empty needle matches everything; otherwise it must appear in the name, the
-    /// version or the tags.
     fn matches(&self, query: &str) -> bool {
         self.haystack.contains(&query.to_lowercase())
     }
 }
 
+#[derive(Default)]
 pub(crate) struct FirmwareDelegate {
-    /// All builtins in firmwares.json order, then the "Other…" entry as the last item.
-    all: Vec<FirmwareItem>,
-    /// The current view: (category header, indices into `all`). The `None` header is
-    /// the "Other…" section — separated, but unlabeled.
-    sections: Vec<(Option<&'static str>, Vec<usize>)>,
+    items: Vec<Item>,
+    /// (group header, indices into `items`) — the current (filtered) view.
+    sections: Vec<(Option<String>, Vec<usize>)>,
 }
 
 impl FirmwareDelegate {
-    pub(crate) fn new() -> Self {
-        let mut all: Vec<FirmwareItem> = BUILTINS
-            .iter()
-            .enumerate()
-            .map(|(index, firmware)| FirmwareItem {
-                value: Some(index),
-                title: firmware.label().into(),
+    /// The library's available entries as pickable items. Called when a combobox is
+    /// built and again whenever the library changes (`GridApp::refresh_firmware_combos`).
+    pub(crate) fn from_app(app: &mut GridApp) -> Self {
+        let mut items = Vec::new();
+        for firmware in app.library.list_clone() {
+            if firmware.status != Status::Available {
+                continue;
+            }
+            let Some(pick) = pick_of(&firmware) else {
+                continue;
+            };
+            let mut tip = String::new();
+            if !firmware.byline.is_empty() {
+                tip.push_str(&format!("by {}\n", firmware.byline));
+            }
+            if !firmware.description.is_empty() {
+                tip.push_str(&firmware.description);
+                tip.push('\n');
+            }
+            if let FirmwarePick::Builtin(index) = &pick {
+                let b = &BUILTINS[*index];
+                tip.push_str(&format!("{}\nSHA-256 {}", b.file, b.sha256));
+            }
+            items.push(Item {
+                pick,
+                title: format!("{} {}", firmware.name, firmware.version).into(),
                 haystack: format!(
                     "{} {} {}",
-                    firmware.name, firmware.version, firmware.tags
+                    firmware.name,
+                    firmware.version,
+                    firmware.tags.join(" ")
                 )
                 .to_lowercase(),
-                tip: format!("{}\nSHA-256 {}", firmware.file, firmware.sha256).into(),
-            })
-            .collect();
-        all.push(FirmwareItem {
-            value: None,
-            title: "Other…".into(),
-            haystack: String::new(),
-            tip: "Load a firmware file from disk".into(),
-        });
+                tip: tip.trim_end().into(),
+                group: firmware
+                    .tags
+                    .first()
+                    .cloned()
+                    .unwrap_or_else(|| "other".into()),
+            });
+        }
         let mut delegate = Self {
-            all,
+            items,
             sections: Vec::new(),
         };
         delegate.refilter("");
         delegate
     }
 
-    /// Group the matching firmwares by the hub's categories; groups with no match
-    /// disappear while filtering.
+    /// Group the matching items by their first tag; empty groups disappear.
     fn refilter(&mut self, query: &str) {
         let needle = query.trim().to_lowercase();
-        let mut sections: Vec<(Option<&'static str>, Vec<usize>)> = Vec::new();
-        for (category, indices) in groups() {
-            let hits: Vec<usize> = indices
-                .into_iter()
-                .filter(|&index| self.all[index].matches(&needle))
-                .collect();
-            if !hits.is_empty() {
-                sections.push((Some(category), hits));
+        let mut sections: Vec<(Option<String>, Vec<usize>)> = Vec::new();
+        for (index, item) in self.items.iter().enumerate() {
+            if !item.matches(&needle) {
+                continue;
             }
-        }
-        // The file dialog is the escape hatch out of the builtin list, not a firmware:
-        // it only shows while the filter is empty.
-        if needle.is_empty() {
-            sections.push((None, vec![self.all.len() - 1]));
+            match sections
+                .iter_mut()
+                .find(|(group, _)| group.as_deref() == Some(item.group.as_str()))
+            {
+                Some((_, indices)) => indices.push(index),
+                None => sections.push((Some(item.group.clone()), vec![index])),
+            }
         }
         self.sections = sections;
     }
 }
 
 impl SearchableListDelegate for FirmwareDelegate {
-    type Item = FirmwareItem;
+    type Item = Item;
 
     fn sections_count(&self, _: &App) -> usize {
         self.sections.len()
@@ -127,7 +182,7 @@ impl SearchableListDelegate for FirmwareDelegate {
             .get(ix.section)?
             .1
             .get(ix.row)
-            .map(|&index| &self.all[index])
+            .map(|&index| &self.items[index])
     }
 
     fn position<V>(&self, value: &V) -> Option<IndexPath>
@@ -140,7 +195,7 @@ impl SearchableListDelegate for FirmwareDelegate {
             .enumerate()
             .find_map(|(section, (_, indices))| {
                 indices.iter().enumerate().find_map(|(row, &index)| {
-                    (self.all[index].value() == value)
+                    (self.items[index].value() == value)
                         .then_some(IndexPath::new(row).section(section))
                 })
             })
@@ -151,8 +206,8 @@ impl SearchableListDelegate for FirmwareDelegate {
         Task::ready(())
     }
 
-    /// Rows carry the package's provenance tooltip; the trailing check mirrors the
-    /// current selection (the default row layout is suppressed on override).
+    /// Rows carry the provenance tooltip; the trailing check mirrors the current
+    /// selection (the default row layout is suppressed on override).
     fn render_item(
         &self,
         ix: IndexPath,
@@ -166,32 +221,34 @@ impl SearchableListDelegate for FirmwareDelegate {
             (theme.foreground, theme.primary)
         };
         let tip = item.tip.clone();
-        Some(
-            div()
-                .id(ElementId::from(ix))
-                .w_full()
-                .flex()
-                .flex_row()
-                .items_center()
-                .justify_between()
-                .gap_2()
-                .px_2()
-                .py_1()
-                .child(
-                    div()
-                        .truncate()
-                        .text_color(ink)
-                        .child(item.title()),
-                )
-                .when(checked, |el| {
-                    el.child(div().text_color(accent).child("✓"))
-                })
-                .tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx))
-                .into_any_element(),
-        )
+        let mut row = div()
+            .id(ElementId::from(ix))
+            .w_full()
+            .flex()
+            .flex_row()
+            .items_center()
+            .justify_between()
+            .gap_2()
+            .px_2()
+            .py_1()
+            .child(
+                div()
+                    .truncate()
+                    .text_color(ink)
+                    .child(item.title()),
+            )
+            .when(checked, |el| {
+                el.child(div().text_color(accent).child("✓"))
+            });
+        if !tip.is_empty() {
+            row = row.tooltip(move |window, cx| {
+                Tooltip::new(tip.clone()).build(window, cx)
+            });
+        }
+        Some(row.into_any_element())
     }
 
-    /// The quiet caps group headers the egui dropdown drew, with a rule between groups.
+    /// The quiet caps group headers, with a rule above all but the first.
     fn render_section_header(
         &self,
         section: usize,
@@ -226,7 +283,7 @@ mod tests {
     fn empty_filter_result_is_safe() {
         // A search that matches nothing leaves no sections; the list must be able to
         // probe section 0 without panicking (it crashed once: index out of bounds).
-        let mut delegate = FirmwareDelegate::new();
+        let mut delegate = FirmwareDelegate::default();
         delegate.refilter("nothing matches this");
         assert_eq!(delegate.sections.len(), 0);
         assert_eq!(delegate.items_count(0), 0);

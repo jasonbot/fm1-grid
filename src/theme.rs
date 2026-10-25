@@ -37,3 +37,13 @@ pub(crate) fn mix(a: u32, b: u32, t: f32) -> u32 {
     };
     (ch(16) << 16) | (ch(8) << 8) | ch(0)
 }
+
+/// Layout constants shared across the window.
+///
+/// The sidebar split's initial/min/max widths: the screen at 2x, 1x and 4x plus its
+/// bezel and padding.
+pub(crate) const SIDEBAR_INITIAL: f32 = 512.0;
+pub(crate) const SIDEBAR_MIN: f32 = 272.0;
+pub(crate) const SIDEBAR_MAX: f32 = 992.0;
+/// The firmware comboboxes' dropdown width (sidebar and devices pane).
+pub(crate) const COMBO_MENU_W: f32 = 260.0;

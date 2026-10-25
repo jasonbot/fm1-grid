@@ -9,13 +9,22 @@ use crate::app::GridApp;
 use gpui_kit::base::Root;
 use gpui_kit::test::TestWindowExt;
 use gpui_kit::{
-    AppContext, Bounds, Entity, Point, TestAppContext, WindowBounds, WindowHandle,
-    WindowOptions, open_window, px, size,
+    AppContext, Bounds, Entity, Point, ScrollDelta, TestAppContext, WindowBounds,
+    WindowHandle, WindowOptions, open_window, point, px, size,
 };
 use std::time::Duration;
 
 /// Open the app in a test window at the real default size.
 fn open_app(cx: &mut TestAppContext) -> (WindowHandle<Root>, Entity<GridApp>) {
+    // Tests share one throwaway store for the process (the pin test writes to it).
+    if std::env::var_os("FM1_GRID_DATA_DIR").is_none() {
+        unsafe {
+            std::env::set_var(
+                "FM1_GRID_DATA_DIR",
+                std::env::temp_dir().join(format!("fm1-grid-uitest-{}", std::process::id())),
+            );
+        }
+    }
     cx.update(gpui_kit::init);
     cx.update(|cx| {
         let bounds = Bounds {
@@ -115,4 +124,154 @@ fn metronome_toggles(cx: &mut TestAppContext) {
     })
     .unwrap();
     cx.update(|cx| assert_eq!(app.read(cx).clock.enabled(), !before));
+}
+
+/// Pinning: inert while the pane is off; on it snapshots the device's flash at
+/// power-off and the next boot restores it.
+#[gpui_kit::test]
+fn pin_cycle(cx: &mut TestAppContext) {
+    let (window, app) = open_app(cx);
+
+    // Off: the toggle is inert.
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        window.click(("pin", 0usize), cx);
+    })
+    .unwrap();
+    cx.update(|cx| assert!(!app.read(cx).slots[0].pinned, "off pane must not pin"));
+
+    // On: pin, then power off and on again.
+    cx.update_window(window.into(), |_, window, cx| {
+        window.click("pane-power", cx);
+    })
+    .unwrap();
+    for _ in 0..10 {
+        std::thread::sleep(Duration::from_millis(100));
+        cx.background_executor.advance_clock(Duration::from_millis(100));
+        cx.run_until_parked();
+        if cx.update(|cx| app.read(cx).slots[0].handle.is_some()) {
+            break;
+        }
+    }
+    // Pinning swaps the combobox for the firmware's name — the row must not jump.
+    let row_h = cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        window.find("pane-attrs").bounds().size.height
+    })
+    .unwrap();
+    cx.update_window(window.into(), |_, window, cx| {
+        window.click(("pin", 0usize), cx);
+    })
+    .unwrap();
+    cx.update(|cx| assert!(app.read(cx).slots[0].pinned, "running pane pins"));
+    let pinned_h = cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        window.find("pane-attrs").bounds().size.height
+    })
+    .unwrap();
+    assert!(
+        (row_h - pinned_h).abs() < px(1.0),
+        "the attributes row jumps on pin: {row_h} -> {pinned_h}"
+    );
+
+    cx.update_window(window.into(), |_, window, cx| {
+        window.click("pane-power", cx); // off: snapshot to the store
+    })
+    .unwrap();
+    cx.update(|cx| {
+        let app = app.read(cx);
+        let store = app.store.as_ref().expect("a store");
+        assert!(
+            store
+                .list_blobs(None)
+                .unwrap()
+                .iter()
+                .any(|p| p == "slot-0.flash"),
+            "no flash snapshot in the store"
+        );
+        assert!(
+            store.list_objects(None).iter().any(|p| p == "slot-0"),
+            "no slot record in the store"
+        );
+    });
+
+    // Power back on: the flash blob restores into the boot.
+    cx.update_window(window.into(), |_, window, cx| {
+        window.click("pane-power", cx);
+    })
+    .unwrap();
+    let mut framed = false;
+    for _ in 0..30 {
+        std::thread::sleep(Duration::from_millis(100));
+        cx.background_executor.advance_clock(Duration::from_millis(100));
+        cx.run_until_parked();
+        framed = cx.update(|cx| app.read(cx).frames[0].is_some());
+        if framed {
+            break;
+        }
+    }
+    assert!(framed, "the restored pane drew nothing");
+    cx.update(|cx| {
+        let app = app.read(cx);
+        assert!(app.slots[0].pinned);
+        assert!(app.slots[0].error.is_none(), "{:?}", app.slots[0].error);
+    });
+}
+
+/// The Library tab lists the builtins with flash targets (panes are off and unpinned
+/// at startup), and its add form gates Save on a chosen file.
+#[gpui_kit::test]
+fn library_tab_lists(cx: &mut TestAppContext) {
+    let (window, app) = open_app(cx);
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        window.click(2usize, cx); // the Library tab
+    })
+    .unwrap();
+    cx.update(|cx| assert_eq!(app.read(cx).active_tab, 2));
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        let flash = window.find("lib-flash-SLOOP");
+        assert!(flash.visible(), "SLOOP should list with a Flash To… button");
+        assert!(window.find("lib-add-file").visible());
+        // The hub status item sits at the bottom of the list, spinner while fetching;
+        // scroll the list to the end to bring it into view first.
+        window.scroll(
+            "library-list",
+            ScrollDelta::Pixels(point(px(0.0), px(-100000.0))),
+            cx,
+        );
+        window.render_frame(cx);
+        assert!(window.find("hub-status").visible());
+        assert!(window.find("hub-reload").visible());
+        // Nothing to remove on a builtin.
+        assert!(window.try_find("lib-remove-SLOOP").is_none());
+
+        // PgUp/PgDn page the list (we scrolled to the bottom above: up first).
+        let bottom = app.read(cx).lib_scroll.offset().y;
+        window.press("pageup", cx);
+        let up = app.read(cx).lib_scroll.offset().y;
+        assert!(up > bottom, "pageup should scroll up: {bottom} -> {up}");
+        window.press("pagedown", cx);
+        let down = app.read(cx).lib_scroll.offset().y;
+        assert!(down < up, "pagedown should scroll back down: {up} -> {down}");
+
+        // The filter box narrows the list (back to the top first — the list was
+        // scrolled to the bottom above).
+        window.scroll(
+            "library-list",
+            ScrollDelta::Pixels(point(px(0.0), px(100000.0))),
+            cx,
+        );
+        window.render_frame(cx);
+        window.click("library-filter", cx);
+        window.input("sloop", cx);
+        window.render_frame(cx);
+        assert!(window.find("lib-flash-SLOOP").visible());
+        assert!(
+            window.try_find("lib-flash-Felucca").is_none(),
+            "the filter should hide non-matching firmwares"
+        );
+    })
+    .unwrap();
 }

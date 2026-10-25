@@ -100,7 +100,9 @@ impl GridApp {
         };
         let items = self.library.list_clone();
 
-        let mut list = v_flex().w_full().gap_2().p_2();
+        // The scrollbar overlays the list's right edge (16 px, gpui-base's WIDTH);
+        // keep the content out from under it.
+        let mut list = v_flex().w_full().gap_2().p_2().pr(px(16.0));
         for (header, section) in SECTIONS {
             let group: Vec<&Firmware> = items
                 .iter()

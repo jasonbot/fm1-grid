@@ -20,6 +20,7 @@ mod midi_keys;
 mod panel;
 mod routing;
 mod sidebar;
+mod store;
 mod theme;
 mod transport;
 mod usbmidi;

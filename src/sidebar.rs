@@ -5,6 +5,7 @@
 
 use crate::app::{GridApp, Source};
 use crate::lcd;
+use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::base::{ElementExt, h_flex, v_flex};
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::tooltip::Tooltip;
@@ -239,7 +240,7 @@ impl GridApp {
             .child(
                 Button::new(("pin", slot))
                     .xsmall()
-                    .label("pinned")
+                    .icon(Icon::new(Lucide::Pin))
                     .tooltip(if running {
                         "Keep this pane's device storage across runs"
                     } else {

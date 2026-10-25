@@ -2,9 +2,36 @@
 
 use fm1_grid::MAX_SLOTS;
 use fm1_grid::app::GridApp;
+use gpui_kit::assets::{Assets as ComponentAssets, icon_assets};
 use gpui_kit::component::TitleBar;
 use gpui_kit::*;
+use std::borrow::Cow;
 use std::path::PathBuf;
+
+// Lucide icons beyond gpui-kit's default set: the sidebar's pin toggle and the three
+// tab icons. The macro embeds exactly these SVGs; a misspelled name fails the build.
+icon_assets!(ExtraIcons, [Pin, Monitor, PlayingCardsFan, Library]);
+
+/// The app's asset source: the selected extra icons first (native `ComponentAssets`
+/// errors on an unknown path, so it answers last), then the default component icons.
+struct AppAssets;
+
+impl AssetSource for AppAssets {
+    fn load(&self, path: &str) -> Result<Option<Cow<'static, [u8]>>> {
+        if let Some(bytes) = ExtraIcons.load(path)? {
+            return Ok(Some(bytes));
+        }
+        ComponentAssets.load(path)
+    }
+
+    fn list(&self, path: &str) -> Result<Vec<SharedString>> {
+        let mut paths = ComponentAssets.list(path)?;
+        paths.extend(ExtraIcons.list(path)?);
+        paths.sort();
+        paths.dedup();
+        Ok(paths)
+    }
+}
 
 const USAGE: &str = "\
 fm1-grid — a 2x2 grid of FM-1 emulators with a shared MIDI-clock metronome
@@ -55,7 +82,7 @@ fn main() {
     // sizes must live inside that: the panel's compact keyboard and the grid's 0.5x
     // cards take over below the full-height stack.
     application()
-        .with_assets(assets::Assets)
+        .with_assets(AppAssets)
         .run(move |cx| {
             init(cx);
             let bounds = Bounds::centered(None, size(px(1152.0), px(740.0)), cx);
@@ -86,3 +113,4 @@ fn main() {
         .detach();
     });
 }
+

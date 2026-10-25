@@ -24,12 +24,13 @@ use crate::midi_keys::MidiKeys;
 use crate::routing::Routing;
 use crate::{MAX_SLOTS, lcd};
 use fm1_soc::Action;
+use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::base::resizable_panel;
 use gpui_kit::component::combobox::{ComboboxEvent, ComboboxState};
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::component::resizable::h_resizable;
 use gpui_kit::component::tab::{Tab, TabBar};
-use gpui_kit::component::{ActiveTheme, Theme, TitleBar};
+use gpui_kit::component::{ActiveTheme, Icon, Theme, TitleBar};
 use gpui_kit::*;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -1225,9 +1226,11 @@ impl Render for GridApp {
                         cx.notify();
                     }))
                     .children([
-                        Tab::new().label("Emulator").flex_1(),
-                        Tab::new().label("Devices").flex_1(),
-                        Tab::new().label("Library").flex_1(),
+                        Tab::new().icon(Icon::new(Lucide::Monitor)).label("Emulator"),
+                        Tab::new()
+                            .icon(Icon::new(Lucide::PlayingCardsFan))
+                            .label("Devices"),
+                        Tab::new().icon(Icon::new(Lucide::Library)).label("Library"),
                     ]),
             )
             .child(

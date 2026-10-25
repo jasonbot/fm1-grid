@@ -12,6 +12,8 @@ use serde::de::DeserializeOwned;
 use std::path::{Path, PathBuf};
 
 /// The store root: the app's data directory. Construct once, share by reference.
+/// Cloneable so background workers (the library's downloads) get their own handle.
+#[derive(Clone)]
 pub(crate) struct Store {
     #[cfg(not(target_arch = "wasm32"))]
     root: PathBuf,
@@ -148,6 +150,16 @@ impl Store {
         let file = self.blob_file(path)?;
         std::fs::read(&file).map_err(|e| format!("fetch blob {path}: {e}"))
     }
+
+    /// Drop a blob; a missing one is fine (removal is idempotent).
+    pub fn delete_blob(&self, path: &str) -> Result<(), String> {
+        let file = self.blob_file(path)?;
+        match std::fs::remove_file(&file) {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(format!("delete blob {path}: {e}")),
+        }
+    }
 }
 
 /// Recurse a directory, reporting each file's path relative to `root`.
@@ -269,6 +281,13 @@ mod wasm_store {
                 .map_err(|_| "localStorage read".to_string())?
                 .ok_or_else(|| format!("fetch blob {path}: not stored"))?;
             b64_decode(&text)
+        }
+
+        pub fn delete_blob(&self, path: &str) -> Result<(), String> {
+            check_path(path)?;
+            storage()?
+                .remove_item(&format!("{PREFIX}b:{path}"))
+                .map_err(|_| format!("delete blob {path}: localStorage refused"))
         }
     }
 }

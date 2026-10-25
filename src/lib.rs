@@ -16,6 +16,8 @@ mod grid;
 mod hardware;
 mod keys;
 mod lcd;
+#[cfg(not(target_arch = "wasm32"))]
+mod library;
 mod midi_keys;
 mod panel;
 mod routing;

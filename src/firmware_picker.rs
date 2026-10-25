@@ -24,9 +24,10 @@ pub(crate) type Pick = Option<usize>;
 pub(crate) struct FirmwareItem {
     value: Pick,
     title: SharedString,
-    /// Lowercase name + version + tags, searched by the filter box.
+    /// Lowercase name + version + tags + device, searched by the filter box.
     haystack: String,
-    /// Tooltip: the package file name and its SHA-256 (provenance from the hub).
+    /// Tooltip: the package file name and its SHA-256 (provenance from the hub), plus
+    /// the hub's author and description lines when the catalog lists the package.
     tip: SharedString,
 }
 
@@ -42,7 +43,7 @@ impl SearchableListItem for FirmwareItem {
     }
 
     /// An empty needle matches everything; otherwise it must appear in the name, the
-    /// version or the tags.
+    /// version, the tags or the device.
     fn matches(&self, query: &str) -> bool {
         self.haystack.contains(&query.to_lowercase())
     }
@@ -65,11 +66,20 @@ impl FirmwareDelegate {
                 value: Some(index),
                 title: firmware.label().into(),
                 haystack: format!(
-                    "{} {} {}",
-                    firmware.name, firmware.version, firmware.tags
+                    "{} {} {} {}",
+                    firmware.name, firmware.version, firmware.tags, firmware.device
                 )
                 .to_lowercase(),
-                tip: format!("{}\nSHA-256 {}", firmware.file, firmware.sha256).into(),
+                tip: {
+                    let mut tip = format!("{}\nSHA-256 {}", firmware.file, firmware.sha256);
+                    if !firmware.byline.is_empty() {
+                        tip.push_str(&format!("\nby {}", firmware.byline));
+                    }
+                    if !firmware.description.is_empty() {
+                        tip.push_str(&format!("\n{}", firmware.description));
+                    }
+                    tip.into()
+                },
             })
             .collect();
         all.push(FirmwareItem {

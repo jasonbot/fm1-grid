@@ -17,6 +17,13 @@ pub struct BuiltinFirmware {
     /// Comma-separated hub tags: the category (`kind`) first, then any further kinds
     /// and the vintage/beta flags.
     pub tags: &'static str,
+    /// One-paragraph description from the hub catalog; empty for packages the hub
+    /// doesn't list (M-VAVE's own).
+    pub description: &'static str,
+    /// Author per the hub catalog.
+    pub byline: &'static str,
+    /// Target device: "fm-1" or "smk37-pro"; empty when unknown.
+    pub device: &'static str,
     pub bytes: &'static [u8],
 }
 

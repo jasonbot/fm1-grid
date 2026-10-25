@@ -24,8 +24,8 @@ const LIBRARY_OBJECT: &str = "library";
 pub(crate) enum FirmwareSource {
     Builtin,
     File { path: String },
-    /// `path` is the blob-store key (`hub/<file>`); `blob` is the hub's sha256 of the
-    /// downloaded package, set once the download completes.
+    /// `path` is the package's path on the hub ("fw/<file>"); `blob` is its key in the
+    /// blob store (`hub/<file>`), set once the download completes.
     Hub { path: String, blob: Option<String> },
 }
 
@@ -121,7 +121,7 @@ impl Library {
                 FirmwareSource::Hub { path, .. } => {
                     if self.downloads.contains_key(&firmware.name) {
                         Status::Downloading
-                    } else if self.store.fetch_blob(path).is_ok() {
+                    } else if self.store.fetch_blob(&blob_key(path)).is_ok() {
                         Status::Available
                     } else {
                         Status::Missing
@@ -176,10 +176,11 @@ impl Library {
             hub.iter().find(|f| f.name == name).cloned()
         };
         let Some(entry) = entry else { return };
-        let FirmwareSource::Hub { path, blob } = entry.source.clone() else {
+        let FirmwareSource::Hub { path, .. } = entry.source.clone() else {
             return;
         };
-        let url = format!("{HUB_BASE}/{}", path.strip_prefix("hub/").unwrap_or(&path));
+        let key = blob_key(&path);
+        let url = hub_download_url(&path);
         let download = Arc::new(Download {
             percent: AtomicU32::new(0),
             outcome: Mutex::new(None),
@@ -188,10 +189,13 @@ impl Library {
         let store = self.store.clone();
         std::thread::spawn(move || {
             let result = download_package(&url, &download.percent)
-                .and_then(|bytes| store.store_blob(&path, &bytes));
+                .and_then(|bytes| store.store_blob(&key, &bytes));
             let outcome = result.map(|()| Firmware {
                 status: Status::Available,
-                source: FirmwareSource::Hub { path, blob },
+                source: FirmwareSource::Hub {
+                    path,
+                    blob: Some(key),
+                },
                 ..entry
             });
             *download.outcome.lock().unwrap() = Some(outcome);
@@ -233,7 +237,7 @@ impl Library {
                 return true;
             }
             if let FirmwareSource::Hub { path, .. } = &f.source {
-                self.store.delete_blob(path).ok();
+                self.store.delete_blob(&blob_key(path)).ok();
             }
             false
         });
@@ -285,10 +289,11 @@ fn builtin_entry(b: &crate::builtin::BuiltinFirmware) -> Firmware {
 }
 
 /// The hub's device strings ("fm-1", "smk37-pro"); unknown/empty falls back to Fm1.
-fn parse_device(device: &str) -> FirmwareDevice {
-    match device {
-        "smk37-pro" | "smk37pro" => FirmwareDevice::Smk37Pro,
-        _ => FirmwareDevice::Fm1,
+fn parse_device(product: &str) -> FirmwareDevice {
+    if product.to_ascii_uppercase().starts_with("SMK") {
+        FirmwareDevice::Smk37Pro
+    } else {
+        FirmwareDevice::Fm1
     }
 }
 
@@ -372,23 +377,53 @@ fn download_package(url: &str, percent: &AtomicU32) -> Result<Vec<u8>, String> {
     Ok(body)
 }
 
-/// One catalog entry; unknown fields are ignored, missing ones default.
+/// One catalog entry, with the hub's real field names; unknown fields are ignored,
+/// missing ones default.
 #[derive(Deserialize)]
 struct CatalogEntry {
     name: String,
-    #[serde(default)]
+    #[serde(default, rename = "author")]
     byline: String,
     #[serde(default)]
     version: String,
-    #[serde(default)]
+    #[serde(default, rename = "what")]
     description: String,
+    /// The hub's kind is one string or a list, depending on the entry.
     #[serde(default)]
-    tags: Vec<String>,
+    kind: Kind,
     #[serde(default)]
+    vintage: bool,
+    #[serde(default, rename = "product")]
     device: String,
-    file: String,
+    /// The package path on the hub ("fw/<file>", M-VAVE's under "fw/mvave/").
+    pkg: String,
     #[serde(default)]
+    #[allow(dead_code)]
     sha256: Option<String>,
+}
+
+/// The hub's `kind` field: one string for most entries, a list for some.
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum Kind {
+    One(String),
+    Many(Vec<String>),
+}
+
+impl Default for Kind {
+    fn default() -> Self {
+        Kind::One(String::new())
+    }
+}
+
+/// The blob-store key for a hub package path.
+fn blob_key(hub_path: &str) -> String {
+    format!("hub/{}", hub_path.rsplit('/').next().unwrap_or(hub_path))
+}
+
+/// The package's download URL.
+fn hub_download_url(hub_path: &str) -> String {
+    format!("{HUB_BASE}/{hub_path}")
 }
 
 /// Parse the hub catalog into hub-source entries. Accepts either a bare array or an
@@ -403,19 +438,29 @@ fn parse_catalog(json: &str) -> Result<Vec<Firmware>, String> {
         .map_err(|e| format!("parse catalog: {e}"))?;
     Ok(entries
         .into_iter()
-        .map(|entry| Firmware {
-            name: entry.name,
-            byline: entry.byline,
-            version: entry.version,
-            description: entry.description,
-            tags: entry.tags,
-            device: parse_device(&entry.device),
-            upgradable: false,
-            status: Status::Available,
-            source: FirmwareSource::Hub {
-                path: format!("hub/{}", entry.file),
-                blob: entry.sha256,
-            },
+        .map(|entry| {
+            let mut tags = match entry.kind {
+                Kind::One(kind) if !kind.is_empty() => vec![kind],
+                Kind::One(_) => Vec::new(),
+                Kind::Many(kinds) => kinds,
+            };
+            if entry.vintage {
+                tags.push("vintage".to_string());
+            }
+            Firmware {
+                name: entry.name,
+                byline: entry.byline,
+                version: entry.version,
+                description: entry.description,
+                tags,
+                device: parse_device(&entry.device),
+                upgradable: false,
+                status: Status::Available,
+                source: FirmwareSource::Hub {
+                    path: entry.pkg,
+                    blob: None,
+                },
+            }
         })
         .collect())
 }
@@ -444,7 +489,7 @@ mod tests {
             upgradable: false,
             status: Status::Available,
             source: FirmwareSource::Hub {
-                path: format!("hub/{file}"),
+                path: format!("fw/{file}"),
                 blob: None,
             },
         }
@@ -539,8 +584,9 @@ mod tests {
         // A Hub entry is dropped along with its blob.
         let mut entry = hub_offer("downloaded", "1.0", "dl.fwsc");
         if let FirmwareSource::Hub { path, blob } = &mut entry.source {
-            store.store_blob(path, b"package").unwrap();
-            *blob = Some("sha".to_string());
+            let key = blob_key(path);
+            store.store_blob(&key, b"package").unwrap();
+            *blob = Some(key);
         }
         library.stored.push(entry);
         library.persist();
@@ -553,28 +599,37 @@ mod tests {
 
     #[test]
     fn catalog_parses() {
+        // The real catalog's field names (author/what/kind/vintage/product/pkg).
         let json = r#"{"firmwares": [
-            {"name": "fm1-open", "version": "2.1", "file": "fm1-open.fwsc",
-             "sha256": "abc123", "byline": "M-VAVE", "device": "fm-1",
-             "description": "dev kit firmware", "tags": ["official"]},
-            {"name": "smk-os", "version": "0.9", "file": "smk-os.fwsc",
-             "device": "smk37-pro"}
+            {"name": "fm1-open", "version": "2.1", "pkg": "fw/mvave/fm1-open.fwsc",
+             "sha256": "abc123", "author": "M-VAVE", "product": "FM-1_975",
+             "what": "dev kit firmware", "kind": "official"},
+            {"name": "smk-os", "version": "0.9", "pkg": "fw/smk-os.fwsc",
+             "product": "SMK-37 Pro", "kind": "synth", "vintage": true}
         ]}"#;
         let listing = parse_catalog(json).unwrap();
         assert_eq!(listing.len(), 2);
         assert_eq!(listing[0].name, "fm1-open");
         assert_eq!(listing[0].device, FirmwareDevice::Fm1);
+        assert_eq!(listing[0].byline, "M-VAVE");
+        assert_eq!(listing[0].description, "dev kit firmware");
         assert_eq!(listing[0].tags, vec!["official"]);
         match &listing[0].source {
             FirmwareSource::Hub { path, blob } => {
-                assert_eq!(path, "hub/fm1-open.fwsc");
-                assert_eq!(blob.as_deref(), Some("abc123"));
+                assert_eq!(path, "fw/mvave/fm1-open.fwsc");
+                assert_eq!(blob, &None);
+                assert_eq!(
+                    hub_download_url(path),
+                    "https://thefirmwarehub.com/fw/mvave/fm1-open.fwsc"
+                );
+                assert_eq!(blob_key(path), "hub/fm1-open.fwsc");
             }
             _ => panic!("hub source expected"),
         }
         assert_eq!(listing[1].device, FirmwareDevice::Smk37Pro);
+        assert_eq!(listing[1].tags, vec!["synth", "vintage"]);
         // A bare array works too.
-        let listing = parse_catalog(r#"[{"name": "x", "file": "x.fwsc"}]"#).unwrap();
+        let listing = parse_catalog(r#"[{"name": "x", "pkg": "fw/x.fwsc"}]"#).unwrap();
         assert_eq!(listing.len(), 1);
         assert!(parse_catalog("not json").is_err());
     }
@@ -590,3 +645,4 @@ mod tests {
         }
     }
 }
+

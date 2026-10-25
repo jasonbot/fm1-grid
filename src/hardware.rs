@@ -441,6 +441,9 @@ pub(crate) struct FlashState {
     pub progress: Option<f32>,
     /// Whether the state is a failure message rather than a running phase.
     pub error: bool,
+    /// Every phase message so far (the flash dialog's terminal shows the tail).
+    /// Progress-only updates don't log.
+    pub log: Vec<String>,
 }
 
 /// The pane-level flash status. A flash outlives the row it started on: the unit
@@ -664,6 +667,7 @@ fn scan_loop(
                             step: "reading the package…".to_string(),
                             progress: None,
                             error: false,
+            log: Vec::new(),
                         });
                     }
                     if let Ok(mut outcome) = outcome.lock() {
@@ -872,11 +876,17 @@ fn flash_task(
     if let Ok(mut state) = board.lock() {
         *state = match &result {
             Ok(_) => None,
-            Err(message) => Some(FlashState {
-                step: message.clone(),
-                progress: None,
-                error: true,
-            }),
+            Err(message) => {
+                // The failure line joins the log, not replaces it.
+                let mut log = state.as_ref().map(|s| s.log.clone()).unwrap_or_default();
+                log.push(message.clone());
+                Some(FlashState {
+                    step: message.clone(),
+                    progress: None,
+                    error: true,
+                    log,
+                })
+            }
         };
     }
 }
@@ -895,10 +905,17 @@ fn publish(
         }
     }
     if let Ok(mut state) = board.lock() {
+        // The board keeps every phase line; the dialog's terminal shows the tail.
+        let mut log = state.as_ref().map(|s| s.log.clone()).unwrap_or_default();
+        log.push(text.to_string());
+        if log.len() > 200 {
+            log.drain(..log.len() - 200);
+        }
         *state = Some(FlashState {
             step: text.to_string(),
             progress,
             error: false,
+            log,
         });
     }
 }
@@ -950,6 +967,7 @@ fn wait_for_device(
                         step: "flashing… do not unplug".to_string(),
                         progress: None,
                         error: false,
+            log: Vec::new(),
                     });
                 }
                 clock.set_hw_target(device.hw_id, None);

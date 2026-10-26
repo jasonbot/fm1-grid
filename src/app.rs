@@ -25,7 +25,7 @@ use crate::routing::Routing;
 use crate::{lcd, MAX_SLOTS};
 use fm1_soc::Action;
 use gpui_kit::assets::IconName as Lucide;
-use gpui_kit::base::{resizable_panel, StyledExt};
+use gpui_kit::base::resizable_panel;
 use gpui_kit::component::combobox::{ComboboxEvent, ComboboxState};
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::component::resizable::h_resizable;

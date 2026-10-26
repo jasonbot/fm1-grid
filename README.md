@@ -134,6 +134,14 @@ same way.
 cargo run --release --bin fm1-tty
 ```
 
+When you're only working on fm1-tty, build it without the GUI stack — this skips
+gpui-kit and friends (about 350 of the 480 crates) and a clean build drops from
+~40s to ~10s:
+
+```sh
+cargo build --bin fm1-tty --no-default-features
+```
+
 The screen has three parts:
 
 * **Library** — your list of firmware, same as the big app's Library tab. It

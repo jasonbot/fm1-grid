@@ -5,16 +5,23 @@ edition = "2021"
 description = "An FM-1 emulator grid with a MIDI clock metronome"
 license = "MIT"
 
+[features]
+# `gui` (default) pulls the whole gpui-kit stack for the fm1-grid app. The fm1-tty
+# terminal binary doesn't draw with gpui; build it with
+# `cargo build --bin fm1-tty --no-default-features` to skip ~80% of the dep tree.
+default = ["gui"]
+gui = ["dep:gpui-kit", "dep:image", "dep:rfd", "dep:cpal", "dep:hqx"]
+
 [dependencies]
 # GUI (see GPUI_PORT.md for the egui → gpui-kit port)
-gpui-kit = "=0.8.0"
+gpui-kit = { version = "=0.8.0", optional = true }
 # Pixel frames for gpui's RenderImage (the LCD views).
-image = "0.25"
-rfd = "0.17.2"
+image = { version = "0.25", optional = true }
+rfd = { version = "0.17.2", optional = true }
 # MIDI ports for the live USB devices (hardware.rs)
 midir = "0.11.1"
 # Audio out (the emulator produces 44.1 kHz stereo i16)
-cpal = "0.18.2"
+cpal = { version = "0.18.2", optional = true }
 # Optional per-emulator core pinning on Linux
 libc = "0.2"
 # The FM-1 CPU/SoC from the fm1-emu project. Pinned so the app keeps building even if
@@ -22,7 +29,7 @@ libc = "0.2"
 # the fm1-emu workspace.
 fm1-core = { git = "https://github.com/joakimeriksson/fm1-emu.git", rev = "51ca41af6734ea23871685450fe1f2e1e357bb0e" }
 fm1-soc = { git = "https://github.com/joakimeriksson/fm1-emu.git", rev = "51ca41af6734ea23871685450fe1f2e1e357bb0e" }
-hqx = "0.1.1"
+hqx = { version = "0.1.1", optional = true }
 # On-disk state (src/store.rs): objects as JSON, blobs as bytes.
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -30,6 +37,9 @@ directories = "6"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 # Hub catalog + firmware package downloads (src/library.rs); ureq has no wasm32 build.
+# (Tried default-features = false + native-tls to drop rustls/ring: ureq's shortcut
+# calls never pick up native-tls without a custom AgentBuilder, and the measured
+# clean-build gain was noise (~0.1s of 9.5s on 16 cores). Not worth the code.)
 ureq = "2"
 # The fm1-tty binary's terminal UI (src/bin/fm1-tty); crossterm comes from
 # ratatui's re-export so the versions never drift apart.
@@ -47,6 +57,17 @@ serde_json = "1"
 [dev-dependencies]
 # Headless UI tests (src/tests); unifies with the dependency above for test builds.
 gpui-kit = { version = "=0.8.0", features = ["test-support"] }
+
+# The fm1-grid binary is the gpui app; without the `gui` feature there is nothing
+# to build it from (a --no-default-features build produces fm1-tty only).
+[[bin]]
+name = "fm1-grid"
+path = "src/main.rs"
+required-features = ["gui"]
+
+[[bin]]
+name = "fm1-tty"
+path = "src/bin/fm1-tty/main.rs"
 
 [profile.release]
 opt-level = 3

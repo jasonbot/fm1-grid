@@ -461,6 +461,7 @@ fn poll(routing: &Routing, open: &mut Vec<OpenSource>) {
 }
 
 /// A short label for an emulator pane's MIDI IN, for the graph UI.
+#[cfg(feature = "gui")]
 pub(crate) fn pane_label(slot: usize, label: Option<&String>) -> String {
     format!("Pane {} · {}", slot + 1, label.map_or("no firmware".into(), |l| l.clone()))
 }

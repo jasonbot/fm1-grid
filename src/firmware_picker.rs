@@ -4,15 +4,23 @@
 //! `Combobox` provides the search box and the list; this module provides the data and
 //! what a pick means.
 
+#[cfg(feature = "gui")]
 use crate::app::GridApp;
 use crate::builtin::BUILTINS;
-use crate::library::{FirmwareSource, Status};
+#[cfg(feature = "gui")]
+use crate::library::Status;
+use crate::library::FirmwareSource;
+#[cfg(feature = "gui")]
 use gpui_kit::component::searchable_list::{SearchableListDelegate, SearchableListItem};
+#[cfg(feature = "gui")]
 use gpui_kit::component::tooltip::Tooltip;
+#[cfg(feature = "gui")]
 use gpui_kit::component::{ActiveTheme, IndexPath};
+#[cfg(feature = "gui")]
 use gpui_kit::prelude::FluentBuilder;
 // Explicit imports, no glob: the glob imports GPUI's `test` attribute macro under
 // test-support builds, which then re-expands this module's own `#[test]`s.
+#[cfg(feature = "gui")]
 use gpui_kit::{
     AnyElement, App, ElementId, FontWeight, InteractiveElement as _, IntoElement as _,
     ParentElement as _, SharedString, StatefulInteractiveElement as _, Styled as _, Task,
@@ -59,6 +67,9 @@ pub fn pick_of(firmware: &crate::library::Firmware) -> Option<FirmwarePick> {
     }
 }
 
+// Everything below is the gpui-kit combobox delegate; fm1-tty uses only the pick
+// data above.
+#[cfg(feature = "gui")]
 #[derive(Clone)]
 pub(crate) struct Item {
     pick: FirmwarePick,
@@ -71,6 +82,7 @@ pub(crate) struct Item {
     group: String,
 }
 
+#[cfg(feature = "gui")]
 impl SearchableListItem for Item {
     type Value = FirmwarePick;
 
@@ -87,6 +99,7 @@ impl SearchableListItem for Item {
     }
 }
 
+#[cfg(feature = "gui")]
 #[derive(Default)]
 pub(crate) struct FirmwareDelegate {
     items: Vec<Item>,
@@ -94,6 +107,7 @@ pub(crate) struct FirmwareDelegate {
     sections: Vec<(Option<String>, Vec<usize>)>,
 }
 
+#[cfg(feature = "gui")]
 impl FirmwareDelegate {
     /// The library's available entries as pickable items. Called when a combobox is
     /// built and again whenever the library changes (`GridApp::refresh_firmware_combos`).
@@ -164,6 +178,7 @@ impl FirmwareDelegate {
     }
 }
 
+#[cfg(feature = "gui")]
 impl SearchableListDelegate for FirmwareDelegate {
     type Item = Item;
 
@@ -275,7 +290,7 @@ impl SearchableListDelegate for FirmwareDelegate {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "gui"))]
 mod tests {
     use super::*;
 

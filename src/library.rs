@@ -180,6 +180,7 @@ impl Library {
     }
 
     /// The online listing's size (0 until the first successful fetch).
+    #[cfg(feature = "gui")]
     pub(crate) fn hub_len(&self) -> usize {
         self.hub.lock().unwrap().len()
     }
@@ -268,6 +269,7 @@ impl Library {
     }
 
     /// Add a firmware file from disk.
+    #[cfg(any(feature = "gui", test))]
     pub(crate) fn import_file(
         &mut self,
         path: &str,
@@ -292,6 +294,7 @@ impl Library {
 
     /// Forget an entry. Builtins stay. Files drop only the entry (the file stays on
     /// disk); hub entries drop the entry and the downloaded blob.
+    #[cfg(any(feature = "gui", test))]
     pub(crate) fn remove(&mut self, name: &str) {
         if self.builtins.iter().any(|f| f.name == name) {
             return;
@@ -340,6 +343,7 @@ impl Library {
     }
 
     /// The installed list's change counter (see the field).
+    #[cfg(feature = "gui")]
     pub(crate) fn generation(&self) -> u64 {
         self.generation
     }

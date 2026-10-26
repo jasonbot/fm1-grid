@@ -28,7 +28,7 @@ use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::base::resizable_panel;
 use gpui_kit::component::combobox::{ComboboxEvent, ComboboxState};
 use gpui_kit::component::input::{InputEvent, InputState};
-use gpui_kit::component::resizable::h_resizable;
+use gpui_kit::component::resizable::{ResizableState, h_resizable};
 use gpui_kit::component::tab::{Tab, TabBar};
 use gpui_kit::component::{ActiveTheme, Icon, Sizable, Theme, TitleBar};
 use gpui_kit::*;
@@ -227,6 +227,12 @@ pub struct GridApp {
     pub(crate) grid_size: (f32, f32),
     /// The grid cards' screen scale: exactly 1.0 or 0.5.
     pub(crate) grid_scale: f32,
+    /// The splits' bound states, so the quit handler can read the panel widths, and
+    /// the widths restored from the session record (the panels' initial sizes).
+    pub(crate) emulator_split: Entity<ResizableState>,
+    pub(crate) devices_split: Entity<ResizableState>,
+    pub(crate) sidebar_width: f32,
+    pub(crate) devices_width: Option<f32>,
     /// Per-slot audio health behind the grid cards' status dot.
     pub(crate) health: [SlotHealth; MAX_SLOTS],
     /// The main area's tab: 0 = Emulator (grid + sidebar split), 1 = Devices (USB
@@ -287,6 +293,12 @@ impl GridApp {
                 None
             }
         };
+        // The previous session's layout and tempo; the tempo field below initialises
+        // from the clock, so the restored bpm lands on it first.
+        let session = crate::session::Session::load(store.as_ref());
+        clock.set_bpm(session.bpm);
+        let emulator_split = cx.new(|_| ResizableState::default());
+        let devices_split = cx.new(|_| ResizableState::default());
 
         let focus = cx.focus_handle().tab_stop(true);
         focus.focus(window, cx);
@@ -426,7 +438,7 @@ impl GridApp {
         let mut app = Self {
             slots: std::array::from_fn(|_| Slot::default()),
             core_cpus,
-            active: 0,
+            active: session.slot,
             clock,
             hardware,
             routing,
@@ -459,8 +471,12 @@ impl GridApp {
             sidebar_size: (512.0, 700.0),
             grid_size: (crate::grid::GRID_W, crate::grid::GRID_W),
             grid_scale: 1.0,
+            emulator_split,
+            devices_split,
+            sidebar_width: session.sidebar_width,
+            devices_width: session.devices_width,
             health: [SlotHealth::default(); MAX_SLOTS],
-            active_tab: 0,
+            active_tab: session.tab,
             panel_width: 1040.0,
             wheel_acc: (u32::MAX, 0.0),
             last_beat: false,
@@ -1159,14 +1175,19 @@ impl GridApp {
     fn emulator_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         div().size_full().child(
             h_resizable("emulator-split")
+                .with_state(&self.emulator_split)
                 .child(
+                    // gpui-base rescales panels with the container only when every
+                    // panel has a size; an unsized grid panel would pin the sidebar
+                    // to its initial width (and its screen would never reach 4x).
                     resizable_panel()
+                        .size(px(1152.0 - self.sidebar_width))
                         .size_range(px(crate::grid::GRID_MIN_W)..Pixels::MAX)
                         .child(self.grid_area(cx)),
                 )
                 .child(
                     resizable_panel()
-                        .size(px(crate::theme::SIDEBAR_INITIAL))
+                        .size(px(self.sidebar_width))
                         .size_range(px(crate::theme::SIDEBAR_MIN)..px(crate::theme::SIDEBAR_MAX))
                         .child(self.device_sidebar(window, cx)),
                 ),
@@ -1178,9 +1199,13 @@ impl GridApp {
         let background = cx.theme().background;
         div().size_full().bg(background).child(
             h_resizable("devices-split")
+                .with_state(&self.devices_split)
                 .child(
-                    resizable_panel()
-                        .child(div().size_full().p_2().child(self.devices_pane(window, cx))),
+                    match self.devices_width {
+                        Some(width) => resizable_panel().size(px(width)),
+                        None => resizable_panel(),
+                    }
+                    .child(div().size_full().p_2().child(self.devices_pane(window, cx))),
                 )
                 .child(resizable_panel().child(self.graph_section(cx))),
         )

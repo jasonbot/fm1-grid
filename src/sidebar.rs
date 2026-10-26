@@ -1,7 +1,8 @@
 //! The device sidebar: the selected pane's screen centred in the spare height, its
-//! power switch, firmware selector and status pinned to the bottom. Theme colours
-//! throughout; the only computed colour in the window is the grid background behind
-//! it.
+//! power switch and firmware selector pinned to the bottom. The slot number is a pill
+//! on the selector row; the status line lives in the transport's metronome row.
+//! Theme colours throughout; the only computed colour in the window is the grid
+//! background behind it.
 
 use crate::app::{GridApp, Source};
 use crate::lcd;
@@ -17,10 +18,10 @@ use gpui_kit::*;
 
 /// Exact pixel multiples the screen can show at, largest first (4x, 2x, 1x).
 const SCREEN_SIDES: [f32; 3] = [960.0, 480.0, 240.0];
-/// Horizontal chrome around the screen: the card's padding and the bezel.
-const FIT_W_CHROME: f32 = 26.0;
-/// Vertical chrome: title, attributes, status, gaps and padding.
-const FIT_H_CHROME: f32 = 134.0;
+/// Horizontal chrome around the screen: the panel's padding and the bezel.
+const FIT_W_CHROME: f32 = 22.0;
+/// Vertical chrome: the attributes row, the gap above it and the padding.
+const FIT_H_CHROME: f32 = 56.0;
 /// Smallest screen side the layout falls back to (fractional fit).
 const SCREEN_MIN: f32 = 80.0;
 /// The firmware combobox renders at the component's medium input height (32 px); the
@@ -41,21 +42,12 @@ impl GridApp {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
-        let slot = self.active;
-        let (surface, ink, dim, danger) = {
-            let theme = cx.theme();
-            (
-                theme.popover,
-                theme.foreground,
-                theme.muted_foreground,
-                theme.danger,
-            )
-        };
+        let surface = cx.theme().popover;
 
         // The screen shows at an exact pixel multiple — 4x, 2x or 1x (960/480/240),
         // the largest that fits the width the split gives the panel and the height the
-        // title/attributes/status/note leave. Computed from last frame's measured
-        // content size (one frame of lag, as with the graph height in the egui app).
+        // attributes row leaves. Computed from last frame's measured content size (one
+        // frame of lag, as with the graph height in the egui app).
         let (panel_w, panel_h) = self.sidebar_size;
         let fit_w = panel_w - FIT_W_CHROME;
         let fit_h = panel_h - FIT_H_CHROME;
@@ -66,30 +58,14 @@ impl GridApp {
             .unwrap_or(fit);
         self.sidebar_scale = (side / SCREEN_SIDES[2]).round() as usize;
 
-        let name = self.slots[slot]
-            .label
-            .clone()
-            .unwrap_or_else(|| "No firmware".to_string());
-
-        let status = match (&self.slots[slot].error, &self.slots[slot].handle) {
-            (Some(error), _) => error.clone(),
-            (None, Some(handle)) => handle.status(),
-            (None, None) => "Off".to_string(),
-        };
-        let status_bad = self.slots[slot].error.is_some()
-            || self.slots[slot]
-                .handle
-                .as_ref()
-                .is_some_and(|handle| !handle.is_running());
-
         // Record the rendered size for next frame's scale choice.
         let app = cx.entity().clone();
         v_flex()
             .id("device-sidebar")
             .size_full()
             .bg(surface)
-            .p_3()
-            .gap_3()
+            .p_2()
+            .gap_2()
             .on_prepaint(move |bounds, _, cx| {
                 let size = (bounds.size.width.into(), bounds.size.height.into());
                 app.update(cx, |this, _| {
@@ -98,17 +74,8 @@ impl GridApp {
                     }
                 });
             })
-            .child(
-                div()
-                    .w_full()
-                    .truncate()
-                    .text_size(px(20.0))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(ink)
-                    .child(format!("Device {}: {}", slot + 1, name)),
-            )
             // The screen fills the spare height and centres itself in it; the
-            // controls and status pin to the bottom at their natural size.
+            // controls pin to the bottom at their natural size.
             .child(
                 div()
                     .flex_1()
@@ -120,14 +87,6 @@ impl GridApp {
                     .child(self.sidebar_screen(side)),
             )
             .child(self.pane_attributes(cx))
-            .child(
-                div()
-                    .w_full()
-                    .truncate()
-                    .text_size(px(10.0))
-                    .text_color(if status_bad { danger } else { dim })
-                    .child(status),
-            )
     }
 
     /// The selected pane's screen in its dark bezel, at the exact upscale the sidebar's
@@ -151,10 +110,15 @@ impl GridApp {
             })
     }
 
-    /// The selected pane's attributes — power switch and firmware selector — under the
-    /// screen. The cards are display-only, so this is where firmware switching lives.
+    /// The selected pane's attributes — slot pill, power switch and firmware selector —
+    /// under the screen. The cards are display-only, so this is where firmware
+    /// switching lives.
     fn pane_attributes(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
         let slot = self.active;
+        let (muted, dim) = {
+            let theme = cx.theme();
+            (theme.muted, theme.muted_foreground)
+        };
         let on = self.powered[slot];
         let label = self.slots[slot]
             .label
@@ -214,6 +178,17 @@ impl GridApp {
             .test_support()
             .items_center()
             .gap_2()
+            .child(
+                // The slot number as a pill, matching the library's tag pills.
+                div()
+                    .rounded_full()
+                    .px(px(6.0))
+                    .py(px(1.0))
+                    .text_size(px(9.0))
+                    .bg(muted)
+                    .text_color(dim)
+                    .child(format!("{}", slot + 1)),
+            )
             .child(
                 Switch::new("pane-power")
                     .checked(on)

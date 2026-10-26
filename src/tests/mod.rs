@@ -49,6 +49,25 @@ fn open_app_at(cx: &mut TestAppContext, w: f32, h: f32) -> (WindowHandle<Root>, 
     })
 }
 
+/// The sidebar takes its proportional share of extra window width (gpui-base rescales
+/// panels only when every panel has a size), so a big window lets its screen reach
+/// the exact 4x fit.
+#[gpui_kit::test]
+fn sidebar_grows_with_window(cx: &mut TestAppContext) {
+    let (window, app) = open_app_at(cx, 2560.0, 1600.0);
+    for _ in 0..3 {
+        cx.update_window(window.into(), |_, window, cx| window.render_frame(cx))
+            .unwrap();
+        cx.run_until_parked();
+    }
+    let (sidebar_w, scale) = cx.update(|cx| {
+        let app = app.read(cx);
+        (app.sidebar_size.0, app.sidebar_scale)
+    });
+    assert!(sidebar_w > crate::theme::SIDEBAR_INITIAL, "sidebar width {sidebar_w}");
+    assert_eq!(scale, 4);
+}
+
 #[gpui_kit::test]
 fn boots_selects_powers(cx: &mut TestAppContext) {
     let (window, app) = open_app(cx);

@@ -12,6 +12,8 @@ use std::path::PathBuf;
 // tab icons. The macro embeds exactly these SVGs; a misspelled name fails the build.
 icon_assets!(ExtraIcons, [Pin, Monitor, KeyboardMusic, Library]);
 
+actions!(fm1_grid, [Quit]);
+
 /// The app's asset source: the selected extra icons first (native `ComponentAssets`
 /// errors on an unknown path, so it answers last), then the default component icons.
 struct AppAssets;
@@ -83,6 +85,11 @@ fn main() {
     // cards take over below the full-height stack.
     application().with_assets(AppAssets).run(move |cx| {
         init(cx);
+        // The app menu's Quit (Cmd+Q) lands on the same quit path as closing the last
+        // window (below); without a menu the shortcut reaches no handler.
+        cx.set_menus([Menu::new("FM-1 Grid").items([MenuItem::action("Quit FM-1 Grid", Quit)])]);
+        cx.bind_keys([KeyBinding::new("cmd-q", Quit, None)]);
+        cx.on_action(|_: &Quit, cx| cx.quit());
         let bounds = Bounds::centered(None, size(px(1152.0), px(740.0)), cx);
         let (_, app) = open_window(
             WindowOptions {
@@ -103,9 +110,21 @@ fn main() {
         )
         .expect("failed to open window");
 
-        // Going away: pinned slots snapshot their device storage to the store.
+        // Quit when the last window closes; gpui-kit leaves close policy to the app.
+        cx.on_window_closed(|cx, _| {
+            if cx.windows().is_empty() {
+                cx.quit();
+            }
+        })
+        .detach();
+
+        // Going away: pinned slots snapshot their device storage to the store, and the
+        // session record keeps the layout, selection and tempo.
         cx.on_app_quit(move |cx| {
-            app.update(cx, |app, _| app.save_pinned());
+            app.update(cx, |app, cx| {
+                app.save_pinned();
+                app.save_session(cx);
+            });
             async {}
         })
         .detach();

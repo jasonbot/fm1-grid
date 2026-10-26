@@ -67,6 +67,18 @@ impl GridApp {
         let running = self.clock.enabled();
         let lit = self.clock.beat_light();
 
+        // The selected pane's status, moved here from the sidebar so the screen keeps
+        // its exact-multiple fit.
+        let slot = self.active;
+        let pane = &self.slots[slot];
+        let status = match (&pane.error, &pane.handle) {
+            (Some(error), _) => error.clone(),
+            (None, Some(handle)) => handle.status(),
+            (None, None) => "Off".to_string(),
+        };
+        let status_bad = pane.error.is_some()
+            || pane.handle.as_ref().is_some_and(|handle| !handle.is_running());
+
         // While the tempo field is focused its text is free-form; an unparsable or
         // out-of-range value paints the error border until the blur's sanitise pass.
         let tempo_bad = {
@@ -230,6 +242,12 @@ impl GridApp {
                 v_flex()
                     .items_end()
                     .gap_1()
+                    .child(
+                        div()
+                            .text_size(px(9.0))
+                            .text_color(if status_bad { danger } else { dim })
+                            .child(format!("Device {} · {status}", slot + 1)),
+                    )
                     .when_some(self.audio_error.clone(), |el, error| {
                         el.child(
                             div()

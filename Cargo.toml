@@ -53,6 +53,10 @@ web-sys = { version = "0.3", features = ["Storage", "Window"] }
 # build.rs parses firmware/firmwares.json, the single source for the embedded list.
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# build.rs also downloads the gitignored .fwsc packages missing from a fresh clone and
+# verifies them against the recorded SHA-256 hashes.
+ureq = "3"
+sha2 = "0.10"
 
 [dev-dependencies]
 # Headless UI tests (src/tests); unifies with the dependency above for test builds.

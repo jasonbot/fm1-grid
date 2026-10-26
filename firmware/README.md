@@ -3,7 +3,7 @@
 `firmwares.json` is the single source of truth for the images compiled into the
 binary: name, version, file, tags, download URL, source repo, SHA-256 and licence,
 one object per line. `build.rs` turns that list into the table used by
-`src/builtin.rs`; `firmware/download` fetches and verifies the packages against it.
+`src/builtin.rs` and fetches and verifies the packages against it.
 Manage the list with `scripts/firmware.sh add/del/list`, then rebuild.
 
 The first tag is the group the firmware dropdown shows (`synth`, `groove`, `chords`,
@@ -11,14 +11,11 @@ The first tag is the group the firmware dropdown shows (`synth`, `groove`, `chor
 
 ## Downloading the packages
 
-The `.fwsc` files are gitignored. To download the missing ones and verify every file
-against `firmwares.json`, run from the repo root:
-
-    cargo run --manifest-path firmware/download/Cargo.toml
-
-Files that already hash correctly are skipped. Downloads go to a `.part` file and are
-renamed into place only after the hash matches. Any failure makes the tool exit
-non-zero, so you can re-run it any time to re-check integrity.
+The `.fwsc` files are gitignored. The build downloads the missing ones from the
+recorded URLs and verifies every file against `firmwares.json`, so no separate step is
+needed. Downloads go to a `.part` file and are renamed into place only after the hash
+matches. A file whose hash doesn't match the recorded one fails the build; delete it to
+force a re-download.
 
 ## Where the packages come from
 

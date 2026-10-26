@@ -20,8 +20,9 @@ and buttons, turn knobs with the −/+ ends, and watch its LEDs follow the firmw
 A running pane can be **pinned** (the toggle beside its firmware selector): its flash
 contents — the device's settings and project data — are written to disk at power-off
 and when the app quits, and come back at the next boot. Pinned panes restore at
-startup (still powered off). State lives in the com.fm1-grid data directory
-(`~/.local/share/fm1-grid` on Linux).
+startup (still powered off). The split positions, selected tab and pane, and the
+metronome tempo are restored the same way. State lives in the com.fm1-grid data
+directory (`~/.local/share/fm1-grid` on Linux).
 
 The **Library** tab lists every firmware the app knows — the bundled set with the
 hub's descriptions, files you import, and (online) everything the
@@ -63,11 +64,12 @@ A `.fwsc` file is an update package; a `.bin` or `.xip` file is a raw app image.
 
 ### Firmware selector
 
-The selector, power switch and status for the selected pane sit at the top of the
-sidebar. The selector only works while the pane is off — hover it while the pane is
-on to see why. It lists the embedded firmwares plus **Other…** (a file picker).
-Hovering a choice shows its file name and SHA-256 hash. A new firmware boots the next
-time you power the pane on.
+The slot pill, power switch and selector for the selected pane sit under the
+sidebar's screen; its status (errors, dropped frames, throughput) is on the right of
+the metronome row. The selector only works while the pane is off — hover it while the
+pane is on to see why. It lists the embedded firmwares plus **Other…** (a file
+picker). Hovering a choice shows its file name and SHA-256 hash. A new firmware boots
+the next time you power the pane on.
 
 The embedded list lives in `firmware/firmwares.json` and is compiled in at build time.
 Manage it with the helper script, then rebuild:
@@ -81,8 +83,8 @@ scripts/firmware.sh list
 `add` copies the package into `firmware/` and records its hash; `del` removes both.
 The JSON order is the default pane order.
 
-Run `cargo run --manifest-path firmware/download/Cargo.toml` before building to get the
-embedded firmwares.
+The `.fwsc` packages are gitignored; the build downloads and hash-verifies any missing
+ones on first build, so a fresh clone just works.
 
 ## Keyboard
 

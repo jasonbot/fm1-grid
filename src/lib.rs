@@ -34,6 +34,8 @@ pub mod midi_keys;
 mod panel;
 pub mod routing;
 #[cfg(feature = "gui")]
+mod session;
+#[cfg(feature = "gui")]
 mod sidebar;
 #[cfg(feature = "gui")]
 mod flash_dialog;

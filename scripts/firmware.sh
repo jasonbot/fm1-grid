@@ -6,8 +6,8 @@
 #   scripts/firmware.sh list
 #
 # `tags` is comma-separated; the first tag is the dropdown group. `url` is the download
-# location recorded for firmware/download (omit it for local-only packages). After
-# add/del, rebuild with `cargo build --release`. The default slot contents follow the
+# location build.rs fetches a missing package from (omit it for local-only packages).
+# After add/del, rebuild with `cargo build --release`. The default slot contents follow the
 # JSON order, so the first entries are what starts with no CLI arguments.
 set -eu
 

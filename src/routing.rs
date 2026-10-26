@@ -32,7 +32,7 @@ use std::time::Duration;
 
 /// One endpoint of the graph.
 #[derive(Clone, PartialEq, Eq, Hash)]
-pub(crate) enum Port {
+pub enum Port {
     /// A system MIDI port, by its midir (ALSA) name.
     System(String),
     /// A live FM-1 unit, by the hardware module's port name; both a source and a sink.
@@ -43,7 +43,7 @@ pub(crate) enum Port {
 
 /// What the graph UI shows about one endpoint.
 #[derive(Clone)]
-pub(crate) struct Endpoint {
+pub struct Endpoint {
     pub port: Port,
     pub label: String,
     /// Whether bytes from this endpoint can be routed somewhere.
@@ -83,7 +83,7 @@ enum Command {
 /// connect/disconnect commands; the hardware module registers devices and the app
 /// registers emulator panes. Cloning is cheap.
 #[derive(Clone)]
-pub(crate) struct Routing {
+pub struct Routing {
     inner: Arc<Mutex<Inner>>,
     commands: Sender<Command>,
 }
@@ -267,7 +267,7 @@ fn prune(inner: &mut Inner, dead: &Port) {
 
 /// midir's ALSA port names are "CLIENT:CNUM PORT:PNUM"; the friendly part is the client
 /// and port names without the numbers.
-pub(crate) fn label_of(name: &str) -> String {
+pub fn label_of(name: &str) -> String {
     let mut parts = name.split(' ');
     let client = parts.next().unwrap_or(name);
     let client = client.split(':').next().unwrap_or(client);

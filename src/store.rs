@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 /// The store root: the app's data directory. Construct once, share by reference.
 /// Cloneable so background workers (the library's downloads) get their own handle.
 #[derive(Clone)]
-pub(crate) struct Store {
+pub struct Store {
     #[cfg(not(target_arch = "wasm32"))]
     root: PathBuf,
 }

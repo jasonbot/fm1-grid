@@ -4,9 +4,6 @@
 //! `hub/<file>`. Network work (catalog refresh, downloads) runs on background
 //! threads; `list()` picks up finished downloads.
 
-// The UI (wave 3b) wires this in; nothing constructs a Library yet.
-#![allow(dead_code)]
-
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -22,7 +19,7 @@ const LIBRARY_OBJECT: &str = "library";
 
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(tag = "source", rename_all = "lowercase")]
-pub(crate) enum FirmwareSource {
+pub enum FirmwareSource {
     Builtin,
     File { path: String },
     /// `path` is the package's path on the hub ("fw/<file>"); `blob` is its key in the
@@ -32,13 +29,13 @@ pub(crate) enum FirmwareSource {
 
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Debug)]
 #[serde(rename_all = "lowercase")]
-pub(crate) enum FirmwareDevice {
+pub enum FirmwareDevice {
     Fm1,
     Smk37Pro,
 }
 
 #[derive(Clone, Copy, PartialEq, Default, Debug)]
-pub(crate) enum Status {
+pub enum Status {
     #[default]
     Available,
     Downloading,
@@ -46,7 +43,7 @@ pub(crate) enum Status {
 }
 
 #[derive(Serialize, Deserialize, Clone)]
-pub(crate) struct Firmware {
+pub struct Firmware {
     pub name: String,
     pub byline: String,
     pub version: String,
@@ -72,14 +69,14 @@ struct Download {
 
 /// Where a hub refresh stands (the Library tab's status item reads it).
 #[derive(Clone)]
-pub(crate) enum HubStatus {
+pub enum HubStatus {
     /// Not fetching right now.
     Idle,
     Loading,
     Failed(String),
 }
 
-pub(crate) struct Library {
+pub struct Library {
     store: Store,
     builtins: Vec<Firmware>,
     /// The persisted non-builtin entries (files and downloaded hub packages).
@@ -99,7 +96,7 @@ pub(crate) struct Library {
 }
 
 impl Library {
-    pub(crate) fn load(store: &Store) -> Library {
+    pub fn load(store: &Store) -> Library {
         let stored: Vec<Firmware> = store.fetch_object(LIBRARY_OBJECT).unwrap_or_default();
         Library {
             store: store.clone(),
@@ -168,17 +165,17 @@ impl Library {
     }
 
     /// An owned copy of the current view, for UI code that borrows the app elsewhere.
-    pub(crate) fn list_clone(&mut self) -> Vec<Firmware> {
+    pub fn list_clone(&mut self) -> Vec<Firmware> {
         self.list().to_vec()
     }
 
     /// The percent of a download in flight, for the UI's progress display.
-    pub(crate) fn download_percent(&self, name: &str) -> Option<u32> {
+    pub fn download_percent(&self, name: &str) -> Option<u32> {
         self.downloads.get(name).map(|d| d.percent.load(Ordering::Relaxed))
     }
 
     /// The hub refresh's status (the Library tab's status item reads it).
-    pub(crate) fn hub_status(&self) -> HubStatus {
+    pub fn hub_status(&self) -> HubStatus {
         self.hub_status.lock().unwrap().clone()
     }
 
@@ -190,12 +187,12 @@ impl Library {
     /// Fetch today's hub catalog on a background thread and swap the listing in, at
     /// most once an hour (app load and tab opens call this; within the hour it's a
     /// no-op). A failure keeps the old (or empty) list and shows in the status item.
-    pub(crate) fn refresh_hub(&mut self) {
+    pub fn refresh_hub(&mut self) {
         self.refresh_hub_inner(false);
     }
 
     /// The reload/retry button's fetch: always goes.
-    pub(crate) fn reload_hub(&mut self) {
+    pub fn reload_hub(&mut self) {
         self.refresh_hub_inner(true);
     }
 
@@ -235,7 +232,7 @@ impl Library {
     /// Download a hub package into the blob store on a background thread. On
     /// completion the entry joins the persisted list (folded in by the next
     /// `list()`).
-    pub(crate) fn start_download(&mut self, name: &str) {
+    pub fn start_download(&mut self, name: &str) {
         if self.downloads.contains_key(name) {
             return;
         }

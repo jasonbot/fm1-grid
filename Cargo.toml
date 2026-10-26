@@ -31,6 +31,9 @@ directories = "6"
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 # Hub catalog + firmware package downloads (src/library.rs); ureq has no wasm32 build.
 ureq = "2"
+# The fm1-tty binary's terminal UI (src/bin/fm1-tty); crossterm comes from
+# ratatui's re-export so the versions never drift apart.
+ratatui = "0.30"
 
 # The store's wasm32 branch uses the browser's localStorage instead.
 [target.'cfg(target_arch = "wasm32")'.dependencies]

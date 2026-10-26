@@ -28,7 +28,7 @@ enum Command {
 
 /// Handle to the keyboard driver: the GUI selects a port and reads the held notes; the
 /// poller thread owns the port connection. Cloning is not needed; it lives on the app.
-pub(crate) struct MidiKeys {
+pub struct MidiKeys {
     held: Arc<[AtomicBool; 41]>,
     selected: Arc<Mutex<Option<String>>>,
     commands: Sender<Command>,

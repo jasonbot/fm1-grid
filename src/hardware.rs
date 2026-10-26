@@ -391,7 +391,7 @@ struct CallbackData {
 /// One open MIDI in/out pair with a live device. Shared by the clock thread (single
 /// real-time bytes), the flash thread (packets), the scanner (handshakes) and the MIDI
 /// graph (whole messages, both directions).
-pub(crate) struct DeviceLink {
+pub struct DeviceLink {
     out: Mutex<MidiOutputConnection>,
     queue: Queue,
     /// Kept alive: dropping it closes the input port and its callback.
@@ -435,7 +435,7 @@ impl MidiSink for DeviceLink {
 /// What a running flash is doing right now, for the device's row: the phase, and how
 /// far the image transfer has got (None until the device starts pulling).
 #[derive(Clone)]
-pub(crate) struct FlashState {
+pub struct FlashState {
     pub step: String,
     pub progress: Option<f32>,
     /// Whether the state is a failure message rather than a running phase.
@@ -452,7 +452,7 @@ type Board = Arc<Mutex<Option<FlashState>>>;
 
 /// One live FM-1, as the devices pane shows it.
 #[derive(Clone)]
-pub(crate) struct DeviceRow {
+pub struct DeviceRow {
     /// The MIDI port name; the device's key for [`Hardware::flash`] and
     /// [`Hardware::set_clock`].
     pub name: String,
@@ -489,7 +489,7 @@ enum Command {
 
 /// The live USB devices: a background scanner thread owns discovery, the GUI reads the
 /// row list and posts commands.
-pub(crate) struct Hardware {
+pub struct Hardware {
     devices: Arc<Mutex<Vec<Device>>>,
     commands: Sender<Command>,
     /// The pane-level flash status, alive across the reboots of a flash.
@@ -566,6 +566,17 @@ impl Hardware {
             name: name.to_string(),
             bytes,
         });
+    }
+
+    /// Send whole MIDI messages to the named device (the TUI's virtual keyboard plays
+    /// the unit this way). False when the device is gone or the send failed.
+    pub fn send(&self, name: &str, bytes: &[u8]) -> bool {
+        let Ok(list) = self.devices.lock() else {
+            return false;
+        };
+        list.iter()
+            .find(|device| device.name == name)
+            .is_some_and(|device| device.link.send(bytes))
     }
 
     /// Show a message on the device's row (a file that could not be read, say).

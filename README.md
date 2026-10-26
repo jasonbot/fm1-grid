@@ -122,6 +122,43 @@ MIDI-in alone, and the firmwares' real MIDI path is USB, which the emulated chip
 cannot enumerate. The graph says so while such a pane runs. (M-VAVE's own packages —
 FM1 Open V15, FM-1+VA — are the bundled firmwares with no USB-MIDI at all.)
 
+## fm1-tty
+
+This is a smaller version of the app that runs in a plain terminal window. No
+pictures, just text. It talks to real FM-1 boxes plugged in with a USB cable.
+It leaves out the pretend FM-1s — a text screen can't draw their little screens
+anyway. Under the hood it runs the same code as the big app, so it works the
+same way.
+
+```sh
+cargo run --release --bin fm1-tty
+```
+
+The screen has three parts:
+
+* **Library** — your list of firmware, same as the big app's Library tab. It
+  shows what came with the app, what you added yourself, and (when you're
+  online) what the Firmware Hub website has.
+  * `r` checks the website for the newest list.
+  * `d` downloads the firmware you picked.
+  * `f` installs ("flashes") it onto a plugged-in FM-1. Have more than one
+    plugged in? It asks which one. A pop-up shows how the install is going. If
+    something goes wrong, the pop-up stays up until you press `Esc`.
+* **Keyboard** — a piano drawn on the screen. Click its keys with the mouse, or
+  press `Tab` to switch to it and use the same letter keys as the big app.
+  Every note you play goes to all your plugged-in FM-1s at once. Press `m` to
+  pick a real MIDI keyboard — its notes light up the piano and get sent to your
+  FM-1s too.
+* **Metronome** — the same steady beat as the big app. `Space` starts and stops
+  it. `-` and `+` make it a little slower or faster, and `[` and `]` jump by
+  ten. The little light blinks on every beat. Every FM-1 hears the beat, so
+  they all play in time together.
+
+A few more keys: `Tab` moves between the library list and the piano. In the
+list, the arrow keys (or `j` and `k`) move up and down, `PageUp` and `PageDown`
+jump ten rows, and `Home` and `End` go to the top and bottom. Press `q` while
+the list is selected — or `Ctrl-C` anywhere — to quit.
+
 ## Metronome
 
 Starts **off**; the rocker switch starts and stops it. While running it sends a MIDI
@@ -177,6 +214,7 @@ src/library.rs       the firmware library: model, hub fetch/downloads, persisten
 src/library_tab.rs   the Library tab's list, pills, actions and add-file form
 src/flash_dialog.rs  the modal flash progress + message terminal
 src/main.rs          startup, CLI firmware arguments, the quit hook saving pins
+src/bin/fm1-tty/     the terminal UI (ratatui): library + flashing, piano, metronome
 src/tests/           headless UI smoke tests
 firmware/            the embedded .fwsc packages plus firmwares.json
 ```

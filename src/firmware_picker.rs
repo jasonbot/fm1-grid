@@ -22,7 +22,7 @@ use std::path::PathBuf;
 
 /// What a pick installs (or flashes).
 #[derive(Clone, PartialEq)]
-pub(crate) enum FirmwarePick {
+pub enum FirmwarePick {
     Builtin(usize),
     File(PathBuf),
     /// A downloaded hub package, by its blob-store key.
@@ -31,7 +31,7 @@ pub(crate) enum FirmwarePick {
 
 impl FirmwarePick {
     /// The package bytes: the builtin table, the filesystem, or the blob store.
-    pub(crate) fn bytes(&self, store: Option<&crate::store::Store>) -> Result<Vec<u8>, String> {
+    pub fn bytes(&self, store: Option<&crate::store::Store>) -> Result<Vec<u8>, String> {
         match self {
             FirmwarePick::Builtin(index) => Ok(BUILTINS[*index].bytes.to_vec()),
             FirmwarePick::File(path) => {
@@ -47,7 +47,7 @@ impl FirmwarePick {
 
 /// The install/flash target for a library entry: None when the package isn't at hand
 /// (a hub offer not downloaded yet, or a file that's gone).
-pub(crate) fn pick_of(firmware: &crate::library::Firmware) -> Option<FirmwarePick> {
+pub fn pick_of(firmware: &crate::library::Firmware) -> Option<FirmwarePick> {
     match &firmware.source {
         FirmwareSource::Builtin => BUILTINS
             .iter()

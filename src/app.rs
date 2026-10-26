@@ -13,7 +13,7 @@
 //! [`GridApp::sync_held`]. A timer task ticks every 16 ms to upload LCD frames, decay
 //! LEDs, ease the grid background and repaint.
 
-use crate::audio::{AudioRing, start_audio};
+use crate::audio::{start_audio, AudioRing};
 use crate::builtin::BUILTINS;
 use crate::clock::Clock;
 use crate::emulator::{EmulatorHandle, LCD_H, LCD_W};
@@ -22,15 +22,15 @@ use crate::hardware::Hardware;
 use crate::keys::{BUTTONS, PIANO};
 use crate::midi_keys::MidiKeys;
 use crate::routing::Routing;
-use crate::{MAX_SLOTS, lcd};
+use crate::{lcd, MAX_SLOTS};
 use fm1_soc::Action;
 use gpui_kit::assets::IconName as Lucide;
-use gpui_kit::base::resizable_panel;
+use gpui_kit::base::{resizable_panel, StyledExt};
 use gpui_kit::component::combobox::{ComboboxEvent, ComboboxState};
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::component::resizable::h_resizable;
 use gpui_kit::component::tab::{Tab, TabBar};
-use gpui_kit::component::{ActiveTheme, Icon, Theme, TitleBar};
+use gpui_kit::component::{ActiveTheme, Icon, Sizable, Theme, TitleBar};
 use gpui_kit::*;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -41,7 +41,10 @@ pub(crate) enum Source {
     Builtin(usize),
     File(PathBuf),
     /// A downloaded hub package, by blob-store key (the label is its display name).
-    Blob { key: String, label: String },
+    Blob {
+        key: String,
+        label: String,
+    },
 }
 
 #[derive(Default)]
@@ -57,8 +60,6 @@ pub(crate) struct Slot {
     /// flash snapshot lives in the store).
     pub pinned: bool,
 }
-
-
 
 /// A pinned slot's record in the store, `slot-N`.
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -120,8 +121,7 @@ impl SlotHealth {
             };
             return true;
         }
-        let shown =
-            running && (color != Health::Green || self.since.elapsed() < DOT_LINGER);
+        let shown = running && (color != Health::Green || self.since.elapsed() < DOT_LINGER);
         std::mem::replace(&mut self.shown, shown) != shown
     }
 }
@@ -359,15 +359,13 @@ impl GridApp {
             file: None,
             filter: cx.new(|cx| InputState::new(window, cx).placeholder("Filter firmwares…")),
         };
-        subscriptions.push(cx.subscribe_in(
-            &lib_form.filter,
-            window,
-            |_, _, event, _, cx| {
+        subscriptions.push(
+            cx.subscribe_in(&lib_form.filter, window, |_, _, event, _, cx| {
                 if matches!(event, InputEvent::Change) {
                     cx.notify();
                 }
-            },
-        ));
+            }),
+        );
 
         // The tempo field is free-form while it is focused — an invalid or
         // out-of-range value only paints the error state — and the sanitise-and-apply
@@ -385,9 +383,7 @@ impl GridApp {
                     InputEvent::Blur | InputEvent::PressEnter { .. } => {
                         this.apply_tempo(state, window, cx);
                     }
-                    InputEvent::Change
-                        if !state.read(cx).focus_handle(cx).is_focused(window) =>
-                    {
+                    InputEvent::Change if !state.read(cx).focus_handle(cx).is_focused(window) => {
                         this.apply_tempo(state, window, cx);
                     }
                     _ => {}
@@ -557,7 +553,10 @@ impl GridApp {
             if let Some(handle) = &self.slots[slot].handle {
                 for (id, down) in self.held.iter().enumerate() {
                     if *down {
-                        handle.send(Action::Key { id: id as u8, down: false });
+                        handle.send(Action::Key {
+                            id: id as u8,
+                            down: false,
+                        });
                     }
                 }
             }
@@ -568,7 +567,9 @@ impl GridApp {
     }
 
     pub(crate) fn load_builtin(&mut self, slot: usize, index: usize) {
-        let Some(firmware) = BUILTINS.get(index) else { return };
+        let Some(firmware) = BUILTINS.get(index) else {
+            return;
+        };
         let label = firmware.label();
         let bytes = firmware.bytes.to_vec();
         self.install(slot, label, bytes, true, Source::Builtin(index));
@@ -629,8 +630,12 @@ impl GridApp {
         for slot in 0..MAX_SLOTS {
             let delegate = crate::firmware_picker::FirmwareDelegate::from_app(self);
             let selected = match &self.slots[slot].source {
-                Some(Source::Builtin(index)) => Some(crate::firmware_picker::FirmwarePick::Builtin(*index)),
-                Some(Source::File(path)) => Some(crate::firmware_picker::FirmwarePick::File(path.clone())),
+                Some(Source::Builtin(index)) => {
+                    Some(crate::firmware_picker::FirmwarePick::Builtin(*index))
+                }
+                Some(Source::File(path)) => {
+                    Some(crate::firmware_picker::FirmwarePick::File(path.clone()))
+                }
                 Some(Source::Blob { key, .. }) => {
                     Some(crate::firmware_picker::FirmwarePick::HubBlob(key.clone()))
                 }
@@ -923,7 +928,12 @@ impl GridApp {
 
     /// Sanitise the tempo field onto the metronome: parse, clamp into the clock's
     /// range, reformat. Text that is not a number snaps back to the live tempo.
-    fn apply_tempo(&mut self, state: &Entity<InputState>, window: &mut Window, cx: &mut Context<Self>) {
+    fn apply_tempo(
+        &mut self,
+        state: &Entity<InputState>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let text = state.read(cx).value().to_string();
         let bpm = match text.trim().parse::<u32>() {
             Ok(bpm) => bpm.clamp(crate::clock::MIN_BPM, crate::clock::MAX_BPM),
@@ -966,13 +976,12 @@ impl GridApp {
             dirty |= self.health[slot].track(drops, running);
         }
         // The cards snap between 1x and 0.5x screens to fit the split panel.
-        let scale = if self.grid_size.0 >= crate::grid::GRID_W
-            && self.grid_size.1 >= crate::grid::GRID_W
-        {
-            1.0
-        } else {
-            0.5
-        };
+        let scale =
+            if self.grid_size.0 >= crate::grid::GRID_W && self.grid_size.1 >= crate::grid::GRID_W {
+                1.0
+            } else {
+                0.5
+            };
         dirty |= std::mem::replace(&mut self.grid_scale, scale) != scale;
         // Flash progress and hotplugged USB devices arrive on the hardware module's
         // threads; sweep them up twice a second.
@@ -1064,9 +1073,7 @@ impl GridApp {
         self.leds
             .iter()
             .enumerate()
-            .fold(0u64, |bits, (id, &v)| {
-                bits | ((v > 0.04) as u64) << id
-            })
+            .fold(0u64, |bits, (id, &v)| bits | ((v > 0.04) as u64) << id)
     }
 
     /// The dominant colour of the selected pane's screen. A pane that is off shows black,
@@ -1091,11 +1098,7 @@ impl GridApp {
             self.bg_sampled_at = Instant::now();
             self.dominant_slot = self.active;
             let [r, g, b] = self.dominant_lcd_color();
-            let target = [
-                r as f32 / 255.0,
-                g as f32 / 255.0,
-                b as f32 / 255.0,
-            ];
+            let target = [r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0];
             if target != self.bg_target {
                 self.bg_from = self.bg;
                 self.bg_target = target;
@@ -1176,9 +1179,8 @@ impl GridApp {
         div().size_full().bg(background).child(
             h_resizable("devices-split")
                 .child(
-                    resizable_panel().child(
-                        div().size_full().p_2().child(self.devices_pane(window, cx)),
-                    ),
+                    resizable_panel()
+                        .child(div().size_full().p_2().child(self.devices_pane(window, cx))),
                 )
                 .child(resizable_panel().child(self.graph_section(cx))),
         )
@@ -1215,6 +1217,7 @@ impl Render for GridApp {
                 TabBar::new("main-tabs")
                     .segmented()
                     .w_full()
+                    .large()
                     .selected_index(self.active_tab)
                     .on_click(cx.listener(|this, ix: &usize, window, cx| {
                         this.active_tab = *ix;
@@ -1226,19 +1229,27 @@ impl Render for GridApp {
                         cx.notify();
                     }))
                     .children([
-                        Tab::new().icon(Icon::new(Lucide::Monitor)).label("Emulator"),
                         Tab::new()
-                            .icon(Icon::new(Lucide::PlayingCardsFan))
+                            .prefix(Icon::new(Lucide::Monitor))
+                            .label("Emulator"),
+                        Tab::new()
+                            .prefix(Icon::new(Lucide::KeyboardMusic))
                             .label("Devices"),
-                        Tab::new().icon(Icon::new(Lucide::Library)).label("Library"),
+                        Tab::new()
+                            .prefix(Icon::new(Lucide::Library))
+                            .label("Library"),
                     ]),
             )
             .child(
-                div().flex_1().min_h_0().w_full().child(match self.active_tab {
-                    0 => self.emulator_tab(window, cx).into_any_element(),
-                    1 => self.devices_tab(window, cx).into_any_element(),
-                    _ => self.library_tab(window, cx).into_any_element(),
-                }),
+                div()
+                    .flex_1()
+                    .min_h_0()
+                    .w_full()
+                    .child(match self.active_tab {
+                        0 => self.emulator_tab(window, cx).into_any_element(),
+                        1 => self.devices_tab(window, cx).into_any_element(),
+                        _ => self.library_tab(window, cx).into_any_element(),
+                    }),
             )
             .child(self.transport(window, cx))
     }

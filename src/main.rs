@@ -1,8 +1,8 @@
 //! CLI and window bootstrap; the app itself lives in the `fm1_grid` library.
 
-use fm1_grid::MAX_SLOTS;
 use fm1_grid::app::GridApp;
-use gpui_kit::assets::{Assets as ComponentAssets, icon_assets};
+use fm1_grid::MAX_SLOTS;
+use gpui_kit::assets::{icon_assets, Assets as ComponentAssets};
 use gpui_kit::component::TitleBar;
 use gpui_kit::*;
 use std::borrow::Cow;
@@ -10,7 +10,7 @@ use std::path::PathBuf;
 
 // Lucide icons beyond gpui-kit's default set: the sidebar's pin toggle and the three
 // tab icons. The macro embeds exactly these SVGs; a misspelled name fails the build.
-icon_assets!(ExtraIcons, [Pin, Monitor, PlayingCardsFan, Library]);
+icon_assets!(ExtraIcons, [Pin, Monitor, KeyboardMusic, Library]);
 
 /// The app's asset source: the selected extra icons first (native `ComponentAssets`
 /// errors on an unknown path, so it answers last), then the default component icons.
@@ -81,29 +81,27 @@ fn main() {
     // display is 1920x1200 at 150% — 1280x800 logical — so the default and minimum
     // sizes must live inside that: the panel's compact keyboard and the grid's 0.5x
     // cards take over below the full-height stack.
-    application()
-        .with_assets(AppAssets)
-        .run(move |cx| {
-            init(cx);
-            let bounds = Bounds::centered(None, size(px(1152.0), px(740.0)), cx);
-            let (_, app) = open_window(
-                WindowOptions {
-                    window_bounds: Some(WindowBounds::Windowed(bounds)),
-                    // Grid at 0.5x plus the sidebar's floor across; title bar, tabs,
-                    // compact transport and the 0.5x card rows down.
-                    window_min_size: Some(size(px(620.0), px(680.0))),
-                    titlebar: Some(TitlebarOptions {
-                        title: Some("FM-1 Grid".into()),
-                        ..TitleBar::title_bar_options()
-                    }),
-                    // TitleBar::window_options: the in-app title bar owns dragging and
-                    // draws the window controls where the platform lacks them (GNOME).
-                    ..TitleBar::window_options()
-                },
-                cx,
-                move |window, cx| cx.new(|cx| GridApp::new(window, cx, &initial)),
-            )
-            .expect("failed to open window");
+    application().with_assets(AppAssets).run(move |cx| {
+        init(cx);
+        let bounds = Bounds::centered(None, size(px(1152.0), px(740.0)), cx);
+        let (_, app) = open_window(
+            WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(bounds)),
+                // Grid at 0.5x plus the sidebar's floor across; title bar, tabs,
+                // compact transport and the 0.5x card rows down.
+                window_min_size: Some(size(px(620.0), px(680.0))),
+                titlebar: Some(TitlebarOptions {
+                    title: Some("FM-1 Grid".into()),
+                    ..TitleBar::title_bar_options()
+                }),
+                // TitleBar::window_options: the in-app title bar owns dragging and
+                // draws the window controls where the platform lacks them (GNOME).
+                ..TitleBar::window_options()
+            },
+            cx,
+            move |window, cx| cx.new(|cx| GridApp::new(window, cx, &initial)),
+        )
+        .expect("failed to open window");
 
         // Going away: pinned slots snapshot their device storage to the store.
         cx.on_app_quit(move |cx| {
@@ -113,4 +111,3 @@ fn main() {
         .detach();
     });
 }
-

@@ -26,7 +26,10 @@ directory (`~/.local/share/fm1-grid` on Linux).
 
 The **Library** tab lists every firmware the app knows — the bundled set with the
 hub's descriptions, files you import, and (online) everything the
-[FM-1 Firmware Hub](https://thefirmwarehub.com/) offers, downloadable in place. Items
+[FM-1 Firmware Hub](https://thefirmwarehub.com/) offers, downloadable in place. The
+listing also folds in [fm1-editor.com's firmware page](https://fm1-editor.com/firmware/):
+entries the hub lacks appear with their own links, and entries both sites carry get
+the combined tags and the newer side's version and download. Items
 remove (not builtins), download with progress, and **Flash To…** a live unit (modal
 progress + log) or a powered-off unpinned pane (boots it). The bottom form imports a
 firmware file with a name, version and description.
@@ -148,8 +151,8 @@ The screen has three parts:
 
 * **Library** — your list of firmware, same as the big app's Library tab. It
   shows what came with the app, what you added yourself, and (when you're
-  online) what the Firmware Hub website has.
-  * `r` checks the website for the newest list.
+  online) what the Firmware Hub website and fm1-editor.com's firmware page have.
+  * `r` checks the websites for the newest list.
   * `d` downloads the firmware you picked.
   * `f` installs ("flashes") it onto a plugged-in FM-1. Have more than one
     plugged in? It asks which one. A pop-up shows how the install is going. If

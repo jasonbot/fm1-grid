@@ -2039,6 +2039,7 @@ version = "0.1.0"
 dependencies = [
  "cpal",
  "directories",
+ "flate2",
  "fm1-core",
  "fm1-soc",
  "gpui-kit",

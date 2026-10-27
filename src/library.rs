@@ -1,8 +1,11 @@
 //! The firmware library's data layer: what's installed (builtins, imported files,
-//! downloaded hub packages) and what the hub offers. The store object `library` is
-//! the list of non-builtin entries; hub packages live in the blob store under
-//! `hub/<file>`. Network work (catalog refresh, downloads) runs on background
-//! threads; `list()` picks up finished downloads.
+//! downloaded hub packages) and what the online listing offers. The listing merges
+//! two sources fetched together: the Firmware Hub catalog (the source of truth) and
+//! the fm1-editor site's firmware page, which is scraped (it publishes no feed) and
+//! is additive only. The store object `library` is the list of non-builtin entries;
+//! hub packages live in the blob store under `hub/<file>`, packages from absolute
+//! URLs under `ext/<file>-<hash>`. Network work (catalog refresh, downloads) runs
+//! on background threads; `list()` picks up finished downloads.
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -14,6 +17,9 @@ use crate::builtin::BUILTINS;
 use crate::store::Store;
 
 const HUB_BASE: &str = "https://thefirmwarehub.com";
+/// The secondary listing: the fm1-editor site's firmware page, scraped for entries
+/// the hub lacks. Additive only — the hub catalog stays the source of truth.
+const EDITOR_PAGE: &str = "https://fm1-editor.com/firmware/";
 /// The store object holding every non-builtin entry.
 const LIBRARY_OBJECT: &str = "library";
 
@@ -22,8 +28,9 @@ const LIBRARY_OBJECT: &str = "library";
 pub enum FirmwareSource {
     Builtin,
     File { path: String },
-    /// `path` is the package's path on the hub ("fw/<file>"); `blob` is its key in the
-    /// blob store (`hub/<file>`), set once the download completes.
+    /// `path` is the package's path on the hub ("fw/<file>") or, for entries scraped
+    /// from the fm1-editor page, the package's absolute URL; `blob` is its key in
+    /// the blob store (see `blob_key`), set once the download completes.
     Hub { path: String, blob: Option<String> },
 }
 
@@ -185,9 +192,10 @@ impl Library {
         self.hub.lock().unwrap().len()
     }
 
-    /// Fetch today's hub catalog on a background thread and swap the listing in, at
-    /// most once an hour (app load and tab opens call this; within the hour it's a
-    /// no-op). A failure keeps the old (or empty) list and shows in the status item.
+    /// Fetch today's hub catalog and the fm1-editor page on a background thread and
+    /// swap the merged listing in, at most once an hour (app load and tab opens call
+    /// this; within the hour it's a no-op). A hub failure keeps the old (or empty)
+    /// list and shows in the status item.
     pub fn refresh_hub(&mut self) {
         self.refresh_hub_inner(false);
     }
@@ -207,24 +215,45 @@ impl Library {
         {
             return;
         }
-        self.refresh_hub_from(format!("{HUB_BASE}/catalog.json?{}", today_utc()));
+        let day = today_utc();
+        self.refresh_hub_from(
+            format!("{HUB_BASE}/catalog.json?{day}"),
+            format!("{EDITOR_PAGE}?{day}"),
+        );
     }
 
-    /// The workhorse, with the URL injectable so tests stay offline (a port that's
-    /// closed is a deterministic failure). Every fetch — cadence or forced — counts
-    /// for the cadence, so the timestamp is set here, the single funnel.
-    fn refresh_hub_from(&mut self, url: String) {
+    /// The workhorse, with the URLs injectable so tests stay offline (a port that's
+    /// closed is a deterministic failure). Both sources are fetched at the same
+    /// time. The hub decides the outcome: its failure keeps the old listing, while
+    /// an editor-page failure only costs the additive entries (and shows in the
+    /// status). Every fetch — cadence or forced — counts for the cadence, so the
+    /// timestamp is set here, the single funnel.
+    fn refresh_hub_from(&mut self, url: String, editor_url: String) {
         *self.last_refresh.lock().unwrap() = Some(Instant::now());
         *self.hub_status.lock().unwrap() = HubStatus::Loading;
         let hub = Arc::clone(&self.hub);
         let status = Arc::clone(&self.hub_status);
         std::thread::spawn(move || {
-            let next = match fetch_text(&url).and_then(|body| parse_catalog(&body)) {
-                Ok(listing) => {
-                    *hub.lock().unwrap() = listing;
-                    HubStatus::Idle
-                }
+            let (listing, editor) = std::thread::scope(|scope| {
+                let editor = scope
+                    .spawn(|| fetch_text(&editor_url).and_then(|body| parse_editor_page(&body)));
+                let listing = fetch_text(&url).and_then(|body| parse_catalog(&body));
+                (listing, editor.join())
+            });
+            let next = match listing {
                 Err(e) => HubStatus::Failed(e),
+                Ok(listing) => {
+                    let (listing, outcome) = match editor {
+                        Ok(Ok(extra)) => (merge_listings(listing, extra), HubStatus::Idle),
+                        Ok(Err(e)) => (listing, HubStatus::Failed(e)),
+                        Err(_) => (
+                            listing,
+                            HubStatus::Failed("editor page thread panicked".to_string()),
+                        ),
+                    };
+                    *hub.lock().unwrap() = listing;
+                    outcome
+                }
             };
             *status.lock().unwrap() = next;
         });
@@ -491,14 +520,39 @@ impl Default for Kind {
     }
 }
 
-/// The blob-store key for a hub package path.
+/// The blob-store key for a package path. Hub paths keep their file names; absolute
+/// URLs (fm1-editor entries) get a hash of the whole URL, since their last segments
+/// collide ("…/releases/latest" is common) or carry queries.
 fn blob_key(hub_path: &str) -> String {
-    format!("hub/{}", hub_path.rsplit('/').next().unwrap_or(hub_path))
+    if hub_path.starts_with("http") {
+        let file = hub_path
+            .split(['?', '#'])
+            .next()
+            .and_then(|path| path.rsplit('/').next())
+            .filter(|file| !file.is_empty())
+            .unwrap_or("package");
+        format!("ext/{}-{:016x}", file, fnv1a(hub_path))
+    } else {
+        format!("hub/{}", hub_path.rsplit('/').next().unwrap_or(hub_path))
+    }
 }
 
-/// The package's download URL.
+/// FNV-1a 64-bit: for blob keys only, not a checksum.
+fn fnv1a(text: &str) -> u64 {
+    let mut hash = 0xcbf2_9ce4_8422_2325u64;
+    for byte in text.as_bytes() {
+        hash = (hash ^ u64::from(*byte)).wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    hash
+}
+
+/// The package's download URL; absolute URLs pass through untouched.
 fn hub_download_url(hub_path: &str) -> String {
-    format!("{HUB_BASE}/{hub_path}")
+    if hub_path.starts_with("http") {
+        hub_path.to_string()
+    } else {
+        format!("{HUB_BASE}/{hub_path}")
+    }
 }
 
 /// Parse the hub catalog into hub-source entries. Accepts either a bare array or an
@@ -538,6 +592,193 @@ fn parse_catalog(json: &str) -> Result<Vec<Firmware>, String> {
             }
         })
         .collect())
+}
+
+/// The slice from the end of `from` to the next `to` after it.
+fn between<'a>(hay: &'a str, from: &str, to: &str) -> Option<&'a str> {
+    let start = hay.find(from)? + from.len();
+    let end = hay[start..].find(to)? + start;
+    Some(&hay[start..end])
+}
+
+/// The few entities the editor page emits; `&amp;` last so it can't double-decode.
+fn unescape(text: &str) -> String {
+    text.replace("&#x27;", "'")
+        .replace("&#39;", "'")
+        .replace("&quot;", "\"")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&amp;", "&")
+}
+
+/// Tags stripped, entities resolved, whitespace collapsed to single spaces.
+fn text_of(html: &str) -> String {
+    let mut out = String::with_capacity(html.len());
+    let mut rest = html;
+    while let Some(open) = rest.find('<') {
+        out.push_str(&rest[..open]);
+        rest = match rest[open..].find('>') {
+            Some(close) => &rest[open + close + 1..],
+            None => "",
+        };
+    }
+    out.push_str(rest);
+    unescape(&out).split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// The status line's version: "Latest 1.4" and "Beta · Latest 1.4" carry one;
+/// "No numbered releases" doesn't, and an empty version never wins a conflict.
+fn status_version(status: &str) -> String {
+    status
+        .split_once("Latest ")
+        .map(|(_, version)| version.trim().to_string())
+        .unwrap_or_default()
+}
+
+/// An editor entry's download: a direct package link when one is offered, else the
+/// install/download page, the release page, the source repository, or the first
+/// external link, in that order.
+fn entry_url(links: &[(String, String)]) -> Option<String> {
+    let by_label = |prefix: &str| {
+        links
+            .iter()
+            .find(|(_, label)| label.starts_with(prefix))
+            .map(|(url, _)| url.clone())
+    };
+    links
+        .iter()
+        .map(|(url, _)| url.clone())
+        .find(|url| {
+            let path = url.split(['?', '#']).next().unwrap_or(url).to_ascii_lowercase();
+            path.ends_with(".fwsc") || path.ends_with(".zip")
+        })
+        .or_else(|| by_label("Install"))
+        .or_else(|| by_label("Download"))
+        .or_else(|| by_label("Release"))
+        .or_else(|| by_label("Source"))
+        .or_else(|| links.first().map(|(url, _)| url.clone()))
+}
+
+/// Parse the fm1-editor firmware page into hub-style offers. The page is a static,
+/// hand-maintained listing (its repo confirms no feed exists) with one `<article>`
+/// per entry: the kicker is the author, `data-categories` the tags, the status line
+/// the version, the blurb paragraphs the description. Entries without a name or any
+/// external link are skipped. Separated from the fetch so tests stay offline.
+fn parse_editor_page(html: &str) -> Result<Vec<Firmware>, String> {
+    let mut entries = Vec::new();
+    let mut rest = html;
+    while let Some(start) = rest.find("<article") {
+        rest = &rest[start + "<article".len()..];
+        // Closing tags are matched by their prefix only: the page wraps them across
+        // lines ("</span\n>"), and the content slice ends at the marker either way.
+        let end = rest.find("</article");
+        let chunk = &rest[..end.unwrap_or(rest.len())];
+        rest = &rest[end.unwrap_or(rest.len())..];
+
+        let Some(name) = between(chunk, "<h2 class=\"firmware-title\"", "</h2")
+            .and_then(|inner| inner.find('>').map(|i| &inner[i + 1..]))
+            .map(text_of)
+            .filter(|name| !name.is_empty())
+        else {
+            continue;
+        };
+        let byline = between(chunk, "<p class=\"synthwave-kicker\">", "</p")
+            .map(text_of)
+            .unwrap_or_default();
+        let version = between(chunk, "<p class=\"firmware-status\">", "</p")
+            .and_then(|inner| between(inner, "<span>", "</span"))
+            .map(|status| status_version(&text_of(status)))
+            .unwrap_or_default();
+        let tags = between(chunk, "data-categories=\"", "\"")
+            .map(|kinds| kinds.split_whitespace().map(str::to_string).collect())
+            .unwrap_or_default();
+        let mut blurbs = Vec::new();
+        let mut section = chunk;
+        while let Some(open) = section.find("<p class=\"firmware-blurb\">") {
+            let from = open + "<p class=\"firmware-blurb\">".len();
+            let Some(close) = section[from..].find("</p") else { break };
+            blurbs.push(text_of(&section[from..from + close]));
+            let past = section[from + close..]
+                .find('>')
+                .map_or(section.len(), |i| from + close + i + 1);
+            section = &section[past..];
+        }
+        let mut links = Vec::new();
+        let mut section = chunk;
+        // The page writes anchors across lines: `<a\n class=…` and `…</a\n>`.
+        while let Some(anchor) = section.find("<a") {
+            section = &section[anchor + 2..];
+            if !section.starts_with(|c: char| c.is_ascii_whitespace()) {
+                continue;
+            }
+            let Some(tag_end) = section.find('>') else { break };
+            if let Some(href) = between(&section[..tag_end], "href=\"", "\"") {
+                if href.starts_with("http") {
+                    let label = section[tag_end + 1..]
+                        .find("</a")
+                        .map(|i| text_of(&section[tag_end + 1..tag_end + 1 + i]))
+                        .unwrap_or_default();
+                    links.push((href.to_string(), label));
+                }
+            }
+            section = &section[tag_end + 1..];
+        }
+        let Some(url) = entry_url(&links) else { continue };
+
+        entries.push(Firmware {
+            device: if name.to_ascii_uppercase().contains("SMK") {
+                FirmwareDevice::Smk37Pro
+            } else {
+                FirmwareDevice::Fm1
+            },
+            name,
+            byline,
+            version,
+            description: blurbs.join("\n\n"),
+            tags,
+            upgradable: false,
+            status: Status::Available,
+            source: FirmwareSource::Hub {
+                path: url,
+                blob: None,
+            },
+        });
+    }
+    if entries.is_empty() {
+        return Err("no firmware entries found on the editor page".to_string());
+    }
+    Ok(entries)
+}
+
+/// Fold the editor listing into the hub's. The hub is the source of truth: its
+/// entries keep their name, author and description. A name both sources carry
+/// (compared case-insensitively) gets the union of their tags, and the version and
+/// download URL of whichever source is newer. Editor-only names append at the end.
+fn merge_listings(mut hub: Vec<Firmware>, editor: Vec<Firmware>) -> Vec<Firmware> {
+    let mut extra = Vec::new();
+    for offer in editor {
+        let mut matched = false;
+        for entry in hub.iter_mut() {
+            if !entry.name.trim().eq_ignore_ascii_case(offer.name.trim()) {
+                continue;
+            }
+            matched = true;
+            for tag in &offer.tags {
+                if !entry.tags.iter().any(|have| have.eq_ignore_ascii_case(tag)) {
+                    entry.tags.push(tag.clone());
+                }
+            }
+            if version_newer(&offer.version, &entry.version) {
+                entry.version = offer.version.clone();
+                entry.source = offer.source.clone();
+            }
+        }
+        if !matched {
+            extra.push(offer);
+        }
+    }
+    hub.extend(extra);
+    hub
 }
 
 #[cfg(test)]
@@ -710,10 +951,194 @@ mod tests {
     }
 
     #[test]
+    fn editor_page_parses() {
+        // The page's real markup shape: one <article> per entry.
+        let html = r##"
+        <article class="firmware-entry synthwave-panel" id="karaoke"
+                 aria-labelledby="firmware-karaoke" data-categories="grooveboxes games"
+                 data-updated="2026-10-19" data-stars="4">
+          <div class="firmware-body">
+            <p class="synthwave-kicker">seajaysec</p>
+            <h2 class="firmware-title" id="firmware-karaoke">Karaoke &amp; Robots</h2>
+            <p class="firmware-status">
+              <span>Beta · Latest 0.10.0</span
+              ><span class="firmware-updated"
+                >Updated <time datetime="2026-10-19">19 Oct 2026</time></span
+              >
+            </p>
+            <p class="firmware-blurb">
+              Sings songs you
+              bring.
+            </p>
+            <p class="firmware-blurb">A <a href="#official-open">linked</a> second paragraph.</p>
+            <ul class="firmware-links">
+              <li>
+                <a
+                  class="firmware-anchor"
+                  href="#karaoke"
+                  >#</a
+                >
+              </li>
+              <li>
+                <a
+                  class="hero-action firmware-link"
+                  href="https://karaoke.example.com"
+                  rel="noopener"
+                  target="_blank"
+                  >Install ↗</a
+                >
+              </li>
+              <li>
+                <a
+                  class="hero-action firmware-link"
+                  href="https://github.com/seajaysec/karaoke"
+                  rel="noopener"
+                  target="_blank"
+                  >Source ↗</a
+                >
+              </li>
+            </ul>
+          </div>
+        </article>
+        <article class="firmware-entry" id="doom" data-categories="games" data-updated="2026-10-22">
+          <div class="firmware-body">
+            <p class="synthwave-kicker">id</p>
+            <h2 class="firmware-title" id="firmware-doom">Doom FM-1 / SMK</h2>
+            <p class="firmware-status"><span>No numbered releases</span></p>
+            <p class="firmware-blurb">It runs.</p>
+            <ul class="firmware-links">
+              <li>
+                <a
+                  href="https://doom.example.com/play"
+                  >Try it in a browser ↗</a
+                >
+              </li>
+              <li>
+                <a
+                  href="https://files.example.com/doom.zip?raw=1"
+                  >Download ↗</a
+                >
+              </li>
+            </ul>
+          </div>
+        </article>
+        <article class="firmware-entry" id="linkless" data-categories="tools">
+          <div class="firmware-body">
+            <h2 class="firmware-title" id="firmware-linkless">No Links</h2>
+            <p class="firmware-status"><span>Latest 1.0</span></p>
+          </div>
+        </article>
+        <article class="not-an-entry" data-stars="1">
+          <p>No title, skipped.</p>
+        </article>
+        "##;
+        let entries = parse_editor_page(html).unwrap();
+        assert_eq!(entries.len(), 2);
+        let karaoke = &entries[0];
+        assert_eq!(karaoke.name, "Karaoke & Robots");
+        assert_eq!(karaoke.byline, "seajaysec");
+        assert_eq!(karaoke.version, "0.10.0");
+        assert_eq!(karaoke.tags, vec!["grooveboxes", "games"]);
+        assert_eq!(karaoke.description, "Sings songs you bring.\n\nA linked second paragraph.");
+        assert_eq!(karaoke.device, FirmwareDevice::Fm1);
+        match &karaoke.source {
+            FirmwareSource::Hub { path, blob } => {
+                assert_eq!(path, "https://karaoke.example.com");
+                assert_eq!(blob, &None);
+            }
+            _ => panic!("hub source expected"),
+        }
+        let doom = &entries[1];
+        assert_eq!(doom.name, "Doom FM-1 / SMK");
+        assert_eq!(doom.device, FirmwareDevice::Smk37Pro);
+        // "No numbered releases" carries no version, and a direct package link beats
+        // every page link.
+        assert_eq!(doom.version, "");
+        match &doom.source {
+            FirmwareSource::Hub { path, .. } => {
+                assert_eq!(path, "https://files.example.com/doom.zip?raw=1")
+            }
+            _ => panic!("hub source expected"),
+        }
+        // An entry with no external link and a non-entry article are both skipped.
+        assert!(entries.iter().all(|f| f.name != "No Links"));
+        assert!(parse_editor_page("<p>nothing here</p>").is_err());
+    }
+
+    #[test]
+    fn merge_combines_tags_and_prefers_the_newer_side() {
+        let hub = vec![
+            hub_offer("zp12", "2.5", "zp12-2.5.fwsc"),
+            hub_offer("Rainbow Mode", "1.1.5-rb", "rainbow.fwsc"),
+        ];
+        // The editor has a newer zp12: its version and URL win, its tags join in.
+        let mut newer = hub_offer("zp12", "3.0", "ignored.fwsc");
+        newer.tags = vec!["kind".to_string(), "drums".to_string()];
+        newer.byline = "editor author".to_string();
+        newer.source = FirmwareSource::Hub {
+            path: "https://example.com/zp12-3.0.fwsc".to_string(),
+            blob: None,
+        };
+        // Same Rainbow Mode, spelled differently and older: tags merge, the hub's
+        // version and URL stay.
+        let mut older = hub_offer("rainbow mode", "1.0", "ignored.fwsc");
+        older.tags = vec!["ambient".to_string()];
+        older.source = FirmwareSource::Hub {
+            path: "https://example.com/rainbow.fwsc".to_string(),
+            blob: None,
+        };
+        // An editor-only entry appends.
+        let only = hub_offer("editor-only", "0.1", "only.fwsc");
+        let merged = merge_listings(hub, vec![newer, older, only]);
+        assert_eq!(merged.len(), 3);
+        let zp12 = merged.iter().find(|f| f.name == "zp12").unwrap();
+        assert_eq!(zp12.version, "3.0");
+        assert_eq!(zp12.tags, vec!["kind", "drums"]);
+        // The hub stays the source of truth for the rest.
+        assert_eq!(zp12.byline, "hub author");
+        match &zp12.source {
+            FirmwareSource::Hub { path, .. } => {
+                assert_eq!(path, "https://example.com/zp12-3.0.fwsc")
+            }
+            _ => panic!("hub source expected"),
+        }
+        let rainbow = merged.iter().find(|f| f.name == "Rainbow Mode").unwrap();
+        assert_eq!(rainbow.version, "1.1.5-rb");
+        assert_eq!(rainbow.tags, vec!["kind", "ambient"]);
+        match &rainbow.source {
+            FirmwareSource::Hub { path, .. } => assert_eq!(path, "fw/rainbow.fwsc"),
+            _ => panic!("hub source expected"),
+        }
+        assert_eq!(merged[2].name, "editor-only");
+    }
+
+    #[test]
+    fn absolute_urls_key_uniquely_and_download_as_given() {
+        // Hub-relative paths behave exactly as before.
+        assert_eq!(blob_key("fw/x.fwsc"), "hub/x.fwsc");
+        assert_eq!(
+            hub_download_url("fw/x.fwsc"),
+            "https://thefirmwarehub.com/fw/x.fwsc"
+        );
+        // Absolute URLs pass through to the fetch and key on the whole URL: two
+        // "latest" release pages must not share a blob.
+        let a = "https://github.com/a/proj/releases/latest";
+        let b = "https://github.com/b/proj/releases/latest";
+        assert_eq!(hub_download_url(a), a);
+        assert!(blob_key(a).starts_with("ext/latest-"));
+        assert_ne!(blob_key(a), blob_key(b));
+        // Queries stay out of the file name.
+        assert!(blob_key("https://x.test/fw/p.fwsc?raw=1").starts_with("ext/p.fwsc-"));
+    }
+
+    #[test]
     fn hub_refresh_keeps_an_hourly_cadence() {
         let (store, dir) = temp_store("cadence");
         let mut library = Library::load(&store);
-        library.refresh_hub_from("http://127.0.0.1:1/catalog.json".to_string());
+        library.refresh_hub_from(
+            "http://127.0.0.1:1/catalog.json".to_string(),
+            "http://127.0.0.1:1/firmware/".to_string(),
+        );
         for _ in 0..50 {
             std::thread::sleep(Duration::from_millis(50));
             if matches!(library.hub_status(), HubStatus::Failed(_)) {
@@ -736,7 +1161,10 @@ mod tests {
         let (store, dir) = temp_store("hubstatus");
         let mut library = Library::load(&store);
         // A closed port fails fast and deterministically.
-        library.refresh_hub_from("http://127.0.0.1:1/catalog.json".to_string());
+        library.refresh_hub_from(
+            "http://127.0.0.1:1/catalog.json".to_string(),
+            "http://127.0.0.1:1/firmware/".to_string(),
+        );
         assert!(matches!(library.hub_status(), HubStatus::Loading));
         for _ in 0..50 {
             std::thread::sleep(std::time::Duration::from_millis(50));

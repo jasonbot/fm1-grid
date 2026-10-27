@@ -55,9 +55,17 @@ impl FirmwarePick {
 }
 
 /// Some download URLs wrap the package in a zip; installing pulls the first .fwsc
-/// member out. Anything that isn't a zip passes through untouched.
+/// member out. Anything that isn't a zip passes through untouched — except a web
+/// page: a listing that linked an HTML page instead of a package used to download
+/// the page itself, and booting it does nothing. Fail those loudly.
 fn unwrap_fwsc(bytes: Vec<u8>) -> Result<Vec<u8>, String> {
     if !bytes.starts_with(b"PK\x03\x04") {
+        if crate::library::looks_like_web_page(&bytes[..bytes.len().min(512)]) {
+            return Err(
+                "the download is a web page, not a firmware package — download it again"
+                    .to_string(),
+            );
+        }
         return Ok(bytes);
     }
     zip_first_fwsc(&bytes)
@@ -482,5 +490,16 @@ mod zip_tests {
         let pick = FirmwarePick::HubBlob("hub/pack.zip".to_string());
         assert_eq!(pick.bytes(Some(&store)).unwrap(), b"flashable bytes");
         std::fs::remove_dir_all(dir).ok();
+    }
+
+    /// A listing that linked an HTML page used to store the page as the "package";
+    /// booting it did nothing. Those blobs fail loudly now.
+    #[test]
+    fn html_blobs_are_rejected() {
+        assert!(unwrap_fwsc(b"<!DOCTYPE html><html><body>page</body></html>".to_vec()).is_err());
+        assert!(unwrap_fwsc(b"<html><body>page</body></html>".to_vec()).is_err());
+        assert!(unwrap_fwsc(b"  \n<!doctype html>".to_vec()).is_err());
+        // Real packages and other binaries still pass through.
+        assert_eq!(unwrap_fwsc(b"fw-binary-bytes".to_vec()).unwrap(), b"fw-binary-bytes");
     }
 }

@@ -9,7 +9,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -95,12 +95,25 @@ pub struct Library {
     /// When the last fetch started — automatic refreshes keep an hourly cadence.
     last_refresh: Arc<Mutex<Option<Instant>>>,
     downloads: HashMap<String, Arc<Download>>,
-    /// What the last `list()` returned.
+    /// What the last `list()` returned. Rebuilt only when its inputs move — the UI
+    /// calls `list()` every frame.
     view: Vec<Firmware>,
+    /// Set when the view's inputs change (import, remove, a download starting or
+    /// folding in); the next `list()` rebuilds.
+    view_dirty: bool,
+    /// Set by the hub refresh thread when it swaps the listing in.
+    hub_swapped: Arc<AtomicBool>,
+    /// The last on-disk existence sweep (file/blob stats), throttled so the per-frame
+    /// `list()` doesn't stat every entry every frame.
+    last_stat: Instant,
     /// Bumped whenever the installed list changes (import, remove, a download folded
     /// in); the app's pickers rebuild when it moves.
     generation: u64,
 }
+
+/// How often `list()` re-stats files/blobs for the Missing status. External deletes
+/// surface within this; everything app-driven rebuilds immediately.
+const STAT_CADENCE: Duration = Duration::from_millis(500);
 
 impl Library {
     pub fn load(store: &Store) -> Library {
@@ -114,44 +127,45 @@ impl Library {
             last_refresh: Arc::new(Mutex::new(None)),
             downloads: HashMap::new(),
             view: Vec::new(),
+            view_dirty: true,
+            hub_swapped: Arc::new(AtomicBool::new(false)),
+            last_stat: Instant::now(),
             generation: 0,
         }
     }
 
     /// Installed entries first (builtins, then imported/downloaded), then the
     /// hub-only offers. Finished downloads are folded in here.
+    ///
+    /// The view is cached: rebuilding means cloning every entry, and the old
+    /// per-frame rebuild also re-read every downloaded blob just to check presence.
+    /// A rebuild happens only when the inputs move (import, remove, download start
+    /// or finish, hub swap); on-disk presence is re-statted on [`STAT_CADENCE`].
     pub(crate) fn list(&mut self) -> &[Firmware] {
-        self.collect_downloads();
+        let finished = self.collect_downloads();
+        let swapped = self.hub_swapped.swap(false, Ordering::Relaxed);
+        if finished || swapped || self.view_dirty {
+            self.rebuild_view();
+        } else if self.last_stat.elapsed() >= STAT_CADENCE {
+            self.refresh_statuses();
+        }
+        &self.view
+    }
+
+    /// Rebuild the cached view from the installed entries and the hub listing.
+    fn rebuild_view(&mut self) {
+        self.last_stat = Instant::now();
         let hub = self.hub.lock().unwrap().clone();
         let mut view: Vec<Firmware> = Vec::new();
         for firmware in self.builtins.iter_mut().chain(&mut self.stored) {
             firmware.upgradable = false;
-            firmware.status = match &firmware.source {
-                FirmwareSource::Builtin => {
-                    // Hub entries never shadow a builtin; they flag it upgradable.
-                    firmware.upgradable = hub.iter().any(|offer| {
-                        offer.name == firmware.name
-                            && version_newer(&offer.version, &firmware.version)
-                    });
-                    Status::Available
-                }
-                FirmwareSource::File { path } => {
-                    if std::path::Path::new(path).is_file() {
-                        Status::Available
-                    } else {
-                        Status::Missing
-                    }
-                }
-                FirmwareSource::Hub { path, .. } => {
-                    if self.downloads.contains_key(&firmware.name) {
-                        Status::Downloading
-                    } else if self.store.fetch_blob(&blob_key(path)).is_ok() {
-                        Status::Available
-                    } else {
-                        Status::Missing
-                    }
-                }
-            };
+            if matches!(firmware.source, FirmwareSource::Builtin) {
+                // Hub entries never shadow a builtin; they flag it upgradable.
+                firmware.upgradable = hub.iter().any(|offer| {
+                    offer.name == firmware.name && version_newer(&offer.version, &firmware.version)
+                });
+            }
+            firmware.status = entry_status(firmware, &self.downloads, &self.store);
             view.push(firmware.clone());
         }
         // Hub offers not already installed under the same name.
@@ -160,15 +174,20 @@ impl Library {
                 continue;
             }
             let mut offer = offer;
-            offer.status = if self.downloads.contains_key(&offer.name) {
-                Status::Downloading
-            } else {
-                Status::Available
-            };
+            offer.status = entry_status(&offer, &self.downloads, &self.store);
             view.push(offer);
         }
         self.view = view;
-        &self.view
+        self.view_dirty = false;
+    }
+
+    /// Re-check on-disk presence in place (a file or blob can vanish outside the
+    /// app). Names and order don't move, so the view keeps its entries.
+    fn refresh_statuses(&mut self) {
+        self.last_stat = Instant::now();
+        for firmware in &mut self.view {
+            firmware.status = entry_status(firmware, &self.downloads, &self.store);
+        }
     }
 
     /// An owned copy of the current view, for UI code that borrows the app elsewhere.
@@ -233,6 +252,7 @@ impl Library {
         *self.hub_status.lock().unwrap() = HubStatus::Loading;
         let hub = Arc::clone(&self.hub);
         let status = Arc::clone(&self.hub_status);
+        let swapped = Arc::clone(&self.hub_swapped);
         std::thread::spawn(move || {
             let (listing, editor) = std::thread::scope(|scope| {
                 let editor = scope
@@ -252,6 +272,7 @@ impl Library {
                         ),
                     };
                     *hub.lock().unwrap() = listing;
+                    swapped.store(true, Ordering::Relaxed);
                     outcome
                 }
             };
@@ -281,9 +302,11 @@ impl Library {
             outcome: Mutex::new(None),
         });
         self.downloads.insert(name.to_string(), Arc::clone(&download));
+        self.view_dirty = true;
         let store = self.store.clone();
         std::thread::spawn(move || {
-            let result = download_package(&url, &download.percent)
+            let result = resolve_package_url(&url)
+                .and_then(|url| download_package(&url, &download.percent))
                 .and_then(|bytes| store.store_blob(&key, &bytes));
             let outcome = result.map(|()| Firmware {
                 status: Status::Available,
@@ -318,6 +341,7 @@ impl Library {
             status: Status::Available,
             source: FirmwareSource::File { path: path.to_string() },
         });
+        self.view_dirty = true;
         self.persist();
     }
 
@@ -339,18 +363,24 @@ impl Library {
             false
         });
         if self.stored.len() != before {
+            self.view_dirty = true;
             self.persist();
         }
     }
 
-    /// Fold finished downloads into the stored list.
-    fn collect_downloads(&mut self) {
+    /// Fold finished downloads into the stored list. True when any download left the
+    /// in-flight set: a success folds the entry in and persists; a failure frees the
+    /// row back to a hub offer — the view rebuilds either way.
+    fn collect_downloads(&mut self) -> bool {
         let finished: Vec<String> = self
             .downloads
             .iter()
             .filter(|(_, d)| d.outcome.lock().unwrap().is_some())
             .map(|(name, _)| name.clone())
             .collect();
+        if finished.is_empty() {
+            return false;
+        }
         let mut changed = false;
         for name in finished {
             let download = self.downloads.remove(&name).unwrap();
@@ -364,6 +394,7 @@ impl Library {
         if changed {
             self.persist();
         }
+        true
     }
 
     fn persist(&mut self) {
@@ -375,6 +406,48 @@ impl Library {
     #[cfg(feature = "gui")]
     pub(crate) fn generation(&self) -> u64 {
         self.generation
+    }
+}
+
+/// Whether the head of a download looks like a web page rather than a package (a
+/// listing that linked an HTML page downloaded the page itself).
+pub(crate) fn looks_like_web_page(head: &[u8]) -> bool {
+    let text = String::from_utf8_lossy(head).to_ascii_lowercase();
+    let text = text.trim_start();
+    text.starts_with("<!doctype") || text.starts_with("<html")
+}
+
+/// An entry's presence status. Downloading beats presence; files and downloaded hub
+/// blobs are statted (never read in full); builtins are always here; hub-only offers
+/// (no blob yet) are Available unless downloading. A blob that's a web page counts
+/// as Missing so the row offers the download again.
+fn entry_status(
+    firmware: &Firmware,
+    downloads: &HashMap<String, Arc<Download>>,
+    store: &Store,
+) -> Status {
+    match &firmware.source {
+        FirmwareSource::Builtin => Status::Available,
+        _ if downloads.contains_key(&firmware.name) => Status::Downloading,
+        FirmwareSource::File { path } => {
+            if std::path::Path::new(path).is_file() {
+                Status::Available
+            } else {
+                Status::Missing
+            }
+        }
+        FirmwareSource::Hub { path, blob: Some(_) } => {
+            let usable = store
+                .blob_head(&blob_key(path), 512)
+                .map(|head| !looks_like_web_page(&head))
+                .unwrap_or(false);
+            if usable {
+                Status::Available
+            } else {
+                Status::Missing
+            }
+        }
+        FirmwareSource::Hub { blob: None, .. } => Status::Available,
     }
 }
 
@@ -454,6 +527,49 @@ fn fetch_text(url: &str) -> Result<String, String> {
         .map_err(|e| format!("fetch {url}: {e}"))?
         .into_string()
         .map_err(|e| format!("read {url}: {e}"))
+}
+
+/// The GitHub API URL for a release *page* URL
+/// (`github.com/<owner>/<repo>/releases/tag/<tag>` or `…/releases/latest`), None for
+/// anything else (direct package URLs included).
+fn github_release_api(url: &str) -> Option<String> {
+    let path = url.strip_prefix("https://github.com/")?;
+    let path = path.split(['?', '#']).next().unwrap_or(path);
+    let parts: Vec<&str> = path.split('/').filter(|part| !part.is_empty()).collect();
+    match parts.as_slice() {
+        [owner, repo, "releases", "tag", tag] => Some(format!(
+            "https://api.github.com/repos/{owner}/{repo}/releases/tags/{tag}"
+        )),
+        [owner, repo, "releases", "latest"] => Some(format!(
+            "https://api.github.com/repos/{owner}/{repo}/releases/latest"
+        )),
+        _ => None,
+    }
+}
+
+/// The `.fwsc` asset's download URL in a GitHub release's JSON.
+fn fwsc_asset_url(release_json: &str) -> Result<String, String> {
+    let json: serde_json::Value =
+        serde_json::from_str(release_json).map_err(|e| format!("release JSON: {e}"))?;
+    json.get("assets")
+        .and_then(|assets| assets.as_array())
+        .unwrap_or(&vec![])
+        .iter()
+        .filter_map(|asset| asset.get("browser_download_url")?.as_str())
+        .find(|url| url.to_ascii_lowercase().ends_with(".fwsc"))
+        .map(str::to_string)
+        .ok_or_else(|| "the release has no .fwsc asset".to_string())
+}
+
+/// A listing entry's URL isn't always the package itself: the editor page often
+/// links a GitHub release *page*, whose HTML downloads fine and boots nothing.
+/// Resolve those through the API to the release's `.fwsc` asset; everything else
+/// passes through unchanged.
+fn resolve_package_url(url: &str) -> Result<String, String> {
+    match github_release_api(url) {
+        Some(api) => fwsc_asset_url(&fetch_text(&api)?),
+        None => Ok(url.to_string()),
+    }
 }
 
 /// Download a package, reporting percent (of Content-Length) as it goes.
@@ -911,6 +1027,39 @@ mod tests {
         assert!(store.list_blobs(None).unwrap().is_empty());
         assert!(Library::load(&store).stored.is_empty());
         std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn github_release_pages_resolve_to_fwsc_assets() {
+        // Tag and latest pages map onto the API; direct and foreign URLs pass through.
+        assert_eq!(
+            github_release_api("https://github.com/o/r/releases/tag/v1.0.0").as_deref(),
+            Some("https://api.github.com/repos/o/r/releases/tags/v1.0.0")
+        );
+        assert_eq!(
+            github_release_api("https://github.com/o/r/releases/latest").as_deref(),
+            Some("https://api.github.com/repos/o/r/releases/latest")
+        );
+        assert_eq!(
+            github_release_api("https://github.com/o/r/releases/tag/v2/?page=2#x").as_deref(),
+            Some("https://api.github.com/repos/o/r/releases/tags/v2")
+        );
+        assert!(
+            github_release_api("https://github.com/o/r/releases/download/v1/fw.fwsc").is_none()
+        );
+        assert!(github_release_api("https://example.com/releases/tag/v1").is_none());
+
+        // The .fwsc asset wins; a release without one is an error, not a download.
+        let json = r#"{"assets": [
+            {"browser_download_url": "https://github.com/o/r/releases/download/v1/notes.txt"},
+            {"browser_download_url": "https://github.com/o/r/releases/download/v1/fw.fwsc"}
+        ]}"#;
+        assert_eq!(
+            fwsc_asset_url(json).as_deref(),
+            Ok("https://github.com/o/r/releases/download/v1/fw.fwsc")
+        );
+        assert!(fwsc_asset_url(r#"{"assets": []}"#).is_err());
+        assert!(fwsc_asset_url("not json").is_err());
     }
 
     #[test]

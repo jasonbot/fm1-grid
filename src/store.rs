@@ -151,6 +151,19 @@ impl Store {
         std::fs::read(&file).map_err(|e| format!("fetch blob {path}: {e}"))
     }
 
+    /// The first `len` bytes of a blob, without a full read (the library's status
+    /// sweep sniffs content instead of loading whole packages).
+    pub fn blob_head(&self, path: &str, len: usize) -> Result<Vec<u8>, String> {
+        use std::io::Read;
+        let file = std::fs::File::open(self.blob_file(path)?)
+            .map_err(|e| format!("fetch blob {path}: {e}"))?;
+        let mut head = Vec::new();
+        file.take(len as u64)
+            .read_to_end(&mut head)
+            .map_err(|e| format!("read blob {path}: {e}"))?;
+        Ok(head)
+    }
+
     /// Drop a blob; a missing one is fine (removal is idempotent).
     pub fn delete_blob(&self, path: &str) -> Result<(), String> {
         let file = self.blob_file(path)?;
@@ -281,6 +294,16 @@ mod wasm_store {
                 .map_err(|_| "localStorage read".to_string())?
                 .ok_or_else(|| format!("fetch blob {path}: not stored"))?;
             b64_decode(&text)
+        }
+
+        /// The first `len` bytes of a blob (the library's status sweep sniffs
+        /// content). localStorage holds the whole thing, so this reads and truncates.
+        pub fn blob_head(&self, path: &str, len: usize) -> Result<Vec<u8>, String> {
+            Ok(self
+                .fetch_blob(path)?
+                .into_iter()
+                .take(len)
+                .collect())
         }
 
         pub fn delete_blob(&self, path: &str) -> Result<(), String> {

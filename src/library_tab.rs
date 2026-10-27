@@ -7,7 +7,7 @@
 use crate::app::GridApp;
 use crate::firmware_picker::{FirmwarePick, pick_of};
 use crate::library::{Firmware, FirmwareDevice, FirmwareSource, Status};
-use gpui_kit::base::{ElementExt, h_flex, v_flex};
+use gpui_kit::base::{ElementExt, h_flex, v_flex, v_virtual_list};
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::input::Input;
 use gpui_kit::component::menu::{DropdownMenu, PopupMenuItem};
@@ -16,6 +16,7 @@ use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::{ActiveTheme, Disableable, Icon, IconName, Sizable};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
+use std::rc::Rc;
 
 /// Tag pill colors, picked by the tag's hash: the same tag always lands on the same
 /// color. Saturated mid-tones that read on the light theme.
@@ -94,6 +95,41 @@ enum Section {
     Hub,
 }
 
+/// The flattened list stream: section headers and firmware rows. The list is a
+/// virtual list — only the visible slice is laid out each frame — so every item is
+/// a fixed, pinned height (the virtual list positions items from these sizes; a
+/// taller render would overlap the next item).
+enum LibItem {
+    Header(&'static str),
+    /// Index into `Library::list()`'s view.
+    Row(usize),
+    /// The "no firmware" notice (empty library or a too-narrow filter).
+    Empty,
+    /// The hub's fetch status, last in the list.
+    HubStatus,
+}
+
+/// Row: name/version + pills, one-line description, the action group, plus the
+/// inter-row slack that used to be the flex gap (a virtual list has no gaps).
+const LIB_ROW_H: Pixels = px(80.0);
+/// Section header: small caps over a hairline, including the section's top gap.
+const LIB_HEADER_H: Pixels = px(28.0);
+/// The hub status line: spinner/dot + text + reload button.
+const LIB_STATUS_H: Pixels = px(34.0);
+/// The empty notice's single line.
+const LIB_EMPTY_H: Pixels = px(24.0);
+
+impl LibItem {
+    fn height(&self) -> Pixels {
+        match self {
+            LibItem::Header(_) => LIB_HEADER_H,
+            LibItem::Row(_) => LIB_ROW_H,
+            LibItem::Empty => LIB_EMPTY_H,
+            LibItem::HubStatus => LIB_STATUS_H,
+        }
+    }
+}
+
 fn section_of(firmware: &Firmware) -> Section {
     if firmware.status == Status::Downloading {
         return Section::Downloading;
@@ -112,11 +148,6 @@ impl GridApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
-        let (dim, border) = {
-            let theme = cx.theme();
-            (theme.muted_foreground, theme.border)
-        };
-        let items = self.library.list_clone();
         let needle = self
             .lib_form
             .filter
@@ -124,54 +155,50 @@ impl GridApp {
             .value()
             .trim()
             .to_lowercase();
-        let items: Vec<Firmware> = items
-            .into_iter()
-            .filter(|firmware| matches_filter(firmware, &needle))
-            .collect();
+        let view = self.library.list();
 
-        // The scrollbar overlays the list's right edge (16 px, gpui-base's WIDTH);
-        // keep the content out from under it.
-        let mut list = v_flex().w_full().gap_2().p_2().pr(px(16.0));
+        // Flatten the sections into one fixed-height item stream. Rows are view
+        // indices, not clones — the render closure clones only the visible ones.
+        let mut items: Vec<LibItem> = Vec::new();
         for (header, section) in SECTIONS {
-            let group: Vec<&Firmware> = items
-                .iter()
-                .filter(|f| section_of(f) == section)
-                .collect();
-            if group.is_empty() {
-                continue;
-            }
-            list = list.child(
-                v_flex().w_full().gap_1().child(
-                    div()
-                        .pt_2()
-                        .pb_1()
-                        .text_size(px(9.0))
-                        .font_weight(FontWeight::BOLD)
-                        .text_color(dim)
-                        .child(header)
-                        .border_b_1()
-                        .border_color(border),
-                ),
-            );
-            for firmware in group {
-                list = list.child(self.library_item(firmware, cx));
+            let mut headed = false;
+            for (ix, firmware) in view.iter().enumerate() {
+                if section_of(firmware) != section || !matches_filter(firmware, &needle) {
+                    continue;
+                }
+                if !headed {
+                    items.push(LibItem::Header(header));
+                    headed = true;
+                }
+                items.push(LibItem::Row(ix));
             }
         }
         if items.is_empty() {
-            list = list.child(
-                div()
-                    .text_size(px(11.0))
-                    .text_color(dim)
-                    .child(if needle.is_empty() {
-                        "No firmwares? That can't be right."
-                    } else {
-                        "No firmware matches the filter."
-                    }),
-            );
+            items.push(LibItem::Empty);
+        }
+        // The hub's status sits at the very bottom of the list.
+        items.push(LibItem::HubStatus);
+
+        // A freshly downloaded firmware jumps into the Installed section; bring it
+        // into view. Set by the Download button; clears when hit. (A filter hiding
+        // the row just delays the scroll until the filter clears.)
+        if let Some(target) = self.lib_scroll_to.clone() {
+            let hit = items.iter().position(|item| match item {
+                LibItem::Row(ix) => {
+                    let firmware = &view[*ix];
+                    firmware.name == target && section_of(firmware) == Section::Installed
+                }
+                _ => false,
+            });
+            if let Some(ix) = hit {
+                self.lib_scroll.scroll_to_item(ix, ScrollStrategy::Center);
+                self.lib_scroll_to = None;
+            }
         }
 
-        // The hub's status sits at the very bottom of the list.
-        list = list.child(self.hub_status_item(cx));
+        let sizes: Rc<Vec<Size<Pixels>>> =
+            Rc::new(items.iter().map(|item| size(px(0.0), item.height())).collect());
+        let items = Rc::new(items);
 
         v_flex()
             .size_full()
@@ -183,32 +210,94 @@ impl GridApp {
                 ),
             )
             .child(
-                // The scrollbar pins to this outer element; the scrolling child is
-                // inside it (stacking them on one element scrolled the bar away).
+                // The scrollbar pins to this outer element; the scrolling virtual
+                // list is inside it (stacking them on one element scrolled the bar
+                // away).
                 div()
+                    .id("library-list")
+                    .test_support()
                     .flex_1()
                     .min_h_0()
                     .w_full()
                     .vertical_scrollbar(&self.lib_scroll)
+                    // PgUp/PgDn scroll by the viewport; record it.
+                    .on_prepaint({
+                        let app = cx.entity().clone();
+                        move |bounds, _, cx| {
+                            let height: f32 = bounds.size.height.into();
+                            app.update(cx, |this, _| this.lib_view_h = height);
+                        }
+                    })
                     .child(
-                        div()
-                            .id("library-list")
-                            .test_support()
-                            .size_full()
-                            .overflow_y_scroll()
-                            .track_scroll(&self.lib_scroll)
-                            // PgUp/PgDn scroll by the viewport; record it.
-                            .on_prepaint({
-                                let app = cx.entity().clone();
-                                move |bounds, _, cx| {
-                                    let height: f32 = bounds.size.height.into();
-                                    app.update(cx, |this, _| this.lib_view_h = height);
-                                }
-                            })
-                            .child(list),
+                        v_virtual_list(cx.entity().clone(), "library-items", sizes, {
+                            let items = Rc::clone(&items);
+                            move |this, range, _window, cx| {
+                                range.map(|ix| this.lib_item(&items[ix], cx)).collect()
+                            }
+                        })
+                        .track_scroll(&self.lib_scroll)
+                        // The scrollbar overlays the list's right edge (16 px,
+                        // gpui-base's WIDTH); keep the content out from under it.
+                        .p_2()
+                        .pr(px(16.0)),
                     ),
             )
             .child(self.library_add_form(window, cx))
+    }
+
+    /// One item of the flattened stream, rendered at its pinned height.
+    fn lib_item(&mut self, item: &LibItem, cx: &mut Context<Self>) -> AnyElement {
+        match item {
+            LibItem::Header(header) => {
+                let (dim, border) = {
+                    let theme = cx.theme();
+                    (theme.muted_foreground, theme.border)
+                };
+                v_flex()
+                    .w_full()
+                    .h(LIB_HEADER_H)
+                    .justify_end()
+                    .child(
+                        div()
+                            .w_full()
+                            .pb_1()
+                            .text_size(px(9.0))
+                            .font_weight(FontWeight::BOLD)
+                            .text_color(dim)
+                            .child(*header)
+                            .border_b_1()
+                            .border_color(border),
+                    )
+                    .into_any_element()
+            }
+            LibItem::Row(view_ix) => match self.library.list().get(*view_ix).cloned() {
+                Some(firmware) => self.library_item(&firmware, cx),
+                // The view shifted under the stream (a download folded in between
+                // frames); one blank row for a frame beats a panic.
+                None => div().w_full().h(LIB_ROW_H).into_any_element(),
+            },
+            LibItem::Empty => {
+                let dim = cx.theme().muted_foreground;
+                let needle = self.lib_form.filter.read(cx).value().trim().to_lowercase();
+                div()
+                    .w_full()
+                    .h(LIB_EMPTY_H)
+                    .text_size(px(11.0))
+                    .text_color(dim)
+                    .child(if needle.is_empty() {
+                        "No firmwares? That can't be right."
+                    } else {
+                        "No firmware matches the filter."
+                    })
+                    .into_any_element()
+            }
+            LibItem::HubStatus => div()
+                .w_full()
+                .h(LIB_STATUS_H)
+                .overflow_hidden()
+                .child(self.hub_status_item(cx))
+                .into_any_element(),
+        }
     }
 
     /// The list's last item: the hub's fetch status — a spinner while it loads, a
@@ -293,8 +382,9 @@ impl GridApp {
         let downloading = firmware.status == Status::Downloading;
         let percent = self.library.download_percent(&firmware.name);
 
-        // The pills: one per tag, then the device.
-        let mut pills = h_flex().gap_1().flex_wrap();
+        // The pills: one per tag, then the device. One row only — a taller wrap
+        // would break the row's fixed height; extras clip instead.
+        let mut pills = h_flex().gap_1().flex_nowrap().min_w_0().overflow_hidden();
         for tag in &firmware.tags {
             let color: Hsla = rgb(tag_color(tag)).into();
             pills = pills.child(
@@ -350,7 +440,14 @@ impl GridApp {
                     .into_any_element(),
             );
         }
-        if let FirmwareSource::Hub { blob: None, .. } = &firmware.source {
+        // Hub offers download; a stored hub blob that's gone (or a web page saved by
+        // the page-link bug) offers the download again.
+        let downloadable = match &firmware.source {
+            FirmwareSource::Hub { blob: None, .. } => true,
+            FirmwareSource::Hub { .. } => firmware.status == Status::Missing,
+            _ => false,
+        };
+        if downloadable {
             if downloading {
                 buttons.push(
                     Button::new(format!("lib-download-{name}"))
@@ -372,6 +469,8 @@ impl GridApp {
                         .tooltip("Download from the FM-1 Firmware Hub into the library")
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.library.start_download(&name);
+                            // On completion the row lands in Installed; scroll to it.
+                            this.lib_scroll_to = Some(name.clone());
                             cx.notify();
                         }))
                         .into_any_element(),
@@ -386,8 +485,12 @@ impl GridApp {
         }
         line.push_str(&firmware.description);
 
+        // Fixed height (the virtual list positions rows from LIB_ROW_H): the
+        // description is one truncated line and overflow clips.
         v_flex()
             .w_full()
+            .h(LIB_ROW_H)
+            .overflow_hidden()
             .items_start()
             .gap_1()
             .py_1()
@@ -416,15 +519,14 @@ impl GridApp {
                     )
                     .child(pills),
             )
-            .when(!line.trim().is_empty(), |el| {
-                el.child(
-                    div()
-                        .w_full()
-                        .text_size(px(10.5))
-                        .text_color(dim)
-                        .child(line),
-                )
-            })
+            .child(
+                div()
+                    .w_full()
+                    .text_size(px(10.5))
+                    .text_color(dim)
+                    .truncate()
+                    .child(line),
+            )
             .child(action_group(buttons, border))
             .into_any_element()
     }

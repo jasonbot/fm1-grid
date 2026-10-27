@@ -25,13 +25,13 @@ use crate::routing::Routing;
 use crate::{lcd, MAX_SLOTS};
 use fm1_soc::Action;
 use gpui_kit::assets::IconName as Lucide;
-use gpui_kit::base::resizable_panel;
+use gpui_kit::base::{VirtualListScrollHandle, resizable_panel};
 use gpui_kit::component::combobox::{ComboboxEvent, ComboboxState};
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::component::resizable::{ResizableState, h_resizable};
-use gpui_kit::component::tab::{Tab, TabBar};
-use gpui_kit::component::{ActiveTheme, Icon, Sizable, Theme, TitleBar};
-use gpui_kit::*;
+use gpui_kit::component::{ActiveTheme, Icon, Theme, TitleBar, h_flex, v_flex};
+use gpui_kit::prelude::FluentBuilder;
+use gpui_kit::{TestSupportExt as _, *};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -260,10 +260,14 @@ pub struct GridApp {
     pub(crate) library: crate::library::Library,
     /// The Library tab's add-file form.
     pub(crate) lib_form: LibForm,
-    /// The library list's scroll state (shared with its scrollbar and PgUp/PgDn).
-    pub(crate) lib_scroll: ScrollHandle,
+    /// The library list's scroll state (shared with its scrollbar, PgUp/PgDn, and
+    /// scroll-to-item for freshly downloaded firmware).
+    pub(crate) lib_scroll: VirtualListScrollHandle,
     /// The library list's viewport height, for page scrolling.
     pub(crate) lib_view_h: f32,
+    /// A firmware whose download was just kicked off: when it lands in the Installed
+    /// section, the list scrolls to it (its section changes on completion).
+    pub(crate) lib_scroll_to: Option<String>,
     /// The library generation the firmware pickers were last built from.
     combos_at_generation: u64,
     _tick: Task<()>,
@@ -488,8 +492,9 @@ impl GridApp {
             store,
             library,
             lib_form,
-            lib_scroll: ScrollHandle::new(),
+            lib_scroll: VirtualListScrollHandle::new(),
             lib_view_h: 400.0,
+            lib_scroll_to: None,
             combos_at_generation: 0,
             _tick: tick,
             _subscriptions: subscriptions,
@@ -619,10 +624,13 @@ impl GridApp {
         }
     }
 
-    /// A downloaded hub package from the blob store into a slot.
+    /// A downloaded hub package from the blob store into a slot. Goes through the
+    /// pick so zip-wrapped packages are unwrapped (and web-page blobs rejected)
+    /// exactly like the USB flash path.
     fn load_blob(&mut self, slot: usize, key: &str) {
         let Some(store) = &self.store else { return };
-        match store.fetch_blob(key) {
+        let pick = crate::firmware_picker::FirmwarePick::HubBlob(key.to_string());
+        match pick.bytes(Some(store)) {
             Ok(bytes) => {
                 let label = key.rsplit('/').next().unwrap_or(key).to_string();
                 self.install(
@@ -1194,6 +1202,65 @@ impl GridApp {
         )
     }
 
+    /// The left icon rail: the app tabs as icon-only buttons stacked vertically.
+    /// Mirrors the old segmented TabBar's states — the selected button keeps the
+    /// tab_active_foreground ink on the background token with a small shadow, the
+    /// rest use tab_foreground and pick up a tab_active wash on hover. Icons run
+    /// at size_5 (20px), a notch up from the 16px the large tabs used.
+    fn tab_rail(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let (rail_bg, ink, dim, wash, border, chip) = {
+            let theme = cx.theme();
+            (
+                theme.tab_bar,
+                theme.tab_active_foreground,
+                theme.tab_foreground,
+                theme.tab_active,
+                theme.border,
+                theme.tokens.background,
+            )
+        };
+        const TABS: [(Lucide, usize); 3] = [
+            (Lucide::Monitor, 0),
+            (Lucide::KeyboardMusic, 1),
+            (Lucide::Library, 2),
+        ];
+        v_flex()
+            .w(px(48.0))
+            .h_full()
+            .flex_shrink_0()
+            .bg(rail_bg)
+            .border_r_1()
+            .border_color(border)
+            .pt_2()
+            .items_center()
+            .gap_2()
+            .children(TABS.iter().map(|&(icon, ix)| {
+                let selected = ix == self.active_tab;
+                div()
+                    .id(("tab", ix))
+                    .test_support()
+                    .size(px(36.0))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .rounded(px(6.0))
+                    .cursor_pointer()
+                    .text_color(if selected { ink } else { dim })
+                    .when(selected, |this| this.bg(chip).shadow_xs())
+                    .when(!selected, |this| this.hover(|this| this.bg(wash)))
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.active_tab = ix;
+                        if ix == 2 {
+                            // Opening the library refreshes the online listing.
+                            this.library.refresh_hub();
+                        }
+                        this.refocus(window, cx);
+                        cx.notify();
+                    }))
+                    .child(Icon::new(icon).size_5())
+            }))
+    }
+
     /// The Devices tab: the live USB units and the MIDI graph in an even split.
     fn devices_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let background = cx.theme().background;
@@ -1239,42 +1306,22 @@ impl Render for GridApp {
                 ),
             )
             .child(
-                TabBar::new("main-tabs")
-                    .segmented()
-                    .w_full()
-                    .large()
-                    .selected_index(self.active_tab)
-                    .on_click(cx.listener(|this, ix: &usize, window, cx| {
-                        this.active_tab = *ix;
-                        if *ix == 2 {
-                            // Opening the library refreshes the online listing.
-                            this.library.refresh_hub();
-                        }
-                        this.refocus(window, cx);
-                        cx.notify();
-                    }))
-                    .children([
-                        Tab::new()
-                            .prefix(Icon::new(Lucide::Monitor))
-                            .label("Emulator"),
-                        Tab::new()
-                            .prefix(Icon::new(Lucide::KeyboardMusic))
-                            .label("Devices"),
-                        Tab::new()
-                            .prefix(Icon::new(Lucide::Library))
-                            .label("Library"),
-                    ]),
-            )
-            .child(
-                div()
+                h_flex()
                     .flex_1()
                     .min_h_0()
                     .w_full()
-                    .child(match self.active_tab {
-                        0 => self.emulator_tab(window, cx).into_any_element(),
-                        1 => self.devices_tab(window, cx).into_any_element(),
-                        _ => self.library_tab(window, cx).into_any_element(),
-                    }),
+                    .child(self.tab_rail(cx))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .h_full()
+                            .child(match self.active_tab {
+                                0 => self.emulator_tab(window, cx).into_any_element(),
+                                1 => self.devices_tab(window, cx).into_any_element(),
+                                _ => self.library_tab(window, cx).into_any_element(),
+                            }),
+                    ),
             )
             .child(self.transport(window, cx))
     }

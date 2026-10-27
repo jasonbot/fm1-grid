@@ -27,8 +27,8 @@ libc = "0.2"
 # The FM-1 CPU/SoC from the fm1-emu project. Pinned so the app keeps building even if
 # upstream changes; bump the pin deliberately. `fm1-core` and `fm1-soc` are found inside
 # the fm1-emu workspace.
-fm1-core = { git = "https://github.com/joakimeriksson/fm1-emu.git", rev = "51ca41af6734ea23871685450fe1f2e1e357bb0e" }
-fm1-soc = { git = "https://github.com/joakimeriksson/fm1-emu.git", rev = "51ca41af6734ea23871685450fe1f2e1e357bb0e" }
+fm1-core = { git = "https://github.com/joakimeriksson/fm1-emu.git", rev = "40780288c0b010c387ee81fd34a6bfc64df9aced" }
+fm1-soc = { git = "https://github.com/joakimeriksson/fm1-emu.git", rev = "40780288c0b010c387ee81fd34a6bfc64df9aced" }
 hqx = { version = "0.1.1", optional = true }
 # On-disk state (src/store.rs): objects as JSON, blobs as bytes.
 serde = { version = "1", features = ["derive"] }

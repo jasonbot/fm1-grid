@@ -115,7 +115,7 @@ fn boots_selects_powers(cx: &mut TestAppContext) {
 
     // Power pane 2 (Felucca — a firmware that advertises USB-MIDI): the graph notes
     // that its USB-MIDI in/out can't be bridged by the emulator. The graph lives on
-    // the Devices tab now (tab bar children are indexed 0/1).
+    // the Devices tab now (the rail buttons are ("tab", 0/1/2)).
     cx.update_window(window.into(), |_, window, cx| {
         window.click(("slot-card", 1usize), cx);
         window.click("pane-power", cx);
@@ -124,7 +124,7 @@ fn boots_selects_powers(cx: &mut TestAppContext) {
     cx.background_executor.advance_clock(Duration::from_millis(100));
     cx.run_until_parked();
     cx.update_window(window.into(), |_, window, cx| {
-        window.click(1usize, cx); // the Devices tab
+        window.click(("tab", 1usize), cx); // the Devices tab
         window.render_frame(cx);
         assert!(
             window.find("graph-usb-note").visible(),
@@ -355,7 +355,7 @@ fn library_tab_lists(cx: &mut TestAppContext) {
     let (window, app) = open_app(cx);
     cx.update_window(window.into(), |_, window, cx| {
         window.render_frame(cx);
-        window.click(2usize, cx); // the Library tab
+        window.click(("tab", 2usize), cx); // the Library tab
     })
     .unwrap();
     cx.update(|cx| assert_eq!(app.read(cx).active_tab, 2));
@@ -404,4 +404,67 @@ fn library_tab_lists(cx: &mut TestAppContext) {
         );
     })
     .unwrap();
+}
+
+/// A freshly downloaded firmware jumps sections (downloading/hub → installed); the
+/// list scrolls to it when it lands. The download itself needs the network, so the
+/// test drives the mechanism directly: installed file entries plus the pending
+/// scroll target the Download button sets.
+#[gpui_kit::test]
+fn library_scrolls_to_downloaded(cx: &mut TestAppContext) {
+    let (window, app) = open_app(cx);
+    // Enough installed firmwares that the target starts below the viewport. File
+    // entries stat as Available only with a real file at hand.
+    let dir = std::env::temp_dir().join(format!("fm1-grid-scrolltest-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    cx.update(|cx| {
+        app.update(cx, |app, _| {
+            for i in 0..30 {
+                let path = dir.join(format!("faked-{i:02}.fwsc"));
+                std::fs::write(&path, b"fake").unwrap();
+                app.library.import_file(
+                    path.to_str().unwrap(),
+                    &format!("faked-{i:02}"),
+                    "1.0",
+                    "",
+                );
+            }
+        });
+    });
+    cx.update_window(window.into(), |_, window, cx| {
+        window.click(("tab", 2usize), cx);
+        window.render_frame(cx);
+        assert!(
+            window.try_find("lib-flash-faked-25").is_none(),
+            "the target should start below the viewport"
+        );
+    })
+    .unwrap();
+    // What the Download button records when the download starts.
+    cx.update(|cx| {
+        app.update(cx, |app, _| app.lib_scroll_to = Some("faked-25".to_string()));
+    });
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        assert!(
+            window.find("lib-flash-faked-25").visible(),
+            "the list should scroll the just-downloaded firmware into view"
+        );
+    })
+    .unwrap();
+    cx.update(|cx| {
+        assert!(
+            app.read(cx).lib_scroll_to.is_none(),
+            "the pending scroll target should clear once hit"
+        );
+    });
+    // Leave the shared per-process store as found.
+    cx.update(|cx| {
+        app.update(cx, |app, _| {
+            for i in 0..30 {
+                app.library.remove(&format!("faked-{i:02}"));
+            }
+        });
+    });
+    let _ = std::fs::remove_dir_all(&dir);
 }

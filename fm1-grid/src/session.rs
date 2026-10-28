@@ -28,6 +28,8 @@ pub(crate) struct Session {
     pub slot: usize,
     /// The metronome's tempo; whether it runs is not remembered.
     pub bpm: u32,
+    /// The Library tab's Download All toggle: on restart, the downloads resume.
+    pub download_all: bool,
 }
 
 impl Default for Session {
@@ -38,6 +40,7 @@ impl Default for Session {
             tab: 0,
             slot: 0,
             bpm: DEFAULT_BPM,
+            download_all: false,
         }
     }
 }
@@ -73,6 +76,7 @@ impl GridApp {
             tab: self.active_tab,
             slot: self.active,
             bpm: self.clock.bpm(),
+            download_all: self.download_all,
         };
         if let Err(e) = store.store_object(SESSION_OBJECT, &session) {
             eprintln!("fm1-grid: {e}");
@@ -96,6 +100,7 @@ mod tests {
             tab: 9,
             slot: 42,
             bpm: 1,
+            download_all: true,
         };
         store.store_object(SESSION_OBJECT, &record).unwrap();
         let loaded = Session::load(Some(&store));
@@ -104,6 +109,7 @@ mod tests {
         assert_eq!(loaded.tab, 2);
         assert_eq!(loaded.slot, fm1_performer::MAX_SLOTS - 1);
         assert_eq!(loaded.bpm, MIN_BPM);
+        assert!(loaded.download_all);
 
         // No record: the defaults; a corrupt record: the defaults too.
         std::fs::remove_dir_all(&dir).ok();

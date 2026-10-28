@@ -46,8 +46,9 @@ no firmware arguments the embedded firmwares load into the first panes. Panes ar
 off at startup; the power switch in the device sidebar starts and stops each pane's
 emulator.
 
-The device sidebar's dropdown offers the embedded firmwares and \"Other…\" for a file
-picker. Click a pane (or its display) to route the computer keyboard there. The
+The device sidebar's dropdown lists every firmware the library has at hand; import
+your own files on the Library tab. Click a pane (or its display) to route the
+computer keyboard there. The
 clickable front panel sits at the bottom of the Emulator tab; the keys below play
 while it shows:
 A W S E D F T G Y H U J K O L P ; ' play C4..F5; C V B N M Q I play F3..B3;

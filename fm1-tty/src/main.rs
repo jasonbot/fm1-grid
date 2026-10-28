@@ -7,6 +7,8 @@
 #[cfg(not(target_arch = "wasm32"))]
 mod app;
 #[cfg(not(target_arch = "wasm32"))]
+mod osc;
+#[cfg(not(target_arch = "wasm32"))]
 mod ui;
 
 /// The library does not compile to wasm (ratatui/crossterm are native-only).
@@ -49,6 +51,8 @@ fn restore(key_release: bool) -> std::io::Result<()> {
     use ratatui::crossterm::{event, execute, terminal};
     use std::io;
 
+    // Never leave a progress bar hanging on the terminal's tab/taskbar.
+    osc::progress_clear();
     terminal::disable_raw_mode()?;
     let mut stdout = io::stdout();
     if key_release {

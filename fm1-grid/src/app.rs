@@ -271,8 +271,14 @@ pub struct GridApp {
     /// The library list's viewport height, for page scrolling.
     pub(crate) lib_view_h: f32,
     /// A firmware whose download was just kicked off: when it lands in the Installed
-    /// section, the list scrolls to it (its section changes on completion).
+    /// section, the list scrolls to it (its section changes on completion). Only
+    /// the row's own Download button sets this — Download All's automatic fetches
+    /// don't move the list under the user.
     pub(crate) lib_scroll_to: Option<String>,
+    /// The Library tab's Download All toggle (persisted in the session): while on,
+    /// the tick keeps one hub download going until nothing downloadable or
+    /// upgradable remains.
+    pub(crate) download_all: bool,
     /// The library generation the firmware pickers were last built from.
     combos_at_generation: u64,
     _tick: Task<()>,
@@ -500,6 +506,7 @@ impl GridApp {
             lib_scroll: VirtualListScrollHandle::new(),
             lib_view_h: 400.0,
             lib_scroll_to: None,
+            download_all: session.download_all,
             combos_at_generation: 0,
             _tick: tick,
             _subscriptions: subscriptions,
@@ -997,6 +1004,15 @@ impl GridApp {
         if generation != self.combos_at_generation {
             self.combos_at_generation = generation;
             self.refresh_firmware_combos(window, cx);
+        }
+        // The Download All pump: while the toggle is on, keep one download going,
+        // walking the list (a failed or finished download frees the next tick to
+        // start the next one). Unlike the row's Download button it leaves
+        // lib_scroll_to alone — the list doesn't chase automatic fetches.
+        if self.download_all {
+            if let Some(name) = self.library.next_download() {
+                self.library.start_download(&name);
+            }
         }
 
         let mut dirty = self.sync_held();

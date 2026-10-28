@@ -476,6 +476,12 @@ fn library_tab_lists(cx: &mut TestAppContext) {
         window.render_frame(cx);
         assert!(window.find("hub-status").visible());
         assert!(window.find("hub-reload").visible());
+        // Download All is a toggle; it flips on click and back.
+        assert!(window.find("hub-download-all").visible());
+        window.click("hub-download-all", cx);
+        assert!(app.read(cx).download_all, "the toggle should turn on");
+        window.click("hub-download-all", cx);
+        assert!(!app.read(cx).download_all, "the toggle should turn back off");
         // Nothing to remove on a builtin.
         assert!(window.try_find("lib-remove-SLOOP").is_none());
 

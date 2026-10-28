@@ -20,7 +20,10 @@ force a re-download.
 ## Where the packages come from
 
 * Everything except the packages below is mirrored by The FM-1 Firmware Hub; hashes
-  were checked against the hub's catalogue on 2026-10-25.
+  were checked against the hub's catalogue on 2026-10-28.
+* **JIANT FM** downloads from its own site (juanjiant-bit.github.io): the hub's cache
+  was serving a build older than its catalogue. Hash recorded on download on
+  2026-10-28.
 * The RedtailWorks pack (LOF-1, ECO-1, GRAV-1, CTY-1) downloads from RedtailWorks'
   own installer pages; hashes were recorded on download on 2026-10-23.
 * **FM1 Stock V16** is M-VAVE's official firmware (`FM-1.fwsc`, released 2026-10-21)
@@ -30,6 +33,8 @@ force a re-download.
   (open.m-vave.com/fm1-workbench); the hash was recorded on download on 2026-10-24.
 * **FM-1+VA** downloads from baudgirl.com (it is not open source, so the hub does not
   mirror it); the hash was recorded on download on 2026-10-24.
+* **Matryoshka** downloads from matryoshka.lol, which carries the newest release's
+  package; the hash was recorded on download on 2026-10-28.
 
 ## Notes
 

@@ -6,12 +6,13 @@
 use crate::app::GridApp;
 use fm1_performer::clock::{MAX_BPM, MIN_BPM};
 use fm1_performer::routing::{Port, label_of};
+use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::component::button::Button;
 use gpui_kit::component::input::NumberInput;
 use gpui_kit::component::menu::{DropdownMenu, PopupMenuItem};
 use gpui_kit::component::switch::Switch;
-use gpui_kit::component::{ActiveTheme, Sizable};
+use gpui_kit::component::{ActiveTheme, Icon, Sizable};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 
@@ -103,6 +104,7 @@ impl GridApp {
         let app = cx.entity().clone();
         let keys_menu = Button::new("midi-keys-port")
             .label(current)
+            .icon(Icon::new(Lucide::KeyboardMusic))
             .compact()
             .small()
             .tooltip(

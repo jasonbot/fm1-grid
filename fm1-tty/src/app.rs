@@ -11,7 +11,7 @@ use fm1_performer::routing::{Port, Routing};
 use fm1_performer::store::Store;
 use ratatui::layout::Rect;
 use ratatui::widgets::ListState;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -102,6 +102,34 @@ pub struct TuiApp {
     /// The library list's scroll state (selection is `sel`; the widget owns offset).
     pub list_state: ListState,
     pub quit: bool,
+    /// OSC bookkeeping: last tick's rows by name, for the add/remove/complete diff.
+    osc_prev: HashMap<String, OscRow>,
+    /// Set once the baseline is seeded — the library's startup contents aren't news.
+    osc_seeded: bool,
+    /// The percent last pushed to the terminal's progress bar; None = bar hidden.
+    osc_percent: Option<u32>,
+    /// A failed download's error bar clears this long after.
+    osc_error_until: Option<Instant>,
+}
+
+/// What the OSC tracker remembers about a library row.
+#[derive(Clone, Copy)]
+struct OscRow {
+    /// In the library proper (builtin, imported file, downloaded package) — bare
+    /// hub offers are the catalog, not the library.
+    installed: bool,
+    /// A download was in flight.
+    downloading: bool,
+}
+
+/// Whether the entry is part of the library proper: builtins, imported files and
+/// downloaded hub packages. A hub offer without its blob is the catalog, not the
+/// library.
+fn in_library(firmware: &Firmware) -> bool {
+    match &firmware.source {
+        FirmwareSource::Hub { blob, .. } => blob.is_some(),
+        _ => true,
+    }
 }
 
 impl TuiApp {
@@ -150,6 +178,10 @@ impl TuiApp {
             regions: Regions::default(),
             list_state: ListState::default().with_selected(Some(0)),
             quit: false,
+            osc_prev: HashMap::new(),
+            osc_seeded: false,
+            osc_percent: None,
+            osc_error_until: None,
         }
     }
 
@@ -185,6 +217,95 @@ impl TuiApp {
             .is_some_and(|(_, at)| at.elapsed() > STATUS_TTL)
         {
             self.status = None;
+        }
+        self.osc_track();
+    }
+
+    /// Terminal-side signals for the library: OSC 9;4 progress while downloads run
+    /// (cleared when they finish), and an OSC 9 desktop notification when an item
+    /// joins or leaves the library — a completed download, or an add/remove made by
+    /// the GUI app against this shared store. The first call only seeds the diff
+    /// baseline; the startup contents aren't news.
+    fn osc_track(&mut self) {
+        // Progress: the downloads in flight (usually one), averaged.
+        let percents: Vec<u32> = self
+            .firmwares
+            .iter()
+            .filter(|firmware| firmware.status == Status::Downloading)
+            .filter_map(|firmware| self.download_percent(&firmware.name))
+            .collect();
+        if percents.is_empty() {
+            if self.osc_percent.take().is_some() {
+                crate::osc::progress_clear();
+            }
+        } else {
+            let percent = percents.iter().sum::<u32>() / percents.len() as u32;
+            if self.osc_percent != Some(percent) {
+                self.osc_percent = Some(percent);
+                crate::osc::progress(percent);
+            }
+        }
+        // A failed download's red bar hides again after a beat.
+        if self
+            .osc_error_until
+            .is_some_and(|until| Instant::now() >= until)
+        {
+            self.osc_error_until = None;
+            if self.osc_percent.is_none() {
+                crate::osc::progress_clear();
+            }
+        }
+
+        // The add/remove/complete diff against last tick's rows.
+        let current: HashMap<String, OscRow> = self
+            .firmwares
+            .iter()
+            .map(|firmware| {
+                (
+                    firmware.name.clone(),
+                    OscRow {
+                        installed: in_library(firmware),
+                        downloading: firmware.status == Status::Downloading,
+                    },
+                )
+            })
+            .collect();
+        let prev = std::mem::replace(&mut self.osc_prev, current);
+        if !self.osc_seeded {
+            self.osc_seeded = true;
+            return;
+        }
+        for firmware in &self.firmwares {
+            let installed = in_library(firmware);
+            match prev.get(&firmware.name) {
+                // A download that just ended (it was in flight last tick, it isn't
+                // now — in-flight ticks are Downloading and must not fire). Success
+                // folds the package in: installed and Available. Anything else
+                // failed: back to a bare offer (the download errored) or installed
+                // but Missing (the "package" was a web page).
+                Some(row) if row.downloading && firmware.status != Status::Downloading => {
+                    if installed && firmware.status == Status::Available {
+                        crate::osc::notify(&format!("{} added to the library", firmware.name));
+                    } else {
+                        crate::osc::progress_error();
+                        self.osc_percent = None;
+                        self.osc_error_until = Some(Instant::now() + Duration::from_secs(2));
+                        crate::osc::notify(&format!("{} download failed", firmware.name));
+                    }
+                }
+                // A newly appeared installed row (the GUI app added it).
+                None if installed => {
+                    crate::osc::notify(&format!("{} added to the library", firmware.name));
+                }
+                _ => {}
+            }
+        }
+        // A vanished installed row (the GUI app removed it). Vanished bare offers
+        // are just catalog churn from a refresh.
+        for (name, row) in &prev {
+            if row.installed && !self.firmwares.iter().any(|f| f.name == *name) {
+                crate::osc::notify(&format!("{name} removed from the library"));
+            }
         }
     }
 

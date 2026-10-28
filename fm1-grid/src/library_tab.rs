@@ -6,6 +6,7 @@
 
 use crate::app::GridApp;
 use fm1_performer::firmware_picker::{FirmwarePick, pick_of};
+use gpui_kit::assets::IconName as Lucide;
 use fm1_performer::library::{Firmware, FirmwareDevice, FirmwareSource, Status};
 use gpui_kit::base::{ElementExt, h_flex, v_flex, v_virtual_list};
 use gpui_kit::component::button::{Button, ButtonVariants};
@@ -13,7 +14,7 @@ use gpui_kit::component::input::Input;
 use gpui_kit::component::menu::{DropdownMenu, PopupMenuItem};
 use gpui_kit::component::scroll::ScrollableElement;
 use gpui_kit::component::spinner::Spinner;
-use gpui_kit::component::{ActiveTheme, Disableable, Icon, IconName, Sizable};
+use gpui_kit::component::{ActiveTheme, Disableable, Icon, IconName, Selectable, Sizable};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 use std::rc::Rc;
@@ -114,7 +115,7 @@ enum LibItem {
 const LIB_ROW_H: Pixels = px(80.0);
 /// Section header: small caps over a hairline, including the section's top gap.
 const LIB_HEADER_H: Pixels = px(28.0);
-/// The hub status line: spinner/dot + text + reload button.
+/// The hub status line: spinner/dot + text + the Download All toggle and Reload.
 const LIB_STATUS_H: Pixels = px(34.0);
 /// The empty notice's single line.
 const LIB_EMPTY_H: Pixels = px(24.0);
@@ -300,13 +301,13 @@ impl GridApp {
         }
     }
 
-    /// The list's last item: the hub's fetch status — a spinner while it loads, a
-    /// reload button ("retry" after a failure).
+    /// The list's last item: the hub's fetch status — a spinner while it loads, then
+    /// the Download All toggle and Reload ("Retry" after a failure) as one group.
     fn hub_status_item(&mut self, cx: &mut Context<Self>) -> AnyElement {
         use fm1_performer::library::HubStatus;
-        let (dim, danger) = {
+        let (dim, danger, border) = {
             let theme = cx.theme();
-            (theme.muted_foreground, theme.danger)
+            (theme.muted_foreground, theme.danger, theme.border)
         };
         let status = self.library.hub_status();
         let loading = matches!(status, HubStatus::Loading);
@@ -355,17 +356,43 @@ impl GridApp {
                     .text_color(if failed { danger } else { dim })
                     .child(text),
             )
-            .child(
-                Button::new("hub-reload")
-                    .label(if failed { "retry" } else { "reload" })
-                    .xsmall()
-                    .disabled(loading)
-                    .tooltip("Fetch the hub's catalog again")
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.library.reload_hub();
-                        cx.notify();
-                    })),
-            )
+            .child(action_group(
+                vec![
+                    // Download All is a toggle: while on, the tick walks the list,
+                    // downloading one item at a time (see GridApp::tick).
+                    Button::new("hub-download-all")
+                        .label("Download All")
+                        .icon(Icon::new(Lucide::Download))
+                        .xsmall()
+                        .ghost()
+                        .rounded_none()
+                        .selected(self.download_all)
+                        .toggled(self.download_all)
+                        .tooltip("Download every downloadable or upgradable firmware, one at a time")
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.download_all = !this.download_all;
+                            cx.notify();
+                        }))
+                        .into_any_element(),
+                    // Reload shows pressed while the fetch is in flight.
+                    Button::new("hub-reload")
+                        .label(if failed { "Retry" } else { "Reload" })
+                        .icon(Icon::new(Lucide::RefreshCw))
+                        .xsmall()
+                        .ghost()
+                        .rounded_none()
+                        .selected(loading)
+                        .toggled(loading)
+                        .disabled(loading)
+                        .tooltip("Fetch the hub's catalog again")
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.library.reload_hub();
+                            cx.notify();
+                        }))
+                        .into_any_element(),
+                ],
+                border,
+            ))
             .into_any_element()
     }
 
@@ -423,6 +450,7 @@ impl GridApp {
             buttons.push(
                 Button::new(format!("lib-remove-{name}"))
                     .label("Remove")
+                    .icon(Icon::new(Lucide::Trash))
                     .small()
                     .ghost()
                         .rounded_none()
@@ -452,6 +480,7 @@ impl GridApp {
                 buttons.push(
                     Button::new(format!("lib-download-{name}"))
                         .label(format!("{}%", percent.unwrap_or(0)))
+                        .icon(Icon::new(Lucide::Download))
                         .small()
                         .ghost()
                         .rounded_none()
@@ -463,6 +492,7 @@ impl GridApp {
                 buttons.push(
                     Button::new(format!("lib-download-{name}"))
                         .label("Download")
+                        .icon(Icon::new(Lucide::Download))
                         .small()
                         .ghost()
                         .rounded_none()
@@ -554,6 +584,7 @@ impl GridApp {
         let app = cx.entity().clone();
         Button::new(format!("lib-flash-{name}"))
             .label("Flash To…")
+            .icon(Icon::new(Lucide::Zap))
             .small()
             .ghost()
             .rounded_none()
@@ -656,6 +687,7 @@ impl GridApp {
             .child(
                 Button::new("lib-add-file")
                     .label("Add file…")
+                    .icon(Icon::new(Lucide::FilePlus))
                     .small()
                     .on_click(cx.listener(|this, _, window, cx| {
                         let Some(path) = rfd::FileDialog::new()
@@ -702,6 +734,7 @@ impl GridApp {
             .child(
                 Button::new("lib-add-save")
                     .label("Save")
+                    .icon(Icon::new(Lucide::Save))
                     .small()
                     .primary()
                     .disabled(!ready)

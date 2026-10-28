@@ -5,9 +5,10 @@
 
 use crate::app::GridApp;
 use gpui_kit::base::{h_flex, v_flex};
+use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::button::Button;
 use gpui_kit::component::progress::Progress;
-use gpui_kit::component::{ActiveTheme, Disableable, Sizable, WindowExt};
+use gpui_kit::component::{ActiveTheme, Disableable, Icon, Sizable, WindowExt};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 
@@ -111,6 +112,7 @@ impl Render for FlashDialog {
                 h_flex().justify_end().child(
                     Button::new("flash-dialog-close")
                         .label("Close")
+                        .icon(Icon::new(Lucide::X))
                         .small()
                         .disabled(running)
                         .on_click(cx.listener(|_, _, window, cx| {

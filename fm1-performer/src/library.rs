@@ -8,7 +8,7 @@
 //! on background threads; `list()` picks up finished downloads.
 
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -95,6 +95,10 @@ pub struct Library {
     /// When the last fetch started — automatic refreshes keep an hourly cadence.
     last_refresh: Arc<Mutex<Option<Instant>>>,
     downloads: HashMap<String, Arc<Download>>,
+    /// Names whose last download failed; [`Library::next_download`] skips them so a
+    /// broken offer can't jam the Download All pump. A forced hub refresh or an
+    /// explicit [`Library::start_download`] clears the mark.
+    download_failed: HashSet<String>,
     /// What the last `list()` returned. Rebuilt only when its inputs move — the UI
     /// calls `list()` every frame.
     view: Vec<Firmware>,
@@ -126,6 +130,7 @@ impl Library {
             hub_status: Arc::new(Mutex::new(HubStatus::Idle)),
             last_refresh: Arc::new(Mutex::new(None)),
             downloads: HashMap::new(),
+            download_failed: HashSet::new(),
             view: Vec::new(),
             view_dirty: true,
             hub_swapped: Arc::new(AtomicBool::new(false)),
@@ -218,9 +223,51 @@ impl Library {
         self.refresh_hub_inner(false);
     }
 
-    /// The reload/retry button's fetch: always goes.
+    /// The reload/retry button's fetch: always goes. A forced refresh also clears
+    /// the failed-download marks — the listing may carry fixed URLs.
     pub fn reload_hub(&mut self) {
+        self.download_failed.clear();
         self.refresh_hub_inner(true);
+    }
+
+    /// The Download All pump's next target: the first entry in `list()` order that
+    /// can be downloaded — a hub offer whose package isn't at hand (or whose stored
+    /// blob went missing) — or upgraded: a builtin the hub carries a newer version
+    /// of, where the upgrade lands the same download under the builtin's name. One
+    /// at a time: None while any download is in flight, when nothing is left, or
+    /// once a failed name (marked by [`Library::collect_downloads`]) is all that
+    /// remains. An upgrade counts as done once a downloaded same-name entry is at
+    /// least the hub's version, so a completed upgrade isn't fetched again.
+    pub fn next_download(&mut self) -> Option<String> {
+        self.list();
+        if !self.downloads.is_empty() {
+            return None;
+        }
+        let hub = self.hub.lock().unwrap().clone();
+        let view = &self.view;
+        let failed = &self.download_failed;
+        view.iter().find_map(|firmware| {
+            if failed.contains(&firmware.name) {
+                return None;
+            }
+            match &firmware.source {
+                FirmwareSource::Builtin if firmware.upgradable => {
+                    let offer = hub.iter().find(|o| o.name == firmware.name)?;
+                    let done = view.iter().any(|other| {
+                        other.name == firmware.name
+                            && matches!(other.source, FirmwareSource::Hub { blob: Some(_), .. })
+                            && other.status == Status::Available
+                            && !version_newer(&offer.version, &other.version)
+                    });
+                    (!done).then(|| firmware.name.clone())
+                }
+                FirmwareSource::Hub { blob: None, .. } => Some(firmware.name.clone()),
+                FirmwareSource::Hub { .. } if firmware.status == Status::Missing => {
+                    Some(firmware.name.clone())
+                }
+                _ => None,
+            }
+        })
     }
 
     fn refresh_hub_inner(&mut self, force: bool) {
@@ -283,6 +330,7 @@ impl Library {
     /// completion the entry joins the persisted list (folded in by the next
     /// `list()`).
     pub fn start_download(&mut self, name: &str) {
+        self.download_failed.remove(name);
         if self.downloads.contains_key(name) {
             return;
         }
@@ -367,7 +415,8 @@ impl Library {
 
     /// Fold finished downloads into the stored list. True when any download left the
     /// in-flight set: a success folds the entry in and persists; a failure frees the
-    /// row back to a hub offer — the view rebuilds either way.
+    /// row back to a hub offer and marks the name so [`Library::next_download`]
+    /// skips it — the view rebuilds either way.
     fn collect_downloads(&mut self) -> bool {
         let finished: Vec<String> = self
             .downloads
@@ -382,10 +431,16 @@ impl Library {
         for name in finished {
             let download = self.downloads.remove(&name).unwrap();
             let outcome = download.outcome.lock().unwrap().take();
-            if let Some(Ok(entry)) = outcome {
-                self.stored.retain(|f| f.name != entry.name);
-                self.stored.push(entry);
-                changed = true;
+            match outcome {
+                Some(Ok(entry)) => {
+                    self.stored.retain(|f| f.name != entry.name);
+                    self.stored.push(entry);
+                    changed = true;
+                }
+                Some(Err(_)) => {
+                    self.download_failed.insert(name);
+                }
+                None => {}
             }
         }
         if changed {
@@ -980,6 +1035,63 @@ mod tests {
         let view = library.list();
         let position = view.iter().position(|f| f.name == "hub-only").unwrap();
         assert_eq!(position, view.len() - 1);
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn next_download_walks_and_finishes() {
+        let (store, dir) = temp_store("next");
+        let builtin = BUILTINS.first().expect("no builtins");
+        let mut library = Library::load(&store);
+
+        // No hub listing: nothing to fetch.
+        assert_eq!(library.next_download(), None);
+
+        // An upgradable builtin comes before a hub-only offer (list order: builtins
+        // first); the upgrade downloads under the builtin's name.
+        *library.hub.lock().unwrap() = vec![
+            hub_offer(builtin.name, "999.0", "newer.fwsc"),
+            hub_offer("hub-only", "1.0", "hubonly.fwsc"),
+        ];
+        library.view_dirty = true;
+        assert_eq!(library.next_download().as_deref(), Some(builtin.name));
+
+        // One at a time: an in-flight download parks the pump.
+        library.downloads.insert(
+            "hub-only".to_string(),
+            Arc::new(Download {
+                percent: AtomicU32::new(0),
+                outcome: Mutex::new(None),
+            }),
+        );
+        assert_eq!(library.next_download(), None);
+        library.downloads.clear();
+
+        // A failed name is skipped, not retried forever.
+        library.download_failed.insert(builtin.name.to_string());
+        assert_eq!(library.next_download().as_deref(), Some("hub-only"));
+
+        // Once the hub's newer package sits downloaded under the builtin's name,
+        // the upgrade is satisfied — only the offer remains.
+        let mut library = Library::load(&store);
+        *library.hub.lock().unwrap() = vec![
+            hub_offer(builtin.name, "999.0", "newer.fwsc"),
+            hub_offer("hub-only", "1.0", "hubonly.fwsc"),
+        ];
+        let key = blob_key("fw/newer.fwsc");
+        store.store_blob(&key, b"package").unwrap();
+        let mut done = hub_offer(builtin.name, "999.0", "newer.fwsc");
+        done.source = FirmwareSource::Hub {
+            path: "fw/newer.fwsc".to_string(),
+            blob: Some(key),
+        };
+        library.stored.push(done);
+        library.view_dirty = true;
+        assert_eq!(library.next_download().as_deref(), Some("hub-only"));
+
+        // Everything at hand: nothing left.
+        library.download_failed.insert("hub-only".to_string());
+        assert_eq!(library.next_download(), None);
         std::fs::remove_dir_all(dir).ok();
     }
 

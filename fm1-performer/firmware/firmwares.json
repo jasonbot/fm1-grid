@@ -1,28 +1,28 @@
 [
   {
     "name": "SLOOP",
-    "version": "2.8.1",
-    "file": "sloop-2.8.1.fwsc",
+    "version": "2.8.3",
+    "file": "sloop-2.8.3.fwsc",
     "tags": ["groove"],
     "description": "A live groovebox: tracks, layers, a step sequencer, song mode, punch-in effects and samples, played on the FM-1 in real time.",
     "byline": "isod89",
     "device": "fm-1",
-    "url": "https://thefirmwarehub.com/fw/sloop-2.8.1.fwsc",
+    "url": "https://thefirmwarehub.com/fw/sloop-2.8.3.fwsc",
     "source": "https://github.com/isod89/sloop-fm1",
-    "sha256": "64c9dfa7e75312debeae01a7c96e4ad3801eaffff9c81cb76ece9c48daf0501d",
+    "sha256": "5444afd3c69c409352e1aed35a56205f13f11e60790de146593c4618a43f3528",
     "license": "GPL-3.0"
   },
   {
     "name": "Felucca",
-    "version": "1.6.1",
-    "file": "felucca-1.6.1.fwsc",
+    "version": "1.7.0",
+    "file": "felucca-1.7.0.fwsc",
     "tags": ["groove", "dev"],
     "description": "The custom firmware the others build on: the FM-1's own synth engines, a sequencer, effects and a better panel, with an editor in the browser.",
     "byline": "Leo Kuroshita (Hügelton Instruments)",
     "device": "fm-1",
-    "url": "https://thefirmwarehub.com/fw/felucca-1.6.1.fwsc",
+    "url": "https://thefirmwarehub.com/fw/felucca-1.7.0.fwsc",
     "source": "https://github.com/hugelton/Felucca",
-    "sha256": "dff3a38f7e5b9833e15aba322558c9485e9e422e3ff813c616c91b3584a2d909",
+    "sha256": "bff7c617cfb2c88e66b22aa691cb798dfa0d9cb12ff9a73deab51d404e82817c",
     "license": "GPL-3.0"
   },
   {
@@ -53,15 +53,15 @@
   },
   {
     "name": "ChoralRoot",
-    "version": "0.26.1",
-    "file": "choralroot-0.26.1+f118c4e7.fwsc",
+    "version": "0.27",
+    "file": "choralroot-0.27.fwsc",
     "tags": ["chords", "beta"],
     "description": "A Telepathic Orchid-style chord instrument: one hand plays roots, the other shapes chords; voicings, performance modes, bass and a looper.",
     "byline": "Quixotic7",
     "device": "fm-1",
-    "url": "https://thefirmwarehub.com/fw/choralroot-0.26.1+f118c4e7.fwsc",
+    "url": "https://thefirmwarehub.com/fw/choralroot-0.27.fwsc",
     "source": "https://github.com/Quixotic7/ChoralRootFM1",
-    "sha256": "f118c4e7efc500d7dcf69df1685960b417870865c9a327aed9ec5443eeae8db1",
+    "sha256": "a09f9e19b66a91351de37c532e0d15cdc03ff9e9c82a0b152cdb66ca3fdc0326",
     "license": "GPL-3.0"
   },
   {
@@ -79,15 +79,15 @@
   },
   {
     "name": "JIANT FM",
-    "version": "0.9.9-gen2-fe81db8",
-    "file": "jiant-0.9.9-gen2-fe81db8.fwsc",
+    "version": "0.9.9-par13b-3641c02-preview",
+    "file": "jiant-0.9.9-par13b-3641c02-preview.fwsc",
     "tags": ["groove", "beta"],
     "description": "A bio-synthetic groovebox: six tracks drawn as living beings in thermal colours, eight engines (FM6 with Dexed, analog, phase, voice…), mutating macros, song mode from SLOOP. Not yet tested much on a real FM-1.",
     "byline": "juanjiant-bit",
     "device": "fm-1",
-    "url": "https://thefirmwarehub.com/fw/jiant-0.9.9-gen2-fe81db8.fwsc",
+    "url": "https://juanjiant-bit.github.io/JIANT/firmware/felucca-v0.9.9-par13b-3641c02-preview.fwsc",
     "source": "https://github.com/juanjiant-bit/JIANT",
-    "sha256": "4b34a10c4f4620bff564475e8b7763c6c87b8c37fc4ee4945f40d29e094eb0cc",
+    "sha256": "b64cbbf3b99c40c92aec51e2441ade9fadc0ce2e4a65ef2420684e74ec28257f",
     "license": "GPL-3.0"
   },
   {
@@ -232,5 +232,18 @@
     "source": "https://github.com/FBNFRTG/drift-fm1",
     "sha256": "297a0c55a6323cafe5f38beb28a6f2cbd847a6b54f8419e184df7d233b1e9d14",
     "license": "GPL-3.0"
+  },
+  {
+    "name": "Matryoshka",
+    "version": "1.5.1",
+    "file": "matryoshka-1.5.1.fwsc",
+    "tags": ["synth"],
+    "description": "A recursively modular synth framework: oscillators, filters, envelopes, sequencers and effects wired into patches in a browser editor, with reusable nested assemblies that become instruments of their own, and the patch played on the FM-1. Forked from Felucca by way of Modular-1.",
+    "byline": "glvno",
+    "device": "fm-1",
+    "url": "https://matryoshka.lol/firmware/matryoshka.fwsc",
+    "source": "https://github.com/glvno/matryoshka",
+    "sha256": "b008a4a517746bb0059e634a8141f5e4e56f3d5b52fc560a24fe4ba57d574f82",
+    "license": "GPL-3.0-only"
   }
 ]

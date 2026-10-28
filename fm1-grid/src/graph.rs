@@ -8,9 +8,10 @@
 use crate::app::GridApp;
 use fm1_performer::routing::Port;
 use gpui_kit::base::{h_flex, v_flex};
+use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::button::Button;
 use gpui_kit::component::menu::{DropdownMenu, PopupMenuItem};
-use gpui_kit::component::{ActiveTheme, Sizable};
+use gpui_kit::component::{ActiveTheme, Icon, Sizable};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{TestSupportExt as _, *};
 
@@ -101,7 +102,9 @@ impl GridApp {
             let source_menu = source.clone();
             row = row.child(
                 Button::new(("add-sink", row_ix))
-                    .label("+")
+                    .icon(Icon::new(Lucide::Plus))
+                    .accessibility_label("add a sink")
+                    .tooltip("Connect this source to another sink")
                     .compact()
                     .small()
                     .dropdown_menu(move |menu, _, _| {
@@ -144,8 +147,9 @@ impl GridApp {
                 .label(if self.pending_source.is_some() {
                     "connecting…"
                 } else {
-                    "+ connect a MIDI out…"
+                    "connect a MIDI out…"
                 })
+                .icon(Icon::new(Lucide::Plus))
                 .compact()
                 .small()
                 .dropdown_menu(move |menu, _, _| {
@@ -190,6 +194,7 @@ impl GridApp {
             add_row = add_row.child(
                 Button::new("graph-pending-sink")
                     .label("to…")
+                    .icon(Icon::new(Lucide::ArrowRight))
                     .compact()
                     .small()
                     .dropdown_menu(move |menu, _, _| {
@@ -217,7 +222,8 @@ impl GridApp {
             );
             add_row = add_row.child(
                 Button::new("graph-pending-cancel")
-                    .label("×")
+                    .icon(Icon::new(Lucide::X))
+                    .accessibility_label("cancel")
                     .compact()
                     .small()
                     .tooltip("Cancel this connection")

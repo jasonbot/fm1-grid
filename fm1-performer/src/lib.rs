@@ -8,6 +8,8 @@ pub mod affinity;
 pub mod audio;
 pub mod builtin;
 pub mod clock;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod download_heuristics;
 pub mod emulator;
 pub mod firmware_picker;
 pub mod hardware;

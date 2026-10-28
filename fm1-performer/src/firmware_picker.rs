@@ -38,7 +38,7 @@ impl FirmwarePick {
 /// the page itself, and booting it does nothing. Fail those loudly.
 fn unwrap_fwsc(bytes: Vec<u8>) -> Result<Vec<u8>, String> {
     if !bytes.starts_with(b"PK\x03\x04") {
-        if crate::library::looks_like_web_page(&bytes[..bytes.len().min(512)]) {
+        if crate::download_heuristics::looks_like_web_page(&bytes[..bytes.len().min(512)]) {
             return Err(
                 "the download is a web page, not a firmware package — download it again"
                     .to_string(),

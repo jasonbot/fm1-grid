@@ -14,6 +14,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use crate::builtin::BUILTINS;
+use crate::download_heuristics::{entry_url, fetch_package, fetch_text, looks_like_web_page};
 use crate::store::Store;
 
 const HUB_BASE: &str = "https://thefirmwarehub.com";
@@ -352,8 +353,7 @@ impl Library {
         self.view_dirty = true;
         let store = self.store.clone();
         std::thread::spawn(move || {
-            let result = resolve_package_url(&url)
-                .and_then(|url| download_package(&url, &download.percent))
+            let result = fetch_package(&url, &download.percent)
                 .and_then(|bytes| store.store_blob(&key, &bytes));
             let outcome = result.map(|()| Firmware {
                 status: Status::Available,
@@ -460,14 +460,6 @@ impl Library {
     }
 }
 
-/// Whether the head of a download looks like a web page rather than a package (a
-/// listing that linked an HTML page downloaded the page itself).
-pub(crate) fn looks_like_web_page(head: &[u8]) -> bool {
-    let text = String::from_utf8_lossy(head).to_ascii_lowercase();
-    let text = text.trim_start();
-    text.starts_with("<!doctype") || text.starts_with("<html")
-}
-
 /// An entry's presence status. Downloading beats presence; files and downloaded hub
 /// blobs are statted (never read in full); builtins are always here; hub-only offers
 /// (no blob yet) are Available unless downloading. A blob that's a web page counts
@@ -570,82 +562,6 @@ fn today_utc() -> String {
         .unwrap_or(0);
     let (year, month, day) = civil_from_days((secs / 86_400) as i64);
     format!("{year:04}-{month:02}-{day:02}")
-}
-
-fn fetch_text(url: &str) -> Result<String, String> {
-    ureq::get(url)
-        .call()
-        .map_err(|e| format!("fetch {url}: {e}"))?
-        .into_string()
-        .map_err(|e| format!("read {url}: {e}"))
-}
-
-/// The GitHub API URL for a release *page* URL
-/// (`github.com/<owner>/<repo>/releases/tag/<tag>` or `…/releases/latest`), None for
-/// anything else (direct package URLs included).
-fn github_release_api(url: &str) -> Option<String> {
-    let path = url.strip_prefix("https://github.com/")?;
-    let path = path.split(['?', '#']).next().unwrap_or(path);
-    let parts: Vec<&str> = path.split('/').filter(|part| !part.is_empty()).collect();
-    match parts.as_slice() {
-        [owner, repo, "releases", "tag", tag] => Some(format!(
-            "https://api.github.com/repos/{owner}/{repo}/releases/tags/{tag}"
-        )),
-        [owner, repo, "releases", "latest"] => Some(format!(
-            "https://api.github.com/repos/{owner}/{repo}/releases/latest"
-        )),
-        _ => None,
-    }
-}
-
-/// The `.fwsc` asset's download URL in a GitHub release's JSON.
-fn fwsc_asset_url(release_json: &str) -> Result<String, String> {
-    let json: serde_json::Value =
-        serde_json::from_str(release_json).map_err(|e| format!("release JSON: {e}"))?;
-    json.get("assets")
-        .and_then(|assets| assets.as_array())
-        .unwrap_or(&vec![])
-        .iter()
-        .filter_map(|asset| asset.get("browser_download_url")?.as_str())
-        .find(|url| url.to_ascii_lowercase().ends_with(".fwsc"))
-        .map(str::to_string)
-        .ok_or_else(|| "the release has no .fwsc asset".to_string())
-}
-
-/// A listing entry's URL isn't always the package itself: the editor page often
-/// links a GitHub release *page*, whose HTML downloads fine and boots nothing.
-/// Resolve those through the API to the release's `.fwsc` asset; everything else
-/// passes through unchanged.
-fn resolve_package_url(url: &str) -> Result<String, String> {
-    match github_release_api(url) {
-        Some(api) => fwsc_asset_url(&fetch_text(&api)?),
-        None => Ok(url.to_string()),
-    }
-}
-
-/// Download a package, reporting percent (of Content-Length) as it goes.
-fn download_package(url: &str, percent: &AtomicU32) -> Result<Vec<u8>, String> {
-    let response = ureq::get(url).call().map_err(|e| format!("fetch {url}: {e}"))?;
-    let total: Option<u64> = response
-        .header("content-length")
-        .and_then(|h| h.parse().ok())
-        .filter(|&t| t > 0);
-    let mut body = Vec::new();
-    let mut reader = response.into_reader();
-    let mut chunk = [0u8; 65_536];
-    loop {
-        use std::io::Read;
-        let read = reader.read(&mut chunk).map_err(|e| format!("read {url}: {e}"))?;
-        if read == 0 {
-            break;
-        }
-        body.extend_from_slice(&chunk[..read]);
-        if let Some(total) = total {
-            percent.store((body.len() as u64 * 100 / total).min(99) as u32, Ordering::Relaxed);
-        }
-    }
-    percent.store(100, Ordering::Relaxed);
-    Ok(body)
 }
 
 /// One catalog entry, with the hub's real field names; unknown fields are ignored,
@@ -800,30 +716,6 @@ fn status_version(status: &str) -> String {
         .split_once("Latest ")
         .map(|(_, version)| version.trim().to_string())
         .unwrap_or_default()
-}
-
-/// An editor entry's download: a direct package link when one is offered, else the
-/// install/download page, the release page, the source repository, or the first
-/// external link, in that order.
-fn entry_url(links: &[(String, String)]) -> Option<String> {
-    let by_label = |prefix: &str| {
-        links
-            .iter()
-            .find(|(_, label)| label.starts_with(prefix))
-            .map(|(url, _)| url.clone())
-    };
-    links
-        .iter()
-        .map(|(url, _)| url.clone())
-        .find(|url| {
-            let path = url.split(['?', '#']).next().unwrap_or(url).to_ascii_lowercase();
-            path.ends_with(".fwsc") || path.ends_with(".zip")
-        })
-        .or_else(|| by_label("Install"))
-        .or_else(|| by_label("Download"))
-        .or_else(|| by_label("Release"))
-        .or_else(|| by_label("Source"))
-        .or_else(|| links.first().map(|(url, _)| url.clone()))
 }
 
 /// Parse the fm1-editor firmware page into hub-style offers. The page is a static,
@@ -1138,36 +1030,59 @@ mod tests {
     }
 
     #[test]
-    fn github_release_pages_resolve_to_fwsc_assets() {
-        // Tag and latest pages map onto the API; direct and foreign URLs pass through.
-        assert_eq!(
-            github_release_api("https://github.com/o/r/releases/tag/v1.0.0").as_deref(),
-            Some("https://api.github.com/repos/o/r/releases/tags/v1.0.0")
-        );
-        assert_eq!(
-            github_release_api("https://github.com/o/r/releases/latest").as_deref(),
-            Some("https://api.github.com/repos/o/r/releases/latest")
-        );
-        assert_eq!(
-            github_release_api("https://github.com/o/r/releases/tag/v2/?page=2#x").as_deref(),
-            Some("https://api.github.com/repos/o/r/releases/tags/v2")
-        );
-        assert!(
-            github_release_api("https://github.com/o/r/releases/download/v1/fw.fwsc").is_none()
-        );
-        assert!(github_release_api("https://example.com/releases/tag/v1").is_none());
-
-        // The .fwsc asset wins; a release without one is an error, not a download.
-        let json = r#"{"assets": [
-            {"browser_download_url": "https://github.com/o/r/releases/download/v1/notes.txt"},
-            {"browser_download_url": "https://github.com/o/r/releases/download/v1/fw.fwsc"}
-        ]}"#;
-        assert_eq!(
-            fwsc_asset_url(json).as_deref(),
-            Ok("https://github.com/o/r/releases/download/v1/fw.fwsc")
-        );
-        assert!(fwsc_asset_url(r#"{"assets": []}"#).is_err());
-        assert!(fwsc_asset_url("not json").is_err());
+    fn html_downloads_fail_without_storing_a_blob() {
+        let (store, dir) = temp_store("html");
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            use std::io::{Read, Write};
+            // Two requests: the .fwsc URL's 404-style page, then the install page.
+            for _ in 0..2 {
+                let Ok((mut socket, _)) = listener.accept() else { break };
+                let mut buf = [0u8; 1024];
+                let _ = socket.read(&mut buf);
+                let body = b"<!DOCTYPE html><html><body>page</body></html>";
+                let head = format!(
+                    "HTTP/1.1 200 OK\r\ncontent-type: text/html\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
+                    body.len()
+                );
+                socket.write_all(head.as_bytes()).ok();
+                socket.write_all(body).ok();
+            }
+        });
+        let mut library = Library::load(&store);
+        let offer = |name: &str, url: String| Firmware {
+            source: FirmwareSource::Hub {
+                path: url,
+                blob: None,
+            },
+            ..hub_offer(name, "1.0", "ignored.fwsc")
+        };
+        let base = format!("http://127.0.0.1:{port}");
+        // A package-looking URL that serves HTML, and an install page naming no
+        // package: both fail loudly instead of storing a page that reads Missing
+        // forever.
+        *library.hub.lock().unwrap() = vec![
+            offer("error-page", format!("{base}/dl/x.fwsc")),
+            offer("install-page", format!("{base}/install/")),
+        ];
+        for name in ["error-page", "install-page"] {
+            library.start_download(name);
+            for _ in 0..100 {
+                std::thread::sleep(Duration::from_millis(50));
+                if !library.downloads.contains_key(name) {
+                    break;
+                }
+                library.collect_downloads();
+            }
+            library.collect_downloads();
+            assert!(
+                library.download_failed.contains(name),
+                "{name} must be marked failed"
+            );
+        }
+        assert!(store.list_blobs(None).unwrap().is_empty());
+        std::fs::remove_dir_all(dir).ok();
     }
 
     #[test]

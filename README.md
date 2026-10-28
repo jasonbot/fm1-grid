@@ -218,6 +218,7 @@ fm1-performer/src/routing.rs    the MIDI graph: sources, sinks, links
 fm1-performer/src/clock.rs      MIDI-clock thread, tempo, beat light
 fm1-performer/src/midi_keys.rs  a physical MIDI keyboard driving the virtual one
 fm1-performer/src/library.rs    the firmware library: model, hub fetch/downloads, persistence
+fm1-performer/src/download_heuristics.rs  listing link → package bytes: release/install page resolution, HTML rejection
 fm1-performer/src/firmware_picker.rs  what a firmware pick installs or flashes (builtin, file, blob)
 fm1-performer/src/store.rs      on-disk objects (JSON) and blobs (desktop dir / localStorage)
 fm1-performer/src/builtin.rs    embedded firmware catalogue (generated table)

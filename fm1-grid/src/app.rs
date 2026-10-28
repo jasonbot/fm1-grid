@@ -181,6 +181,12 @@ pub struct GridApp {
     pub(crate) flash_combos:
         std::collections::HashMap<String, Entity<ComboboxState<FirmwareDelegate>>>,
     flash_was: std::collections::HashMap<String, bool>,
+    /// MIDI rescue, for when no FM-1 is found at all: every system MIDI port, offered
+    /// as a flash target ("MIDI RESCUE: …" rows), and the ports' flash comboboxes.
+    /// Both stay empty while any unit is registered or a flash is running.
+    pub(crate) rescue_ports: Vec<String>,
+    pub(crate) rescue_combos:
+        std::collections::HashMap<String, Entity<ComboboxState<FirmwareDelegate>>>,
     rings: [Arc<AudioRing>; MAX_SLOTS],
     /// Kept alive for as long as the app wants sound.
     _audio: Option<cpal::Stream>,
@@ -462,6 +468,8 @@ impl GridApp {
             flash_armed: Default::default(),
             flash_combos: Default::default(),
             flash_was: Default::default(),
+            rescue_ports: Default::default(),
+            rescue_combos: Default::default(),
             rings,
             _audio: audio,
             audio_error,
@@ -684,9 +692,14 @@ impl GridApp {
                 }
             });
         }
-        // The devices' flash comboboxes list the same library (no selection to keep:
-        // each flash is a fresh choice).
-        let flash_combos: Vec<_> = self.flash_combos.values().cloned().collect();
+        // The devices' and rescue ports' flash comboboxes list the same library (no
+        // selection to keep: each flash is a fresh choice).
+        let flash_combos: Vec<_> = self
+            .flash_combos
+            .values()
+            .chain(self.rescue_combos.values())
+            .cloned()
+            .collect();
         for combo in flash_combos {
             let delegate = crate::firmware_picker::FirmwareDelegate::from_app(self);
             combo.update(cx, |state, cx| {
@@ -1052,7 +1065,7 @@ impl GridApp {
             self.flash_combos.retain(|name, _| names.contains(name));
             for row in rows {
                 if !self.flash_combos.contains_key(&row.name) {
-                    self.open_flash_picker(&row.name.clone(), window, cx);
+                    self.open_flash_picker(&row.name.clone(), false, window, cx);
                     dirty = true;
                 }
                 let was = self.flash_was.insert(row.name.clone(), row.flash.is_some());
@@ -1064,6 +1077,31 @@ impl GridApp {
                         .is_some_and(|outcome| outcome.starts_with("flashed:"))
                 {
                     self.flash_armed.insert(row.name.clone(), false);
+                    dirty = true;
+                }
+            }
+
+            // MIDI rescue: with no live FM-1 and no flash running, every system MIDI
+            // port is offered as a flash target (the "MIDI RESCUE: …" rows). The
+            // running check matters: a flash empties the rows (the unit reboots
+            // through its loader), and the rescue list must not pop up mid-update.
+            let flashing = self
+                .hardware
+                .flash_state()
+                .is_some_and(|state| !state.error);
+            let rescue = if names.is_empty() && !flashing {
+                self.hardware.midi_ports()
+            } else {
+                Vec::new()
+            };
+            if rescue != self.rescue_ports {
+                self.rescue_ports = rescue.clone();
+                dirty = true;
+            }
+            self.rescue_combos.retain(|name, _| rescue.contains(name));
+            for name in rescue {
+                if !self.rescue_combos.contains_key(&name) {
+                    self.open_flash_picker(&name.clone(), true, window, cx);
                     dirty = true;
                 }
             }

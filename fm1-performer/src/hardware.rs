@@ -25,6 +25,14 @@
 //! polling a port list is cheap. Only ports whose names look like an FM-1 are ever
 //! probed (the hub's own filter), so other MIDI gear is never touched. Everything that
 //! talks to a device runs off the GUI thread.
+//!
+//! Rescue: a unit bricked badly enough to enumerate under a name the filter rejects
+//! never becomes a device row. [`Hardware::midi_ports`] lists every MIDI port on the
+//! system instead, and [`Hardware::rescue_flash`] flashes one directly — no handshake,
+//! no registry; while a rescue runs the scanner registers no new devices, so no clock
+//! bytes reach the port mid-update.
+
+mod rescue;
 
 use crate::clock::{Clock, MidiSink};
 use crate::routing::Routing;
@@ -32,6 +40,7 @@ use midir::{MidiInput, MidiInputConnection, MidiOutput, MidiOutputConnection};
 use std::collections::VecDeque;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -485,6 +494,9 @@ struct Device {
 
 enum Command {
     Flash { name: String, bytes: Vec<u8> },
+    /// Flash a port the scanner never registered (a unit too bricked to answer to an
+    /// FM-1-looking name). The name is any MIDI port on the system.
+    RescueFlash { name: String, bytes: Vec<u8> },
 }
 
 /// The live USB devices: a background scanner thread owns discovery, the GUI reads the
@@ -512,12 +524,13 @@ impl Hardware {
             (Ok(_), Ok(_)) => None,
             (Err(e), _) | (_, Err(e)) => Some(format!("MIDI unavailable: {e}")),
         };
+        let rescue = Arc::new(AtomicBool::new(false));
         {
             let devices = devices.clone();
             let board = board.clone();
             thread::Builder::new()
                 .name("fm1-usb-scan".into())
-                .spawn(move || scan_loop(devices, clock, router, board, rx))
+                .spawn(move || scan_loop(devices, clock, router, board, rx, rescue))
                 .expect("spawn USB scanner thread");
         }
         Self { devices, commands: tx, board, error }
@@ -568,6 +581,52 @@ impl Hardware {
         });
     }
 
+    /// Flash a .fwsc package to any MIDI port, registered or not: the rescue path for
+    /// a unit so bricked it no longer answers to an FM-1-looking name. Runs on its own
+    /// thread; a second request while one runs is ignored.
+    pub fn rescue_flash(&self, name: &str, bytes: Vec<u8>) {
+        let _ = self.commands.send(Command::RescueFlash {
+            name: name.to_string(),
+            bytes,
+        });
+    }
+
+    /// Every MIDI port a rescue flash could go to: all the system's ports with a
+    /// pairable output, minus this process's own clients and the registered devices
+    /// (those flash through [`Hardware::flash`]).
+    pub fn midi_ports(&self) -> Vec<String> {
+        let (Ok(input), Ok(output)) = (
+            MidiInput::new("fm1-grid-scan"),
+            MidiOutput::new("fm1-grid-scan"),
+        ) else {
+            return Vec::new();
+        };
+        let out_ports = output.ports();
+        let registered: Vec<String> = self
+            .devices
+            .lock()
+            .map(|list| list.iter().map(|device| device.name.clone()).collect())
+            .unwrap_or_default();
+        input
+            .ports()
+            .iter()
+            .filter_map(|port| input.port_name(port).ok())
+            .filter(|name| !rescue::ours(name) && !registered.contains(name))
+            .filter(|name| {
+                out_ports
+                    .iter()
+                    .any(|port| output.port_name(port).is_ok_and(|n| &n == name))
+                    || out_ports.len() == 1
+            })
+            .collect()
+    }
+
+    /// Show a message on the pane-level flash board: the outcome slot for rescue
+    /// targets, which have no device row to carry it.
+    pub fn report_board(&self, message: String) {
+        settle_board(&self.board, &Err(message));
+    }
+
     /// Send whole MIDI messages to the named device (the TUI's virtual keyboard plays
     /// the unit this way). False when the device is gone or the send failed.
     pub fn send(&self, name: &str, bytes: &[u8]) -> bool {
@@ -597,12 +656,31 @@ fn scan_loop(
     router: Routing,
     board: Board,
     commands: Receiver<Command>,
+    rescue: Arc<AtomicBool>,
 ) {
     let mut next_hw_id = 0usize;
     loop {
         // Commands first, so a clock toggle never waits behind a scan.
         while let Ok(command) = commands.try_recv() {
             match command {
+                Command::RescueFlash { name, bytes } => {
+                    // One rescue at a time: while it runs the scanner registers no
+                    // new devices, so no clock bytes or graph routes hit the port
+                    // mid-update (the unit reboots under names nobody knows).
+                    if rescue.swap(true, Ordering::SeqCst) {
+                        continue; // a rescue flash is already running
+                    }
+                    let board = board.clone();
+                    let router = router.clone();
+                    let active = rescue.clone();
+                    thread::Builder::new()
+                        .name("fm1-usb-rescue".into())
+                        .spawn(move || {
+                            rescue::rescue_task(&name, bytes, &board, &router);
+                            active.store(false, Ordering::SeqCst);
+                        })
+                        .expect("spawn rescue flash thread");
+                }
                 Command::Flash { name, bytes } => {
                     let found = devices.lock().ok().and_then(|list| {
                         list.iter()
@@ -654,22 +732,23 @@ fn scan_loop(
             }
         }
 
-        scan(&devices, &clock, &router, &mut next_hw_id);
+        scan(&devices, &clock, &router, &mut next_hw_id, &rescue);
         thread::sleep(Duration::from_millis(500));
     }
 }
 
 /// One poll: drop the devices whose port is gone, probe the new FM-1-looking ones.
+/// While a rescue flash runs, no new devices are registered: the rescue target
+/// reboots through its update loader under names the filter may match, and a freshly
+/// registered device gets clocked — clock bytes would corrupt the update.
 fn scan(
     devices: &Mutex<Vec<Device>>,
     clock: &Clock,
     router: &Routing,
     next_hw_id: &mut usize,
+    rescue: &AtomicBool,
 ) {
-    let (Ok(input), Ok(output)) = (
-        MidiInput::new("fm1-grid-scan"),
-        MidiOutput::new("fm1-grid-scan"),
-    ) else {
+    let Ok(input) = MidiInput::new("fm1-grid-scan") else {
         return; // no MIDI (yet); try again next tick
     };
 
@@ -682,7 +761,7 @@ fn scan(
         seen.push(name.clone());
         let lower = name.to_lowercase();
         if PROBE_NAMES.iter().any(|needle| lower.contains(needle)) {
-            candidates.push((name, port));
+            candidates.push(name);
         }
     }
 
@@ -700,8 +779,10 @@ fn scan(
         });
     }
 
-    let out_ports = output.ports();
-    for (name, in_port) in candidates {
+    if rescue.load(Ordering::Relaxed) {
+        return; // a rescue flash owns every new port for its duration
+    }
+    for name in candidates {
         let known = devices
             .lock()
             .ok()
@@ -709,50 +790,9 @@ fn scan(
         if known {
             continue;
         }
-        // Pair the input with the output port of the same name; fall back to the only
-        // output there is (the hub's rule).
-        let out_port = out_ports
-            .iter()
-            .find(|port| output.port_name(port).is_ok_and(|n| n == name))
-            .or_else(|| (out_ports.len() == 1).then_some(&out_ports[0]));
-        let Some(out_port) = out_port else { continue };
-
-        let queue: Queue = Arc::new(Mutex::new(VecDeque::new()));
-        // connect() consumes its MidiInput/MidiOutput, and ports stay valid across
-        // instances (they are ALSA addresses), so each device gets a fresh pair.
-        let (Ok(out_mid), Ok(in_mid)) = (
-            MidiOutput::new("fm1-grid"),
-            MidiInput::new("fm1-grid"),
-        ) else {
-            continue;
-        };
-        let Ok(out_conn) = out_mid.connect(out_port, "fm1-grid") else {
+        let Some(link) = open_link(&name, router) else {
             continue; // busy: another app (or the browser flasher) has it
         };
-        let Ok(in_conn) = in_mid.connect(
-            &in_port,
-            "fm1-grid",
-            |_time, message, data: &mut CallbackData| {
-                if message.first() == Some(&0xF0) {
-                    if let Ok(mut queue) = data.queue.lock() {
-                        queue.push_back(message.to_vec());
-                    }
-                }
-                data.router.route_from_device(&data.name, message);
-            },
-            CallbackData {
-                queue: queue.clone(),
-                router: router.clone(),
-                name: name.clone(),
-            },
-        ) else {
-            continue;
-        };
-        let link = Arc::new(DeviceLink {
-            out: Mutex::new(out_conn),
-            queue,
-            _input: Mutex::new(in_conn),
-        });
         // Hand the open link to the MIDI graph: it routes to and from the device
         // through this pair, never opening the port itself.
         router.device_added(&name, link.clone());
@@ -778,6 +818,60 @@ fn scan(
             });
         }
     }
+}
+
+/// Open the in/out pair for one MIDI port, by name. The input pairs with the output
+/// port of the same name, falling back to the only output there is (the hub's rule).
+/// The returned link is not registered anywhere: the caller decides whether it joins
+/// the MIDI graph (the scanner does) or stays a private flash channel (rescue does).
+fn open_link(name: &str, router: &Routing) -> Option<Arc<DeviceLink>> {
+    let (lookup_in, lookup_out) = (
+        MidiInput::new("fm1-grid-scan").ok()?,
+        MidiOutput::new("fm1-grid-scan").ok()?,
+    );
+    let in_port = lookup_in
+        .ports()
+        .into_iter()
+        .find(|port| lookup_in.port_name(port).is_ok_and(|n| n == name))?;
+    let out_ports = lookup_out.ports();
+    let out_port = out_ports
+        .iter()
+        .find(|port| lookup_out.port_name(port).is_ok_and(|n| n == name))
+        .or_else(|| (out_ports.len() == 1).then_some(&out_ports[0]))?
+        .clone();
+
+    let queue: Queue = Arc::new(Mutex::new(VecDeque::new()));
+    // connect() consumes its MidiInput/MidiOutput, and ports stay valid across
+    // instances (they are ALSA addresses), so each device gets a fresh pair.
+    let (out_mid, in_mid) = (
+        MidiOutput::new("fm1-grid").ok()?,
+        MidiInput::new("fm1-grid").ok()?,
+    );
+    let out_conn = out_mid.connect(&out_port, "fm1-grid").ok()?;
+    let in_conn = in_mid
+        .connect(
+            &in_port,
+            "fm1-grid",
+            |_time, message, data: &mut CallbackData| {
+                if message.first() == Some(&0xF0) {
+                    if let Ok(mut queue) = data.queue.lock() {
+                        queue.push_back(message.to_vec());
+                    }
+                }
+                data.router.route_from_device(&data.name, message);
+            },
+            CallbackData {
+                queue: queue.clone(),
+                router: router.clone(),
+                name: name.to_string(),
+            },
+        )
+        .ok()?;
+    Some(Arc::new(DeviceLink {
+        out: Mutex::new(out_conn),
+        queue,
+        _input: Mutex::new(in_conn),
+    }))
 }
 
 /// Ask a freshly opened device who it is: the handshake query, twice, one second each.
@@ -837,10 +931,15 @@ fn flash_task(
             Err(message) => message.clone(),
         });
     }
-    // Success clears the board (the returned device's row carries the outcome);
-    // failures stay on the board, since the row they belong to may be gone.
+    settle_board(&board, &result);
+}
+
+/// The board after a flash, normal or rescue: success clears it (the returned device's
+/// row carries the outcome); failures stay on it, since the row they belong to may be
+/// gone — a rescue target never had one.
+fn settle_board(board: &Board, result: &Result<String, String>) {
     if let Ok(mut state) = board.lock() {
-        *state = match &result {
+        *state = match result {
             Ok(_) => None,
             Err(message) => {
                 // The failure line joins the log, not replaces it.
@@ -1013,8 +1112,8 @@ fn flash_flow(
         link.send(&UPGRADE);
         thread::sleep(Duration::from_secs(2));
         publish(flash, board, "staging the update loader…", None);
-        let served = serve(link, &image, FINISH_STAGE, Duration::from_secs(8), flash, board)?;
-        if !served.finished {
+        let served = serve(link, &image, &[FINISH_STAGE], Duration::from_secs(8), flash, board)?;
+        if served.finish != Some(FINISH_STAGE) {
             return Err(format!(
                 "the device stopped after {} requests: nothing was written",
                 served.count
@@ -1070,8 +1169,8 @@ fn write_flash(
     link.send(&UPGRADE);
     thread::sleep(Duration::from_secs(2));
     publish(flash, board, "writing the flash…", None);
-    let served = serve(link, image, FINISH_WRITE, Duration::from_secs(180), flash, board)?;
-    if !served.finished {
+    let served = serve(link, image, &[FINISH_WRITE], Duration::from_secs(180), flash, board)?;
+    if served.finish != Some(FINISH_WRITE) {
         return Err(format!(
             "the loader stopped after {} requests: replug and press Flash again to resume",
             served.count
@@ -1112,15 +1211,18 @@ fn write_flash(
 
 struct Served {
     count: u32,
-    finished: bool,
+    /// The finish address the device asked for, if it asked for one of the listed
+    /// ones before going idle.
+    finish: Option<u32>,
 }
 
-/// Answer the device's read requests until it asks for one of the finish addresses,
-/// publishing the served fraction of the image to the row and the board.
+/// Answer the device's read requests until it asks for one of the `finish` addresses
+/// (both finish addresses are always acknowledged), publishing the served fraction of
+/// the image to the row and the board.
 fn serve(
     link: &DeviceLink,
     image: &[u8],
-    finish_addr: u32,
+    finish: &[u32],
     idle: Duration,
     flash: &Mutex<Option<FlashState>>,
     board: &Board,
@@ -1132,7 +1234,7 @@ fn serve(
     loop {
         let Some(pkt) = link.read(Duration::from_secs(1)) else {
             if last.elapsed() > idle {
-                return Ok(Served { count, finished: false });
+                return Ok(Served { count, finish: None });
             }
             continue;
         };
@@ -1142,8 +1244,8 @@ fn serve(
         last = Instant::now();
         if request.addr == FINISH_STAGE || request.addr == FINISH_WRITE {
             link.send(&response(request.addr, b"success\0", 0));
-            if request.addr == finish_addr {
-                return Ok(Served { count, finished: true });
+            if finish.contains(&request.addr) {
+                return Ok(Served { count, finish: Some(request.addr) });
             }
             continue;
         }

@@ -576,3 +576,40 @@ fn library_scrolls_to_downloaded(cx: &mut TestAppContext) {
     });
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// The Devices tab's MIDI rescue: with no FM-1 found, every system MIDI port is
+/// offered as a flash target (a "MIDI RESCUE: <port>" row with the shared flash
+/// control); with a live unit connected, the rescue rows stay hidden. ALSA owns both
+/// lists, so the test drives the mechanism directly (like the download test): a port
+/// in the app's sweep-fed rescue list, asserted against whichever side of the
+/// "no FM-1" line the machine running the test is on. All inside one window update,
+/// so the 16 ms tick pump never reconciles the fake port away mid-test.
+#[gpui_kit::test]
+fn devices_tab_offers_midi_rescue(cx: &mut TestAppContext) {
+    let (window, app) = open_app(cx);
+    cx.update_window(window.into(), |_, window, cx| {
+        let port = "TestPort:28 TestPort MIDI 1:0".to_string();
+        let live = app.read(cx).hardware.devices().len();
+        app.update(cx, |app, cx| {
+            app.rescue_ports = vec![port.clone()];
+            app.open_flash_picker(&port, true, window, cx);
+        });
+        assert!(
+            app.read(cx).rescue_combos.contains_key(&port),
+            "the rescue picker should be filed under the port"
+        );
+        window.click(("tab", 1usize), cx); // the Devices tab
+        window.render_frame(cx);
+        assert_eq!(app.read(cx).active_tab, 1);
+        if live == 0 {
+            // The rescue row and its flash control show; arming works like a row's.
+            assert!(window.find(("rescue-port", 0usize)).visible());
+            window.click(("rescue-flash", 0usize), cx);
+            assert_eq!(app.read(cx).flash_armed.get(&port), Some(&true));
+        } else {
+            // A live unit's rows own the pane; no rescue row shows.
+            assert!(window.try_find(("rescue-port", 0usize)).is_none());
+        }
+    })
+    .unwrap();
+}

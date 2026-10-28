@@ -1,6 +1,9 @@
 //! The devices pane under the grid: one row per live FM-1 unit on USB — its clock
 //! switch, its port labels, and the flash control with its progress board. All device
 //! state lives in [`fm1_performer::hardware`]; this only draws it and posts commands.
+//! When no FM-1 is found at all, the pane offers every system MIDI port as a flash
+//! target instead (the "MIDI RESCUE: …" rows), for units too bricked to answer to
+//! their name; those flash through `Hardware::rescue_flash`.
 
 use crate::app::GridApp;
 use crate::firmware_picker::FirmwareDelegate;
@@ -71,6 +74,24 @@ impl GridApp {
                     .text_color(dim)
                     .child("No FM-1 connected — plug one in and it shows up here."),
             );
+            // MIDI rescue: a unit bricked out of its FM-1 name never gets a row, so
+            // every system MIDI port is offered as a flash target instead. Not while
+            // a flash is running — that empties the rows too (the unit reboots).
+            let flashing = board.as_ref().is_some_and(|state| !state.error);
+            if !flashing && !self.rescue_ports.is_empty() {
+                pane = pane.child(
+                    div()
+                        .text_size(px(9.5))
+                        .text_color(dim)
+                        .child(
+                            "A UNIT STUCK IN ITS UPDATE LOADER MAY NOT ANSWER TO ITS \
+                             NAME — EVERY MIDI PORT BELOW IS FLASHABLE:",
+                        ),
+                );
+                for (ix, name) in self.rescue_ports.clone().into_iter().enumerate() {
+                    pane = pane.child(self.rescue_row(ix, &name, cx));
+                }
+            }
         }
 
         for (ix, row) in rows.into_iter().enumerate() {
@@ -174,49 +195,7 @@ impl GridApp {
             None
         } else {
             let combo = self.flash_combos.get(&row.name).cloned();
-            let name = row.name.clone();
-            Some(
-                h_flex()
-                    .items_center()
-                    .gap_2()
-                    .child(
-                        Switch::new(("dev-flash", ix))
-                            .label("Flash")
-                            .checked(armed)
-                            .tooltip("Arm flashing, then pick a firmware to flash this unit")
-                            .on_change(cx.listener(move |this, &on, window, cx| {
-                                this.flash_armed.insert(name.clone(), on);
-                                this.refocus(window, cx);
-                                cx.notify();
-                            })),
-                    )
-                    .child(match combo {
-                        Some(state) => div()
-                            .w(px(FLASH_COMBO_W))
-                            .child(
-                                Combobox::new(&state)
-                                    .placeholder("flash firmware…")
-                                    .search_placeholder("Filter…")
-                                    .menu_width(px(crate::theme::COMBO_MENU_W))
-                                    .disabled(!armed)
-                                    .empty(|_, cx| {
-                                        div()
-                                            .p_2()
-                                            .text_size(px(10.0))
-                                            .text_color(cx.theme().muted_foreground)
-                                            .child("No firmware matches")
-                                    }),
-                            )
-                            .into_any_element(),
-                        // The sweep builds the combobox the moment a device appears;
-                        // hold its space until then so the row doesn't jump.
-                        None => div()
-                            .w(px(FLASH_COMBO_W))
-                            .h(px(28.0))
-                            .into_any_element(),
-                    })
-                    .into_any_element(),
-            )
+            Some(self.flash_control(("dev-flash", ix), &row.name, armed, combo, cx))
         };
         if let Some(right) = right {
             line = line.child(div().ml_auto().child(right));
@@ -243,12 +222,102 @@ impl GridApp {
         out.into_any_element()
     }
 
+    /// One rescue target: a system MIDI port no FM-1 answered from, captioned
+    /// "MIDI RESCUE: <port>", with the same flash control a live unit's row has.
+    fn rescue_row(&mut self, ix: usize, name: &str, cx: &mut Context<Self>) -> AnyElement {
+        let ink = cx.theme().foreground;
+        let armed = self.flash_armed.get(name).copied().unwrap_or(false);
+        let combo = self.rescue_combos.get(name).cloned();
+        h_flex()
+            .w_full()
+            .items_center()
+            .flex_wrap()
+            .gap_2()
+            .child(
+                div()
+                    .id(("rescue-port", ix))
+                    .text_size(px(12.0))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(ink)
+                    .child(format!("MIDI RESCUE: {name}"))
+                    .tooltip(|window, cx| {
+                        Tooltip::new(
+                            "No FM-1 answered to this port's name — flash it only if it \
+                             is a unit stuck in its update loader",
+                        )
+                        .build(window, cx)
+                    }),
+            )
+            .child(
+                div().ml_auto().child(
+                    self.flash_control(("rescue-flash", ix), name, armed, combo, cx),
+                ),
+            )
+            .into_any_element()
+    }
+
+    /// The flash control every flashable row shares — a live unit's or a rescue
+    /// port's: the "Flash" toggle arms the always-present firmware combobox. The
+    /// combobox's subscription does the flashing; the sweep builds the combobox.
+    fn flash_control(
+        &self,
+        switch: impl Into<ElementId>,
+        name: &str,
+        armed: bool,
+        combo: Option<Entity<ComboboxState<FirmwareDelegate>>>,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let name = name.to_string();
+        h_flex()
+            .items_center()
+            .gap_2()
+            .child(
+                Switch::new(switch)
+                    .label("Flash")
+                    .checked(armed)
+                    .tooltip("Arm flashing, then pick a firmware to flash this unit")
+                    .on_change(cx.listener(move |this, &on, window, cx| {
+                        this.flash_armed.insert(name.clone(), on);
+                        this.refocus(window, cx);
+                        cx.notify();
+                    })),
+            )
+            .child(match combo {
+                Some(state) => div()
+                    .w(px(FLASH_COMBO_W))
+                    .child(
+                        Combobox::new(&state)
+                            .placeholder("flash firmware…")
+                            .search_placeholder("Filter…")
+                            .menu_width(px(crate::theme::COMBO_MENU_W))
+                            .disabled(!armed)
+                            .empty(|_, cx| {
+                                div()
+                                    .p_2()
+                                    .text_size(px(10.0))
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child("No firmware matches")
+                            }),
+                    )
+                    .into_any_element(),
+                // The sweep builds the combobox the moment a target appears; hold its
+                // space until then so the row doesn't jump.
+                None => div()
+                    .w(px(FLASH_COMBO_W))
+                    .h(px(28.0))
+                    .into_any_element(),
+            })
+            .into_any_element()
+    }
+
     /// Build a row's flash combobox with its subscriptions: a pick flashes the device.
     /// Called from the sweep (which has the window) when a device first appears;
-    /// dropped when it goes.
+    /// dropped when it goes. With `rescue`, the row belongs to a MIDI port no FM-1
+    /// answered from: the pick goes to `Hardware::rescue_flash`, and problems land on
+    /// the pane-level flash board (a rescue target has no row of its own).
     /// shortcut: each combo leaves two inert Subscriptions in `_subscriptions` after
     /// its device goes away; worth pruning only if hotplug churn ever runs hot.
-    pub(crate) fn open_flash_picker(&mut self, device: &str, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn open_flash_picker(&mut self, device: &str, rescue: bool, window: &mut Window, cx: &mut Context<Self>) {
         let delegate = FirmwareDelegate::from_app(self);
         let state = cx.new(|cx| {
             ComboboxState::new(delegate, vec![], window, cx).searchable(true)
@@ -260,9 +329,11 @@ impl GridApp {
             move |this, _, event, _window, cx| {
                 if let ComboboxEvent::Change(values) = event {
                     if let Some(pick) = values.last() {
-                        match pick.bytes(this.store.as_ref()) {
-                            Ok(bytes) => this.hardware.flash(&picked, bytes),
-                            Err(e) => this.hardware.report(&picked, e),
+                        match (rescue, pick.bytes(this.store.as_ref())) {
+                            (true, Ok(bytes)) => this.hardware.rescue_flash(&picked, bytes),
+                            (false, Ok(bytes)) => this.hardware.flash(&picked, bytes),
+                            (true, Err(e)) => this.hardware.report_board(e),
+                            (false, Err(e)) => this.hardware.report(&picked, e),
                         }
                     }
                     cx.notify();
@@ -276,6 +347,10 @@ impl GridApp {
                 this.focus.focus(window, cx);
             },
         ));
-        self.flash_combos.insert(device.to_string(), state);
+        if rescue {
+            self.rescue_combos.insert(device.to_string(), state);
+        } else {
+            self.flash_combos.insert(device.to_string(), state);
+        }
     }
 }

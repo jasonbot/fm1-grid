@@ -14,8 +14,7 @@
 /// bInterfaceClass=1, bInterfaceSubClass=3`. The image is an update payload, not a
 /// descriptor table, so this is a byte-level search — cheap enough at install time and
 /// exact enough (the 9-byte pattern has no false positives in practice).
-#[cfg(any(feature = "gui", test))]
-pub(crate) fn advertised(image: &[u8]) -> bool {
+pub fn advertised(image: &[u8]) -> bool {
     let mut i = 0;
     while i + 9 <= image.len() {
         if image[i] == 9

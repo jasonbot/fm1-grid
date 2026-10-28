@@ -1,11 +1,11 @@
-//! The transport bar at the bottom of the window: the miniature front panel and the
-//! MIDI-clock metronome row. The tempo readout is a themed number input now (the egui
+//! The transport bar at the bottom of the window: the MIDI-clock metronome row,
+//! global across tabs. The tempo readout is a themed number input now (the egui
 //! LCD-styled DragValue gave way to strict theme colours); its steppers and typed
-//! edits both land in [`crate::clock::Clock::set_bpm`].
+//! edits both land in [`fm1_performer::clock::Clock::set_bpm`].
 
 use crate::app::GridApp;
-use crate::clock::{MAX_BPM, MIN_BPM};
-use crate::routing::{Port, label_of};
+use fm1_performer::clock::{MAX_BPM, MIN_BPM};
+use fm1_performer::routing::{Port, label_of};
 use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::component::button::Button;
 use gpui_kit::component::input::NumberInput;
@@ -23,10 +23,6 @@ const TEMPO_FIELD_W: f32 = 140.0;
 /// The beat light's diameter.
 const BEAT_LED: f32 = 18.0;
 
-/// The window height the full stack needs (title bar, tabs, full panel, 1x grid);
-/// below it the front panel's keyboard sheds its compact allowance.
-const PANEL_COMPACT_BELOW: f32 = 950.0;
-
 impl GridApp {
     /// The transport sits in a flat theme-coloured bar at the bottom of the window.
     pub fn transport(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -34,7 +30,6 @@ impl GridApp {
             let theme = cx.theme();
             (theme.background, theme.border)
         };
-        let compact = window.viewport_size().height < px(PANEL_COMPACT_BELOW);
         v_flex()
             .w_full()
             .bg(bar_bg)
@@ -42,9 +37,6 @@ impl GridApp {
             .border_color(border)
             .px_3()
             .py_2()
-            .gap_2()
-            .child(self.control_display(cx, compact))
-            .child(div().h(px(1.0)).w_full().bg(border))
             .child(self.metronome(window, cx))
     }
 

@@ -5,7 +5,7 @@
 //! Pure functions; no app state. Pixels are `[r, g, b]` bytes; [`frame_image`] packs
 //! them into the gpui `RenderImage` the views paint.
 
-use crate::emulator::{LCD_H, LCD_W};
+use fm1_performer::emulator::{LCD_H, LCD_W};
 use gpui_kit::RenderImage;
 use image::{Frame, ImageBuffer, Rgba};
 use std::sync::Arc;

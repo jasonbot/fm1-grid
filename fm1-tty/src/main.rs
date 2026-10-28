@@ -2,7 +2,7 @@
 //! firmware library with hub downloads and flashing, the virtual keyboard with a
 //! MIDI-input selector, and the MIDI-clock metronome. No emulator — a TUI makes no
 //! sense for one; everything here talks to units over USB-MIDI. All the machinery is
-//! the GUI crate's (`fm1_grid`); only the drawing and the event loop are new.
+//! fm1-performer's; only the drawing and the event loop are new.
 
 #[cfg(not(target_arch = "wasm32"))]
 mod app;
@@ -90,7 +90,7 @@ fn handle(app: &mut app::TuiApp, event: ratatui::crossterm::event::Event) {
 /// The computer key that plays an FM-1 note key, per the shared layout table.
 #[cfg(not(target_arch = "wasm32"))]
 fn piano_key(name: &str) -> Option<u8> {
-    fm1_grid::keys::PIANO
+    fm1_performer::keys::PIANO
         .iter()
         .find(|(key, _)| *key == name)
         .map(|(_, id)| *id)

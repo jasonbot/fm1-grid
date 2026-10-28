@@ -2038,17 +2038,31 @@ name = "fm1-grid"
 version = "0.1.0"
 dependencies = [
  "cpal",
- "directories",
- "flate2",
- "fm1-core",
+ "fm1-performer",
  "fm1-soc",
  "gpui-kit",
  "hqx",
  "image",
+ "rfd",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "fm1-isa"
+version = "0.3.0"
+source = "git+https://github.com/joakimeriksson/fm1-emu.git?rev=40780288c0b010c387ee81fd34a6bfc64df9aced#40780288c0b010c387ee81fd34a6bfc64df9aced"
+
+[[package]]
+name = "fm1-performer"
+version = "0.1.0"
+dependencies = [
+ "directories",
+ "flate2",
+ "fm1-core",
+ "fm1-soc",
  "libc",
  "midir",
- "ratatui",
- "rfd",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -2058,16 +2072,19 @@ dependencies = [
 ]
 
 [[package]]
-name = "fm1-isa"
-version = "0.3.0"
-source = "git+https://github.com/joakimeriksson/fm1-emu.git?rev=40780288c0b010c387ee81fd34a6bfc64df9aced#40780288c0b010c387ee81fd34a6bfc64df9aced"
-
-[[package]]
 name = "fm1-soc"
 version = "0.3.0"
 source = "git+https://github.com/joakimeriksson/fm1-emu.git?rev=40780288c0b010c387ee81fd34a6bfc64df9aced#40780288c0b010c387ee81fd34a6bfc64df9aced"
 dependencies = [
  "fm1-core",
+]
+
+[[package]]
+name = "fm1-tty"
+version = "0.1.0"
+dependencies = [
+ "fm1-performer",
+ "ratatui",
 ]
 
 [[package]]

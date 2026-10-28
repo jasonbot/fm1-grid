@@ -14,8 +14,10 @@ at least 1x. The grid background takes the main colour of the selected screen (u
 once a second, faded over 500 ms). The Devices tab splits the window evenly between
 the live USB units and the MIDI graph.
 
-The large FM-1 front panel above the metronome mirrors the active pane: click its keys
-and buttons, turn knobs with the −/+ ends, and watch its LEDs follow the firmware.
+The large FM-1 front panel at the bottom of the Emulator tab mirrors the active pane:
+click its keys and buttons, turn knobs with the −/+ ends, and watch its LEDs follow
+the firmware. The computer keyboard plays the pane while that tab shows; a configured
+MIDI keyboard forwards on any tab.
 
 A running pane can be **pinned** (the toggle beside its firmware selector): its flash
 contents — the device's settings and project data — are written to disk at power-off
@@ -39,7 +41,7 @@ firmware file with a name, version and description.
 ## Run
 
 ```sh
-cargo run --release
+cargo run --release -p fm1-grid
 ```
 
 With no arguments, the four panes load:
@@ -59,7 +61,7 @@ Pass up to four firmware files to choose what loads where (left to right, top to
 bottom):
 
 ```sh
-cargo run --release -- sloop.fwsc felucca.fwsc
+cargo run --release -p fm1-grid -- sloop.fwsc felucca.fwsc
 ```
 
 A `.fwsc` file is an update package; a `.bin` or `.xip` file is a raw app image.
@@ -136,15 +138,15 @@ anyway. Under the hood it runs the same code as the big app, so it works the
 same way.
 
 ```sh
-cargo run --release --bin fm1-tty
+cargo run --release -p fm1-tty
 ```
 
-When you're only working on fm1-tty, build it without the GUI stack — this skips
-gpui-kit and friends (about 350 of the 480 crates) and a clean build drops from
-~40s to ~10s:
+fm1-tty is its own crate and doesn't depend on the GUI stack at all — building it
+skips gpui-kit and friends (about 350 of the 480 crates) and a clean build drops
+from ~40s to ~10s:
 
 ```sh
-cargo build --bin fm1-tty --no-default-features
+cargo build -p fm1-tty
 ```
 
 The screen has three parts:
@@ -202,32 +204,39 @@ The firmware images are unmodified packages from
 [The FM-1 Firmware Hub](https://thefirmwarehub.com/), M-VAVE and Baud Girl. They keep
 their own licences: everything hub-mirrored is GPL-3.0, M-VAVE's FM-1_015 is
 Apache-2.0, and FM-1+VA is proprietary. The emulator crates are MIT. See
-`firmware/README.md`.
+`fm1-performer/firmware/README.md`.
 
 ## Layout
 
+Three crates in one workspace: **fm1-performer** holds the UI-free machinery both
+apps share, **fm1-grid** is the gpui-kit app, **fm1-tty** the terminal UI.
+
 ```
-build.rs             generates the embedded firmware table from firmware/firmwares.json
-scripts/firmware.sh  add/del/list for the embedded firmware list
-src/affinity.rs      Linux physical-core detection and per-emulator pinning
-src/app.rs           grid state: pane power, firmware install, key routing, LCD upload
-src/clock.rs         MIDI-clock thread, tempo, beat light
-src/emulator.rs      one thread + SoC + cores per slot, flash snapshot at exit
-src/audio.rs         four queues mixed into one output stream
-src/builtin.rs       embedded firmware catalogue (generated table)
-src/grid.rs          the 2x2 grid of cards (screens snap 1x/0.5x to fit) and the background colour
-src/sidebar.rs       the device sidebar: heading, upscaled screen, pane controls, pin
-src/panel.rs         the clickable FM-1 front panel
-src/transport.rs     the bottom bar: panel plus metronome
-src/lcd.rs           RGB565 decode, colours, NTSC/ghost/hqx image filters
-src/keys.rs          keyboard layout and panel key tables
-src/theme.rs         the FM-1 hardware colours; app chrome follows gpui-kit
-src/store.rs         on-disk objects (JSON) and blobs (desktop dir / localStorage)
-src/library.rs       the firmware library: model, hub fetch/downloads, persistence
-src/library_tab.rs   the Library tab's list, pills, actions and add-file form
-src/flash_dialog.rs  the modal flash progress + message terminal
-src/main.rs          startup, CLI firmware arguments, the quit hook saving pins
-src/bin/fm1-tty/     the terminal UI (ratatui): library + flashing, piano, metronome
-src/tests/           headless UI smoke tests
-firmware/            the embedded .fwsc packages plus firmwares.json
+scripts/firmware.sh             add/del/list for the embedded firmware list
+fm1-performer/build.rs          generates the embedded firmware table from firmware/firmwares.json
+fm1-performer/firmware/         the embedded .fwsc packages plus firmwares.json
+fm1-performer/src/emulator.rs   one thread + SoC + cores per slot, flash snapshot at exit
+fm1-performer/src/audio.rs      the per-slot audio queue (the cpal output lives in fm1-grid)
+fm1-performer/src/affinity.rs   Linux physical-core detection and per-emulator pinning
+fm1-performer/src/hardware.rs   the USB-MIDI scanner and live-unit client
+fm1-performer/src/routing.rs    the MIDI graph: sources, sinks, links
+fm1-performer/src/clock.rs      MIDI-clock thread, tempo, beat light
+fm1-performer/src/midi_keys.rs  a physical MIDI keyboard driving the virtual one
+fm1-performer/src/library.rs    the firmware library: model, hub fetch/downloads, persistence
+fm1-performer/src/store.rs      on-disk objects (JSON) and blobs (desktop dir / localStorage)
+fm1-performer/src/builtin.rs    embedded firmware catalogue (generated table)
+fm1-performer/src/keys.rs       keyboard layout and panel key tables
+fm1-grid/src/app.rs             grid state: pane power, firmware install, key routing, LCD upload
+fm1-grid/src/audio.rs           the four slot queues mixed into one output stream
+fm1-grid/src/grid.rs            the 2x2 grid of cards (screens snap 1x/0.5x to fit) and the background colour
+fm1-grid/src/sidebar.rs         the device sidebar: heading, upscaled screen, pane controls, pin
+fm1-grid/src/panel.rs           the clickable FM-1 front panel (bottom of the Emulator tab)
+fm1-grid/src/transport.rs       the bottom bar: the metronome row, global across tabs
+fm1-grid/src/lcd.rs             RGB565 decode, colours, NTSC/ghost/hqx image filters
+fm1-grid/src/theme.rs           the FM-1 hardware colours; app chrome follows gpui-kit
+fm1-grid/src/library_tab.rs     the Library tab's list, pills, actions and add-file form
+fm1-grid/src/flash_dialog.rs    the modal flash progress + message terminal
+fm1-grid/src/main.rs            startup, CLI firmware arguments, the quit hook saving pins
+fm1-grid/src/tests/             headless UI smoke tests
+fm1-tty/src/                    the terminal UI (ratatui): library + flashing, piano, metronome
 ```

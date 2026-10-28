@@ -1,12 +1,12 @@
-//! The miniature FM-1 front panel in the transport bar: a working control surface whose
-//! keys, buttons and knob ends are clickable, whose knobs also turn with the mouse
-//! wheel, and whose LEDs follow both the computer keyboard and the emulated firmware's
-//! own LED state. The layout is fixed geometry from the FM-1 control map
-//! ([`crate::keys`]), drawn with absolutely positioned elements; the panel's rendered
+//! The miniature FM-1 front panel at the bottom of the Emulator tab: a working control
+//! surface whose keys, buttons and knob ends are clickable, whose knobs also turn with
+//! the mouse wheel, and whose LEDs follow both the computer keyboard and the emulated
+//! firmware's own LED state. The layout is fixed geometry from the FM-1 control map
+//! ([`fm1_performer::keys`]), drawn with absolutely positioned elements; the panel's rendered
 //! width is recorded during prepaint so the geometry tracks the window.
 
 use crate::app::GridApp;
-use crate::keys::{
+use fm1_performer::keys::{
     BLACK_KEYS, FUNCTION_ROW_1, FUNCTION_ROW_2, PANEL_KEYS, WHITE_KEYS, panel_key_hint,
 };
 use crate::theme::{
@@ -68,6 +68,7 @@ impl GridApp {
         let app = cx.entity().clone();
         let mut panel = div()
             .id("fm1-panel")
+            .test_support()
             .relative()
             .w(px(w))
             .max_w_full()

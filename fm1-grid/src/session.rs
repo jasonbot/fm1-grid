@@ -7,8 +7,8 @@ use gpui_kit::{App, Entity};
 use serde::{Deserialize, Serialize};
 
 use crate::app::GridApp;
-use crate::clock::{DEFAULT_BPM, MAX_BPM, MIN_BPM};
-use crate::store::Store;
+use fm1_performer::clock::{DEFAULT_BPM, MAX_BPM, MIN_BPM};
+use fm1_performer::store::Store;
 use crate::theme::{SIDEBAR_INITIAL, SIDEBAR_MAX, SIDEBAR_MIN};
 
 const SESSION_OBJECT: &str = "session";
@@ -52,7 +52,7 @@ impl Session {
             .unwrap_or_default();
         session.sidebar_width = session.sidebar_width.clamp(SIDEBAR_MIN, SIDEBAR_MAX);
         session.tab = session.tab.min(2);
-        session.slot = session.slot.min(crate::MAX_SLOTS - 1);
+        session.slot = session.slot.min(fm1_performer::MAX_SLOTS - 1);
         session.bpm = session.bpm.clamp(MIN_BPM, MAX_BPM);
         session
     }
@@ -102,7 +102,7 @@ mod tests {
         assert_eq!(loaded.sidebar_width, SIDEBAR_MAX);
         assert_eq!(loaded.devices_width, Some(700.0));
         assert_eq!(loaded.tab, 2);
-        assert_eq!(loaded.slot, crate::MAX_SLOTS - 1);
+        assert_eq!(loaded.slot, fm1_performer::MAX_SLOTS - 1);
         assert_eq!(loaded.bpm, MIN_BPM);
 
         // No record: the defaults; a corrupt record: the defaults too.

@@ -5,24 +5,28 @@
 //! [`crate::sidebar`] (device sidebar), [`crate::graph`] (the MIDI graph editor in the
 //! sidebar), [`crate::panel`] (the miniature front panel) and [`crate::transport`] (the
 //! bottom bar). The look lives in [`crate::theme`] plus the gpui-kit theme tokens, LCD
-//! pixel work in [`crate::lcd`], and the FM-1 control maps in [`crate::keys`].
+//! pixel work in [`crate::lcd`], and the FM-1 control maps in [`fm1_performer::keys`].
 //!
 //! egui used to poll the keyboard once per frame; gpui delivers key events instead, so
 //! the held computer keys are tracked in [`GridApp::kb_down`] from `on_key_down` /
 //! `on_key_up` and merged with the panel mouse and the physical MIDI keyboard in
-//! [`GridApp::sync_held`]. A timer task ticks every 16 ms to upload LCD frames, decay
-//! LEDs, ease the grid background and repaint.
+//! [`GridApp::sync_held`]. The computer keyboard and panel mouse play only while the
+//! Emulator tab shows the panel; the MIDI keyboard forwards on any tab. A timer task
+//! ticks every 16 ms to upload LCD frames, decay LEDs, ease the grid background and
+//! repaint.
 
-use crate::audio::{start_audio, AudioRing};
-use crate::builtin::BUILTINS;
-use crate::clock::Clock;
-use crate::emulator::{EmulatorHandle, LCD_H, LCD_W};
+use crate::audio::start_audio;
 use crate::firmware_picker::FirmwareDelegate;
-use crate::hardware::Hardware;
-use crate::keys::{BUTTONS, PIANO};
-use crate::midi_keys::MidiKeys;
-use crate::routing::Routing;
-use crate::{lcd, MAX_SLOTS};
+use crate::lcd;
+use fm1_performer::MAX_SLOTS;
+use fm1_performer::audio::AudioRing;
+use fm1_performer::builtin::BUILTINS;
+use fm1_performer::clock::Clock;
+use fm1_performer::emulator::{EmulatorHandle, LCD_H, LCD_W};
+use fm1_performer::hardware::Hardware;
+use fm1_performer::keys::{BUTTONS, PIANO};
+use fm1_performer::midi_keys::MidiKeys;
+use fm1_performer::routing::Routing;
 use fm1_soc::Action;
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::base::{VirtualListScrollHandle, resizable_panel};
@@ -170,7 +174,7 @@ pub struct GridApp {
     /// poller thread; the transport bar's selector picks the port.
     pub(crate) midi_keys: MidiKeys,
     /// The graph source waiting for its first sink (the graph UI's pending row).
-    pub(crate) pending_source: Option<crate::routing::Port>,
+    pub(crate) pending_source: Option<fm1_performer::routing::Port>,
     /// Per-device flash arming (the row's "Flash" toggle) and its combobox, and the
     /// was-flashing marker that re-safes the toggle when a flash succeeds.
     pub(crate) flash_armed: std::collections::HashMap<String, bool>,
@@ -192,7 +196,8 @@ pub struct GridApp {
     pub(crate) ghost: Arc<RenderImage>,
     /// Whether the ghost currently holds a live (powered) snapshot.
     ghost_live: bool,
-    /// FM-1 keys/buttons currently held on the computer keyboard (event-driven).
+    /// FM-1 keys/buttons currently held on the computer keyboard (event-driven; only
+    /// set while the Emulator tab shows the panel).
     kb_down: [bool; 41],
     /// Keys/buttons currently sent as down to the active emulator (keyboard or panel mouse).
     pub(crate) held: [bool; 41],
@@ -255,9 +260,9 @@ pub struct GridApp {
     pub(crate) tempo_input: Entity<InputState>,
     /// On-disk state (pinned slots' firmware records and flash snapshots). None if the
     /// platform has no data directory.
-    pub(crate) store: Option<crate::store::Store>,
+    pub(crate) store: Option<fm1_performer::store::Store>,
     /// The firmware library (the Library tab's data; pickers read it too).
-    pub(crate) library: crate::library::Library,
+    pub(crate) library: fm1_performer::library::Library,
     /// The Library tab's add-file form.
     pub(crate) lib_form: LibForm,
     /// The library list's scroll state (shared with its scrollbar, PgUp/PgDn, and
@@ -277,7 +282,7 @@ pub struct GridApp {
 
 impl GridApp {
     pub fn new(window: &mut Window, cx: &mut Context<Self>, initial: &[PathBuf]) -> Self {
-        let core_cpus = crate::affinity::core_cpus();
+        let core_cpus = fm1_performer::affinity::core_cpus();
 
         let rings: [Arc<AudioRing>; MAX_SLOTS] =
             std::array::from_fn(|_| Arc::new(AudioRing::new()));
@@ -290,7 +295,7 @@ impl GridApp {
         let routing = Routing::start();
         let midi_keys = MidiKeys::start();
         let hardware = Hardware::start(clock.clone(), routing.clone());
-        let store = match crate::store::Store::new() {
+        let store = match fm1_performer::store::Store::new() {
             Ok(store) => Some(store),
             Err(e) => {
                 eprintln!("fm1-grid: no on-disk store: {e}");
@@ -431,12 +436,12 @@ impl GridApp {
             Some(store) => store,
             None => {
                 fallback_store =
-                    crate::store::Store::in_dir(&std::env::temp_dir().join("fm1-grid-nostore"));
+                    fm1_performer::store::Store::in_dir(&std::env::temp_dir().join("fm1-grid-nostore"));
                 &fallback_store
             }
         };
         // The hub catalog comes in at app load; later refreshes keep an hourly cadence.
-        let mut library = crate::library::Library::load(store_ref);
+        let mut library = fm1_performer::library::Library::load(store_ref);
         library.refresh_hub();
 
         let mut app = Self {
@@ -615,8 +620,8 @@ impl GridApp {
     }
 
     /// What a picker selected, installed into the slot.
-    pub(crate) fn install_pick(&mut self, slot: usize, pick: crate::firmware_picker::FirmwarePick) {
-        use crate::firmware_picker::FirmwarePick;
+    pub(crate) fn install_pick(&mut self, slot: usize, pick: fm1_performer::firmware_picker::FirmwarePick) {
+        use fm1_performer::firmware_picker::FirmwarePick;
         match pick {
             FirmwarePick::Builtin(index) => self.load_builtin(slot, index),
             FirmwarePick::File(path) => self.load_file(slot, path),
@@ -629,7 +634,7 @@ impl GridApp {
     /// exactly like the USB flash path.
     fn load_blob(&mut self, slot: usize, key: &str) {
         let Some(store) = &self.store else { return };
-        let pick = crate::firmware_picker::FirmwarePick::HubBlob(key.to_string());
+        let pick = fm1_performer::firmware_picker::FirmwarePick::HubBlob(key.to_string());
         match pick.bytes(Some(store)) {
             Ok(bytes) => {
                 let label = key.rsplit('/').next().unwrap_or(key).to_string();
@@ -655,13 +660,13 @@ impl GridApp {
             let delegate = crate::firmware_picker::FirmwareDelegate::from_app(self);
             let selected = match &self.slots[slot].source {
                 Some(Source::Builtin(index)) => {
-                    Some(crate::firmware_picker::FirmwarePick::Builtin(*index))
+                    Some(fm1_performer::firmware_picker::FirmwarePick::Builtin(*index))
                 }
                 Some(Source::File(path)) => {
-                    Some(crate::firmware_picker::FirmwarePick::File(path.clone()))
+                    Some(fm1_performer::firmware_picker::FirmwarePick::File(path.clone()))
                 }
                 Some(Source::Blob { key, .. }) => {
-                    Some(crate::firmware_picker::FirmwarePick::HubBlob(key.clone()))
+                    Some(fm1_performer::firmware_picker::FirmwarePick::HubBlob(key.clone()))
                 }
                 None => None,
             };
@@ -696,7 +701,7 @@ impl GridApp {
         self.clock.set_target(slot, None);
         self.slots[slot].handle = None;
         self.sync_pane(slot);
-        self.slots[slot].usb_midi = crate::usbmidi::advertised(&bytes);
+        self.slots[slot].usb_midi = fm1_performer::usbmidi::advertised(&bytes);
         self.slots[slot].source = Some(source);
         self.slots[slot].label = Some(label.clone());
         self.slots[slot].error = None;
@@ -743,7 +748,7 @@ impl GridApp {
     fn sync_pane(&self, slot: usize) {
         let sink = self.slots[slot].handle.as_ref().map(|handle| {
             (
-                crate::routing::pane_label(slot, self.slots[slot].label.as_ref()),
+                fm1_performer::routing::pane_label(slot, self.slots[slot].label.as_ref()),
                 handle.tx.clone(),
             )
         });
@@ -891,9 +896,10 @@ impl GridApp {
     }
 
     /// Computer key pressed while the root view has focus: an encoder turn for the
-    /// arrow and comma/period keys, an FM-1 key/button down for the rest. Modifier
-    /// chords (Ctrl/Alt/Super) are left alone; Shift is allowed so Caps Lock and
-    /// shifted letters still play.
+    /// arrow and comma/period keys, an FM-1 key/button down for the rest — but only
+    /// on the Emulator tab, the only place the front panel shows; the Library tab
+    /// keeps PgUp/PgDn for its list. Modifier chords (Ctrl/Alt/Super) are left
+    /// alone; Shift is allowed so Caps Lock and shifted letters still play.
     fn key_down(&mut self, event: &KeyDownEvent, _window: &mut Window, cx: &mut Context<Self>) {
         let stroke = &event.keystroke;
         let modifiers = &stroke.modifiers;
@@ -904,6 +910,9 @@ impl GridApp {
             // The Library tab pages its list.
             "pageup" if self.active_tab == 2 => self.scroll_library(-1.0),
             "pagedown" if self.active_tab == 2 => self.scroll_library(1.0),
+            // Everything below plays the panel's pane; with the panel hidden the
+            // keys stay inert.
+            _ if self.active_tab != 0 => return,
             "left" => self.turn_encoder(6, -1),
             "right" => self.turn_encoder(6, 1),
             "down" => self.turn_encoder(1, 1),
@@ -926,7 +935,12 @@ impl GridApp {
         cx.notify();
     }
 
+    /// Key releases only matter where presses are played (the Emulator tab); with the
+    /// panel hidden `kb_down` is already empty, so this is a cheap early-out.
     fn key_up(&mut self, event: &KeyUpEvent, _window: &mut Window, cx: &mut Context<Self>) {
+        if self.active_tab != 0 {
+            return;
+        }
         let key = event.keystroke.key.to_ascii_lowercase();
         if let Some((_, id)) = PIANO
             .iter()
@@ -941,9 +955,10 @@ impl GridApp {
         }
     }
 
-    /// A mouse release anywhere lifts the mouse-held panel keys/buttons.
+    /// A mouse release anywhere lifts the mouse-held panel keys/buttons. The panel
+    /// shows only on the Emulator tab, so only there can any be held.
     fn mouse_up(&mut self, _: &MouseUpEvent, _window: &mut Window, cx: &mut Context<Self>) {
-        if self.panel_down.iter().any(|&down| down) {
+        if self.active_tab == 0 && self.panel_down.iter().any(|&down| down) {
             self.panel_down = [false; 41];
             self.sync_held();
             cx.notify();
@@ -960,7 +975,7 @@ impl GridApp {
     ) {
         let text = state.read(cx).value().to_string();
         let bpm = match text.trim().parse::<u32>() {
-            Ok(bpm) => bpm.clamp(crate::clock::MIN_BPM, crate::clock::MAX_BPM),
+            Ok(bpm) => bpm.clamp(fm1_performer::clock::MIN_BPM, fm1_performer::clock::MAX_BPM),
             Err(_) => self.clock.bpm(),
         };
         self.clock.set_bpm(bpm);
@@ -1176,30 +1191,44 @@ impl GridApp {
     }
 }
 
+/// The window height the full stack needs (title bar, tabs, full panel, 1x grid);
+/// below it the front panel's keyboard sheds its compact allowance.
+const PANEL_COMPACT_BELOW: f32 = 950.0;
+
 impl GridApp {
     /// The Emulator tab: the 2x2 grid and the selected pane's sidebar in a draggable
-    /// split. The sidebar's range holds the screen at 1x to 4x; the grid panel's
+    /// split, with the miniature front panel tucked at the bottom — the only tab that
+    /// shows it. The sidebar's range holds the screen at 1x to 4x; the grid panel's
     /// minimum keeps the 0.5x cards whole (the cards snap down when it shrinks).
     fn emulator_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        div().size_full().child(
-            h_resizable("emulator-split")
-                .with_state(&self.emulator_split)
-                .child(
-                    // gpui-base rescales panels with the container only when every
-                    // panel has a size; an unsized grid panel would pin the sidebar
-                    // to its initial width (and its screen would never reach 4x).
-                    resizable_panel()
-                        .size(px(1152.0 - self.sidebar_width))
-                        .size_range(px(crate::grid::GRID_MIN_W)..Pixels::MAX)
-                        .child(self.grid_area(cx)),
-                )
-                .child(
-                    resizable_panel()
-                        .size(px(self.sidebar_width))
-                        .size_range(px(crate::theme::SIDEBAR_MIN)..px(crate::theme::SIDEBAR_MAX))
-                        .child(self.device_sidebar(window, cx)),
+        let compact = window.viewport_size().height < px(PANEL_COMPACT_BELOW);
+        v_flex()
+            .size_full()
+            .child(
+                div().flex_1().min_h_0().w_full().child(
+                    h_resizable("emulator-split")
+                        .with_state(&self.emulator_split)
+                        .child(
+                            // gpui-base rescales panels with the container only when
+                            // every panel has a size; an unsized grid panel would pin
+                            // the sidebar to its initial width (and its screen would
+                            // never reach 4x).
+                            resizable_panel()
+                                .size(px(1152.0 - self.sidebar_width))
+                                .size_range(px(crate::grid::GRID_MIN_W)..Pixels::MAX)
+                                .child(self.grid_area(cx)),
+                        )
+                        .child(
+                            resizable_panel()
+                                .size(px(self.sidebar_width))
+                                .size_range(
+                                    px(crate::theme::SIDEBAR_MIN)..px(crate::theme::SIDEBAR_MAX),
+                                )
+                                .child(self.device_sidebar(window, cx)),
+                        ),
                 ),
-        )
+            )
+            .child(self.control_display(cx, compact))
     }
 
     /// The left icon rail: the app tabs as icon-only buttons stacked vertically.
@@ -1249,6 +1278,15 @@ impl GridApp {
                     .when(selected, |this| this.bg(chip).shadow_xs())
                     .when(!selected, |this| this.hover(|this| this.bg(wash)))
                     .on_click(cx.listener(move |this, _, window, cx| {
+                        if this.active_tab == 0 && ix != 0 {
+                            // The panel hides with the tab: lift computer- and
+                            // mouse-held keys so nothing sticks while it's gone.
+                            // Physical-MIDI notes survive — sync_held re-merges
+                            // them into the wanted state.
+                            this.kb_down = [false; 41];
+                            this.panel_down = [false; 41];
+                            this.sync_held();
+                        }
                         this.active_tab = ix;
                         if ix == 2 {
                             // Opening the library refreshes the online listing.

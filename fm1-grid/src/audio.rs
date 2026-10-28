@@ -1,53 +1,22 @@
 //! Mixes the audio of the emulators into one output stream.
 //!
 //! Every emulator produces 44.1 kHz stereo signed-16-bit samples. Each slot owns an
-//! [`AudioRing`]; the emulator thread fills it and the audio callback drains all slots.
-//! The callback resamples from 44.1 kHz to whatever rate the sound card uses.
+//! [`AudioRing`] (fm1-performer); the emulator thread fills it and the audio callback
+//! drains all slots. The callback resamples from 44.1 kHz to whatever rate the sound
+//! card uses.
 
-use crate::MAX_SLOTS;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{FromSample, SampleFormat, SizedSample};
+use fm1_performer::MAX_SLOTS;
+use fm1_performer::audio::AudioRing;
 use std::collections::VecDeque;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use std::sync::atomic::Ordering;
 
 /// The emulator's native sample rate.
 const EMU_RATE: f64 = 44_100.0;
 /// Per-slot gain. Several units at full scale would clip without it.
 const SLOT_GAIN: f32 = 0.30;
-/// Keep at most this much audio queued per slot (stereo i16 samples, 250 ms).
-pub(crate) const MAX_QUEUED: usize = 44_100 * 2 / 4;
-
-pub struct AudioRing {
-    /// Interleaved stereo: L, R, L, R, ...
-    pub q: Mutex<VecDeque<i16>>,
-    /// Set once the emulator has actually produced audio.
-    pub started: AtomicBool,
-    /// Count of callbacks that ran dry after audio had started.
-    pub underruns: AtomicU64,
-}
-
-impl AudioRing {
-    pub fn new() -> Self {
-        Self {
-            q: Mutex::new(VecDeque::with_capacity(MAX_QUEUED)),
-            started: AtomicBool::new(false),
-            underruns: AtomicU64::new(0),
-        }
-    }
-
-    pub fn reset(&self) {
-        self.q.lock().unwrap().clear();
-        self.started.store(false, Ordering::Relaxed);
-        self.underruns.store(0, Ordering::Relaxed);
-    }
-}
-
-impl Default for AudioRing {
-    fn default() -> Self {
-        Self::new()
-    }
-}
 
 /// Open the default output device. Keep the returned stream alive for as long as you
 /// want sound; dropping it stops the audio.

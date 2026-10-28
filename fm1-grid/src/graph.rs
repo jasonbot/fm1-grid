@@ -1,12 +1,12 @@
 //! The MIDI graph editor: one row per connected source ("out → in in in"), edited with
 //! chips and dropdown menus. System ports, running panes and the live FM-1 units are
 //! all endpoints; the live units piggyback on the hardware module's open ports. All
-//! graph state lives in [`crate::routing`]; this only draws it and posts commands. It
+//! graph state lives in [`fm1_performer::routing`]; this only draws it and posts commands. It
 //! sits at the bottom of the device sidebar, scrolling when the links outgrow the
 //! space the sidebar leaves.
 
 use crate::app::GridApp;
-use crate::routing::Port;
+use fm1_performer::routing::Port;
 use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::component::button::Button;
 use gpui_kit::component::menu::{DropdownMenu, PopupMenuItem};

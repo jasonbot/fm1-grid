@@ -18,7 +18,7 @@ pub(crate) const GRID_MIN_W: f32 = 287.0;
 /// The grid area's maximum width: side padding never passes ~1½ screen widths.
 const GRID_MAX_W: f32 = GRID_W + 720.0;
 /// The status dot's diameter and its inset from the screen's corner.
-const DOT_D: f32 = 10.0;
+const DOT_D: f32 = 20.0;
 const DOT_INSET: f32 = 5.0;
 
 impl GridApp {
@@ -63,8 +63,8 @@ impl GridApp {
     /// The 2x2 card grid. Cards are fixed-size at the current scale; screens are
     /// exactly 1x or 0.5x the 240 px LCD, never a fractional size.
     fn grid_cards(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
-        let mut cards = Vec::with_capacity(crate::MAX_SLOTS);
-        for slot in 0..crate::MAX_SLOTS {
+        let mut cards = Vec::with_capacity(fm1_performer::MAX_SLOTS);
+        for slot in 0..fm1_performer::MAX_SLOTS {
             cards.push(self.slot_card(slot, cx));
         }
         let mut rows = Vec::with_capacity(2);
@@ -97,7 +97,7 @@ impl GridApp {
         } else {
             self.frames[slot].clone()
         };
-        let side = crate::emulator::LCD_W as f32 * self.grid_scale;
+        let side = fm1_performer::emulator::LCD_W as f32 * self.grid_scale;
         // The health dot: the five-second dropout window's colour; hidden once the
         // slot has been green for a second (see `SlotHealth::track`).
         let dot = if self.health[slot].shown {

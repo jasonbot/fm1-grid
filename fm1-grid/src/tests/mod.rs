@@ -9,8 +9,9 @@ use crate::app::GridApp;
 use gpui_kit::base::Root;
 use gpui_kit::test::TestWindowExt;
 use gpui_kit::{
-    AppContext, Bounds, Entity, Focusable, Point, ScrollDelta, TestAppContext,
-    WindowBounds, WindowHandle, WindowOptions, open_window, point, px, size,
+    App, AppContext, Bounds, Entity, Focusable, InputEvent, KeyDownEvent, KeyUpEvent, Keystroke,
+    Point, ScrollDelta, TestAppContext, Window, WindowBounds, WindowHandle, WindowOptions,
+    open_window, point, px, size,
 };
 use std::time::Duration;
 
@@ -203,6 +204,107 @@ fn tempo_sanitizes_on_blur(cx: &mut TestAppContext) {
         assert_eq!(app.clock.bpm(), 300);
         assert_eq!(app.tempo_input.read(cx).value().as_ref(), "300");
     });
+}
+
+/// Dispatch a bare key down/up to the focused view (the rail buttons refocus the
+/// root view, so this always reaches the app's own key routing).
+fn send_key(window: &mut Window, cx: &mut App, key: &str, down: bool) {
+    let keystroke = Keystroke::parse(key).expect("test keystroke");
+    if down {
+        window.dispatch_event(
+            KeyDownEvent {
+                keystroke,
+                is_held: false,
+                prefer_character_input: false,
+            }
+            .to_platform_input(),
+            cx,
+        );
+    } else {
+        window.dispatch_event(KeyUpEvent { keystroke }.to_platform_input(), cx);
+    }
+}
+
+/// The front panel shows only on the Emulator tab, and the computer keys play the
+/// pane only while it shows; switching away lifts the held keys (no stuck notes).
+/// The metronome row stays global.
+#[gpui_kit::test]
+fn panel_and_keys_follow_emulator_tab(cx: &mut TestAppContext) {
+    let (window, app) = open_app(cx);
+
+    // Power pane 1 (the default active pane) so held keys have somewhere to go.
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        assert!(window.find("fm1-panel").visible(), "panel on the Emulator tab");
+        assert!(window.find("midi-clock").visible(), "metronome is global");
+        window.click(("slot-card", 0usize), cx);
+        window.click("pane-power", cx);
+    })
+    .unwrap();
+    let mut running = false;
+    for _ in 0..40 {
+        std::thread::sleep(Duration::from_millis(100));
+        cx.background_executor.advance_clock(Duration::from_millis(100));
+        cx.run_until_parked();
+        running = cx.update(|cx| app.read(cx).slots[0].handle.is_some());
+        if running {
+            break;
+        }
+    }
+    assert!(running, "pane 1 failed to start");
+
+    // A piano key down on the Emulator tab reaches the pane's key state.
+    cx.update_window(window.into(), |_, window, cx| {
+        send_key(window, cx, "a", true);
+    })
+    .unwrap();
+    cx.update(|cx| assert!(app.read(cx).held.iter().any(|&down| down)));
+
+    // Switching to the Devices tab hides the panel, keeps the metronome, and lifts
+    // the key that was held when the tab changed.
+    cx.update_window(window.into(), |_, window, cx| {
+        window.click(("tab", 1usize), cx);
+        window.render_frame(cx);
+        assert!(window.try_find("fm1-panel").is_none(), "panel stays on the Emulator tab");
+        assert!(window.find("midi-clock").visible(), "metronome is global");
+    })
+    .unwrap();
+    cx.update(|cx| {
+        assert!(
+            app.read(cx).held.iter().all(|&down| !down),
+            "the tab switch must lift held keys"
+        );
+    });
+
+    // Keys are inert there and on the Library tab.
+    for tab in [1usize, 2] {
+        cx.update_window(window.into(), |_, window, cx| {
+            window.click(("tab", tab), cx);
+            send_key(window, cx, "a", true);
+        })
+        .unwrap();
+        cx.update(|cx| {
+            assert!(
+                app.read(cx).held.iter().all(|&down| !down),
+                "keys must not play on tab {tab}"
+            );
+        });
+        cx.update_window(window.into(), |_, window, cx| send_key(window, cx, "a", false))
+            .unwrap();
+    }
+
+    // Back on the Emulator tab the panel returns and keys play again.
+    cx.update_window(window.into(), |_, window, cx| {
+        window.click(("tab", 0usize), cx);
+        window.render_frame(cx);
+        assert!(window.find("fm1-panel").visible(), "panel returns with the tab");
+        send_key(window, cx, "a", true);
+    })
+    .unwrap();
+    cx.update(|cx| assert!(app.read(cx).held.iter().any(|&down| down)));
+    cx.update_window(window.into(), |_, window, cx| send_key(window, cx, "a", false))
+        .unwrap();
+    cx.update(|cx| assert!(app.read(cx).held.iter().all(|&down| !down)));
 }
 
 /// The health dot appears on the first drop, lingers a second after recovery, then

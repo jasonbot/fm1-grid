@@ -3,10 +3,10 @@
 //! the mouse hit regions (`app.regions`) for the next event pass.
 
 use crate::app::{Focus, Popup, Regions, TuiApp};
-use fm1_grid::clock::{MAX_BPM, MIN_BPM};
-use fm1_grid::hardware::{DeviceRow, FlashState};
-use fm1_grid::keys::{panel_key_hint, BLACK_KEYS, PANEL_KEYS, WHITE_KEYS};
-use fm1_grid::library::{Firmware, FirmwareDevice, FirmwareSource, HubStatus, Status};
+use fm1_performer::clock::{MAX_BPM, MIN_BPM};
+use fm1_performer::hardware::{DeviceRow, FlashState};
+use fm1_performer::keys::{panel_key_hint, BLACK_KEYS, PANEL_KEYS, WHITE_KEYS};
+use fm1_performer::library::{Firmware, FirmwareDevice, FirmwareSource, HubStatus, Status};
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
@@ -442,7 +442,7 @@ fn midi_popup(frame: &mut Frame, app: &mut TuiApp, sel: usize) {
 fn flash_target_popup(frame: &mut Frame, app: &mut TuiApp, sel: usize, names: &[String]) {
     let items: Vec<Line> = names
         .iter()
-        .map(|name| Line::from(fm1_grid::routing::label_of(name)))
+        .map(|name| Line::from(fm1_performer::routing::label_of(name)))
         .collect();
     list_popup(frame, app, "Flash to…", &items, sel);
 }

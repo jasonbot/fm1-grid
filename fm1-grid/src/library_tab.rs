@@ -5,8 +5,8 @@
 //! powers on). At the bottom, the add-a-file form.
 
 use crate::app::GridApp;
-use crate::firmware_picker::{FirmwarePick, pick_of};
-use crate::library::{Firmware, FirmwareDevice, FirmwareSource, Status};
+use fm1_performer::firmware_picker::{FirmwarePick, pick_of};
+use fm1_performer::library::{Firmware, FirmwareDevice, FirmwareSource, Status};
 use gpui_kit::base::{ElementExt, h_flex, v_flex, v_virtual_list};
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::input::Input;
@@ -303,7 +303,7 @@ impl GridApp {
     /// The list's last item: the hub's fetch status — a spinner while it loads, a
     /// reload button ("retry" after a failure).
     fn hub_status_item(&mut self, cx: &mut Context<Self>) -> AnyElement {
-        use crate::library::HubStatus;
+        use fm1_performer::library::HubStatus;
         let (dim, danger) = {
             let theme = cx.theme();
             (theme.muted_foreground, theme.danger)
@@ -547,7 +547,7 @@ impl GridApp {
             .filter(|row| row.flash.is_none())
             .map(|row| row.name.clone())
             .collect();
-        let slots: Vec<usize> = (0..crate::MAX_SLOTS)
+        let slots: Vec<usize> = (0..fm1_performer::MAX_SLOTS)
             .filter(|&slot| !self.powered[slot] && !self.slots[slot].pinned)
             .collect();
         let has_targets = !units.is_empty() || !slots.is_empty();

@@ -1,10 +1,10 @@
 //! The devices pane under the grid: one row per live FM-1 unit on USB — its clock
 //! switch, its port labels, and the flash control with its progress board. All device
-//! state lives in [`crate::hardware`]; this only draws it and posts commands.
+//! state lives in [`fm1_performer::hardware`]; this only draws it and posts commands.
 
 use crate::app::GridApp;
 use crate::firmware_picker::FirmwareDelegate;
-use crate::hardware::DeviceRow;
+use fm1_performer::hardware::DeviceRow;
 use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::component::combobox::{Combobox, ComboboxEvent, ComboboxState};
 use gpui_kit::component::progress::Progress;

@@ -1,0 +1,12 @@
+[package]
+name = "fm1-tty"
+version = "0.1.0"
+edition = "2021"
+description = "The pared-down terminal companion for live M-VAVE FM-1 units"
+license = "MIT"
+
+[dependencies]
+fm1-performer = { path = "../fm1-performer" }
+# The terminal UI; crossterm comes from ratatui's re-export so the versions never
+# drift apart.
+ratatui = "0.30"

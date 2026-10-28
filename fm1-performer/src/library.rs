@@ -141,7 +141,7 @@ impl Library {
     /// per-frame rebuild also re-read every downloaded blob just to check presence.
     /// A rebuild happens only when the inputs move (import, remove, download start
     /// or finish, hub swap); on-disk presence is re-statted on [`STAT_CADENCE`].
-    pub(crate) fn list(&mut self) -> &[Firmware] {
+    pub fn list(&mut self) -> &[Firmware] {
         let finished = self.collect_downloads();
         let swapped = self.hub_swapped.swap(false, Ordering::Relaxed);
         if finished || swapped || self.view_dirty {
@@ -206,8 +206,7 @@ impl Library {
     }
 
     /// The online listing's size (0 until the first successful fetch).
-    #[cfg(feature = "gui")]
-    pub(crate) fn hub_len(&self) -> usize {
+    pub fn hub_len(&self) -> usize {
         self.hub.lock().unwrap().len()
     }
 
@@ -321,8 +320,7 @@ impl Library {
     }
 
     /// Add a firmware file from disk.
-    #[cfg(any(feature = "gui", test))]
-    pub(crate) fn import_file(
+    pub fn import_file(
         &mut self,
         path: &str,
         name: &str,
@@ -347,8 +345,7 @@ impl Library {
 
     /// Forget an entry. Builtins stay. Files drop only the entry (the file stays on
     /// disk); hub entries drop the entry and the downloaded blob.
-    #[cfg(any(feature = "gui", test))]
-    pub(crate) fn remove(&mut self, name: &str) {
+    pub fn remove(&mut self, name: &str) {
         if self.builtins.iter().any(|f| f.name == name) {
             return;
         }
@@ -403,8 +400,7 @@ impl Library {
     }
 
     /// The installed list's change counter (see the field).
-    #[cfg(feature = "gui")]
-    pub(crate) fn generation(&self) -> u64 {
+    pub fn generation(&self) -> u64 {
         self.generation
     }
 }

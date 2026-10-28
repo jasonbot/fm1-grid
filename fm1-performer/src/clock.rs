@@ -14,7 +14,7 @@ use std::time::{Duration, Instant};
 /// The usable tempo range, in beats per minute.
 pub const MIN_BPM: u32 = 20;
 pub const MAX_BPM: u32 = 300;
-pub(crate) const DEFAULT_BPM: u32 = 120;
+pub const DEFAULT_BPM: u32 = 120;
 
 /// A destination for raw MIDI bytes: a live FM-1 on USB. Implemented by the hardware
 /// module; the clock only ever pushes single real-time bytes (0xF8 / 0xFA / 0xFC).

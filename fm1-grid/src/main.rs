@@ -1,7 +1,7 @@
 //! CLI and window bootstrap; the app itself lives in the `fm1_grid` library.
 
 use fm1_grid::app::GridApp;
-use fm1_grid::MAX_SLOTS;
+use fm1_performer::MAX_SLOTS;
 use gpui_kit::assets::{icon_assets, Assets as ComponentAssets};
 use gpui_kit::component::TitleBar;
 use gpui_kit::*;
@@ -47,7 +47,9 @@ off at startup; the power switch in the device sidebar starts and stops each pan
 emulator.
 
 The device sidebar's dropdown offers the embedded firmwares and \"Other…\" for a file
-picker. Click a pane (or its display) to route the computer keyboard there.
+picker. Click a pane (or its display) to route the computer keyboard there. The
+clickable front panel sits at the bottom of the Emulator tab; the keys below play
+while it shows:
 A W S E D F T G Y H U J K O L P ; ' play C4..F5; C V B N M Q I play F3..B3;
 Z/X octave, Space PLAY, R REC, 1..0 functions; ←/→ PRESETS, ↑/↓ ALGORITHM, ,/. SELECT.
 ";

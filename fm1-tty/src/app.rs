@@ -1,14 +1,14 @@
-//! fm1-tty's state: the shared library/hardware/clock pieces from `fm1_grid` plus the
+//! fm1-tty's state: the shared library/hardware/clock pieces from `fm1-performer` plus the
 //! TUI's own selection, focus, popup and note-merge state. Drawing lives in `ui.rs`,
 //! the event loop in `main.rs`.
 
-use fm1_grid::clock::Clock;
-use fm1_grid::firmware_picker::{pick_of, FirmwarePick};
-use fm1_grid::hardware::{DeviceRow, FlashState, Hardware};
-use fm1_grid::library::{Firmware, FirmwareSource, HubStatus, Library, Status};
-use fm1_grid::midi_keys::MidiKeys;
-use fm1_grid::routing::{Port, Routing};
-use fm1_grid::store::Store;
+use fm1_performer::clock::Clock;
+use fm1_performer::firmware_picker::{pick_of, FirmwarePick};
+use fm1_performer::hardware::{DeviceRow, FlashState, Hardware};
+use fm1_performer::library::{Firmware, FirmwareSource, HubStatus, Library, Status};
+use fm1_performer::midi_keys::MidiKeys;
+use fm1_performer::routing::{Port, Routing};
+use fm1_performer::store::Store;
 use ratatui::layout::Rect;
 use ratatui::widgets::ListState;
 use std::collections::HashSet;
@@ -402,7 +402,7 @@ impl TuiApp {
     pub fn midi_label(&self) -> String {
         match &self.want_midi {
             None => "none".to_string(),
-            Some(name) => fm1_grid::routing::label_of(name),
+            Some(name) => fm1_performer::routing::label_of(name),
         }
     }
 

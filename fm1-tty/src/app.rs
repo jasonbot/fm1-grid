@@ -141,7 +141,6 @@ impl TuiApp {
         let clock = Arc::new(Clock::start(1));
         let routing = Routing::start();
         let midi_keys = MidiKeys::start();
-        let hardware = Hardware::start(clock.clone(), routing.clone());
         let store = match Store::new() {
             Ok(store) => Some(store),
             Err(e) => {
@@ -149,6 +148,8 @@ impl TuiApp {
                 None
             }
         };
+        // The store comes first: the scanner loads its remembered probe names from it.
+        let hardware = Hardware::start(clock.clone(), routing.clone(), store.clone());
         let mut library = store.as_ref().map(Library::load);
         if let Some(library) = &mut library {
             library.refresh_hub();
@@ -557,7 +558,7 @@ impl TuiApp {
         }
     }
 
-    /// Dismiss a finished (failed) flash board.
+    /// Dismiss the flash board; a running flash continues on its own thread.
     pub fn dismiss_flash(&mut self) {
         self.flash_dismissed = true;
     }

@@ -306,7 +306,6 @@ impl GridApp {
         let clock = Arc::new(Clock::start(MAX_SLOTS));
         let routing = Routing::start();
         let midi_keys = MidiKeys::start();
-        let hardware = Hardware::start(clock.clone(), routing.clone());
         let store = match fm1_performer::store::Store::new() {
             Ok(store) => Some(store),
             Err(e) => {
@@ -314,6 +313,8 @@ impl GridApp {
                 None
             }
         };
+        // The store comes first: the scanner loads its remembered probe names from it.
+        let hardware = Hardware::start(clock.clone(), routing.clone(), store.clone());
         // The previous session's layout and tempo; the tempo field below initialises
         // from the clock, so the restored bpm lands on it first.
         let session = crate::session::Session::load(store.as_ref());

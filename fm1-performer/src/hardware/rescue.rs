@@ -62,22 +62,42 @@ fn wait_new_port(timeout: Duration) -> Option<String> {
 }
 
 /// The rescue flash on its own thread: the flow, then the board's outcome. The scan
-/// loop clears the busy flag when this returns.
-pub(super) fn rescue_task(name: &str, bytes: Vec<u8>, board: &Board, router: &Routing) {
+/// loop clears the busy flag when this returns. A success also remembers the unit's
+/// come-back port name as a probe needle — the scanner recognizes the unit from now
+/// on (see [`remember_probe_name`]).
+pub(super) fn rescue_task(
+    name: &str,
+    bytes: Vec<u8>,
+    board: &Board,
+    router: &Routing,
+    store: Option<&Store>,
+    extra_probes: &Mutex<Vec<String>>,
+) {
     let result = rescue_flow(name, bytes, board, router);
-    settle_board(board, &result);
+    if let Ok((_, back_name)) = &result {
+        remember_probe_name(store, extra_probes, back_name);
+    }
+    settle_board(
+        board,
+        &result
+            .as_ref()
+            .map(|(product, _)| product.clone())
+            .map_err(|e| e.clone()),
+    );
 }
 
 /// The flow itself. The port may be in either update phase: a running firmware pulls
 /// the image up to the staging address and reboots into its loader; a unit already
 /// sitting in its loader pulls straight through to the write address. One serve with
-/// both finish addresses tells the two apart.
+/// both finish addresses tells the two apart. On success: the product string and the
+/// name of the port the unit came back on (the caller remembers it as a probe
+/// needle).
 fn rescue_flow(
     name: &str,
     bytes: Vec<u8>,
     board: &Board,
     router: &Routing,
-) -> Result<String, String> {
+) -> Result<(String, String), String> {
     // No row exists for an unregistered port; this throwaway slot lets publish()
     // and serve() run unchanged — every phase lands on the board only.
     let flash: Mutex<Option<FlashState>> = Mutex::new(None);
@@ -172,7 +192,7 @@ fn rescue_flow(
     };
     let text = open_link(&back_name, router).and_then(|link| probe(&link));
     match text.as_deref() {
-        Some(text) if text == product => Ok(product.to_string()),
+        Some(text) if text == product => Ok((product.to_string(), back_name)),
         Some(text) => Err(format!(
             "the device came back as {text}, not {product}: the update may have failed"
         )),

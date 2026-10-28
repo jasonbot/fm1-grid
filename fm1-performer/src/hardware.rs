@@ -30,12 +30,14 @@
 //! never becomes a device row. [`Hardware::midi_ports`] lists every MIDI port on the
 //! system instead, and [`Hardware::rescue_flash`] flashes one directly — no handshake,
 //! no registry; while a rescue runs the scanner registers no new devices, so no clock
-//! bytes reach the port mid-update.
+//! bytes reach the port mid-update. Any successful flash — rescue or row — remembers
+//! the unit's come-back port name (persisted in the store), extending the filter.
 
 mod rescue;
 
 use crate::clock::{Clock, MidiSink};
 use crate::routing::Routing;
+use crate::store::Store;
 use midir::{MidiInput, MidiInputConnection, MidiOutput, MidiOutputConnection};
 use std::collections::VecDeque;
 use std::sync::mpsc::{self, Receiver, Sender};
@@ -73,6 +75,46 @@ const PROBE_NAMES: [&str; 11] = [
     "sinco",
     "usb-midi",
 ];
+
+/// The store object holding the probe needles learned from successful flashes (a unit
+/// whose firmware enumerates under a name the static list doesn't know).
+const PROBE_NAMES_OBJECT: &str = "probe-names";
+
+/// Whether a lowercased port name looks like an FM-1: a static needle, or one
+/// remembered from a successful flash.
+fn probe_match(lower: &str, extras: &[String]) -> bool {
+    PROBE_NAMES.iter().any(|needle| lower.contains(needle))
+        || extras.iter().any(|needle| lower.contains(needle.as_str()))
+}
+
+/// Remember a successfully flashed unit's come-back port name, so the scanner
+/// recognizes the unit from now on. The needle is the name minus its per-plug numbers
+/// ("BOOT0001:37 BOOT0001 MIDI 1:0" → "boot0001 midi 1"), matched case-insensitively
+/// like PROBE_NAMES. Deduplicated: a needle already covered (an exact copy, or a
+/// remembered needle it contains) is never stored twice. Persisted in the store, so
+/// the next run knows the unit too; without a store, this run still remembers.
+fn remember_probe_name(store: Option<&Store>, extras: &Mutex<Vec<String>>, port_name: &str) {
+    let needle = split_port_name(port_name).0.to_lowercase();
+    if needle.is_empty() || PROBE_NAMES.iter().any(|n| needle.contains(n)) {
+        return; // already a static match (the needle still holds the port's words)
+    }
+    {
+        let Ok(mut list) = extras.lock() else {
+            return;
+        };
+        if list
+            .iter()
+            .any(|existing| needle.contains(existing.as_str()) || *existing == needle)
+        {
+            return; // already covered
+        }
+        list.push(needle);
+    }
+    if let Some(store) = store {
+        let snapshot = extras.lock().map(|list| list.clone()).unwrap_or_default();
+        store.store_object(PROBE_NAMES_OBJECT, &snapshot).ok();
+    }
+}
 
 /// Known product strings and the firmwares that report them (thefirmwarehub.com's
 /// catalogue, October 2026). Several projects share one product string; a single exact
@@ -512,8 +554,9 @@ pub struct Hardware {
 
 impl Hardware {
     /// Start the port scanner. It polls the MIDI ports twice a second and probes the
-    /// ones that look like an FM-1.
-    pub fn start(clock: Arc<Clock>, router: Routing) -> Self {
+    /// ones that look like an FM-1. The store carries the probe needles remembered
+    /// from earlier rescue flashes; those extend PROBE_NAMES for matching.
+    pub fn start(clock: Arc<Clock>, router: Routing, store: Option<Store>) -> Self {
         let devices: Arc<Mutex<Vec<Device>>> = Arc::new(Mutex::new(Vec::new()));
         let board: Board = Arc::new(Mutex::new(None));
         let (tx, rx) = mpsc::channel::<Command>();
@@ -525,12 +568,21 @@ impl Hardware {
             (Err(e), _) | (_, Err(e)) => Some(format!("MIDI unavailable: {e}")),
         };
         let rescue = Arc::new(AtomicBool::new(false));
+        let extra_probes: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(
+            store
+                .as_ref()
+                .and_then(|store| store.fetch_object(PROBE_NAMES_OBJECT).ok())
+                .unwrap_or_default(),
+        ));
         {
             let devices = devices.clone();
             let board = board.clone();
+            let extra_probes = extra_probes.clone();
             thread::Builder::new()
                 .name("fm1-usb-scan".into())
-                .spawn(move || scan_loop(devices, clock, router, board, rx, rescue))
+                .spawn(move || {
+                    scan_loop(devices, clock, router, board, rx, rescue, extra_probes, store)
+                })
                 .expect("spawn USB scanner thread");
         }
         Self { devices, commands: tx, board, error }
@@ -657,6 +709,8 @@ fn scan_loop(
     board: Board,
     commands: Receiver<Command>,
     rescue: Arc<AtomicBool>,
+    extra_probes: Arc<Mutex<Vec<String>>>,
+    store: Option<Store>,
 ) {
     let mut next_hw_id = 0usize;
     loop {
@@ -673,10 +727,19 @@ fn scan_loop(
                     let board = board.clone();
                     let router = router.clone();
                     let active = rescue.clone();
+                    let store = store.clone();
+                    let extra_probes = extra_probes.clone();
                     thread::Builder::new()
                         .name("fm1-usb-rescue".into())
                         .spawn(move || {
-                            rescue::rescue_task(&name, bytes, &board, &router);
+                            rescue::rescue_task(
+                                &name,
+                                bytes,
+                                &board,
+                                &router,
+                                store.as_ref(),
+                                &extra_probes,
+                            );
                             active.store(false, Ordering::SeqCst);
                         })
                         .expect("spawn rescue flash thread");
@@ -719,12 +782,14 @@ fn scan_loop(
                     let clock = clock.clone();
                     let devices = devices.clone();
                     let board = board.clone();
+                    let store = store.clone();
+                    let extra_probes = extra_probes.clone();
                     thread::Builder::new()
                         .name("fm1-usb-flash".into())
                         .spawn(move || {
                             flash_task(
                                 devices, board, link, identity, flash, outcome, clock,
-                                hw_id, bytes,
+                                hw_id, bytes, store, extra_probes,
                             )
                         })
                         .expect("spawn flash thread");
@@ -732,7 +797,7 @@ fn scan_loop(
             }
         }
 
-        scan(&devices, &clock, &router, &mut next_hw_id, &rescue);
+        scan(&devices, &clock, &router, &mut next_hw_id, &rescue, &extra_probes);
         thread::sleep(Duration::from_millis(500));
     }
 }
@@ -747,11 +812,14 @@ fn scan(
     router: &Routing,
     next_hw_id: &mut usize,
     rescue: &AtomicBool,
+    extra_probes: &Arc<Mutex<Vec<String>>>,
 ) {
     let Ok(input) = MidiInput::new("fm1-grid-scan") else {
         return; // no MIDI (yet); try again next tick
     };
 
+    // The static needles plus the ones remembered from rescue flashes.
+    let extras = extra_probes.lock().map(|list| list.clone()).unwrap_or_default();
     let mut seen = Vec::new();
     let mut candidates = Vec::new();
     for port in input.ports() {
@@ -760,7 +828,7 @@ fn scan(
         };
         seen.push(name.clone());
         let lower = name.to_lowercase();
-        if PROBE_NAMES.iter().any(|needle| lower.contains(needle)) {
+        if probe_match(&lower, &extras) {
             candidates.push(name);
         }
     }
@@ -899,6 +967,7 @@ fn probe(link: &DeviceLink) -> Option<String> {
 /// step 2 on the loader, wait for the unit to come back, verify the new identity. The
 /// phases go to the device's row and to the pane-level board (rows come and go as the
 /// unit reboots); the outcome lands on the row of whatever device is left at the end.
+/// A success also remembers the come-back port name as a probe needle, like a rescue.
 #[allow(clippy::too_many_arguments)]
 fn flash_task(
     devices: Arc<Mutex<Vec<Device>>>,
@@ -910,8 +979,23 @@ fn flash_task(
     clock: Arc<Clock>,
     hw_id: usize,
     bytes: Vec<u8>,
+    store: Option<Store>,
+    extra_probes: Arc<Mutex<Vec<String>>>,
 ) {
     let result = flash_flow(&devices, &board, &link, &identity, &clock, hw_id, bytes, &flash);
+    if let Ok(product) = &result {
+        // The unit rebooted into the new firmware under whatever name the scanner
+        // registered; the verified row is the one whose identity is the product.
+        if let Ok(list) = devices.lock() {
+            let back = list.iter().find(|device| {
+                device.identity.lock().ok().and_then(|i| i.clone()).as_deref()
+                    == Some(product.as_str())
+            });
+            if let Some(device) = back {
+                remember_probe_name(store.as_ref(), &extra_probes, &device.name);
+            }
+        }
+    }
     if let Ok(mut state) = flash.lock() {
         *state = None;
     }
@@ -1267,5 +1351,36 @@ fn serve(
             last_pct = pct;
             publish_progress(flash, board, (pct as f32 / 100.0).min(1.0));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn remembered_probe_names_match_persist_and_dedup() {
+        let dir = std::env::temp_dir().join(format!("fm1-probe-test-{}", std::process::id()));
+        let store = Store::in_dir(&dir);
+        let extras = Mutex::new(Vec::new());
+        // A bricked unit under a foreign name: no static match.
+        let name = "BOOT0001:37 BOOT0001 MIDI 1:0";
+        assert!(!probe_match(&name.to_lowercase(), &[]));
+
+        // A successful rescue remembers the stable part; matching works at once.
+        remember_probe_name(Some(&store), &extras, name);
+        assert!(probe_match(&name.to_lowercase(), &extras.lock().unwrap()));
+        // The next run loads the needle from the store.
+        let loaded: Vec<String> = store.fetch_object(PROBE_NAMES_OBJECT).unwrap();
+        assert_eq!(loaded, vec!["boot0001 midi 1"]);
+
+        // Same unit again (another replug number, or a repeat): no growth.
+        remember_probe_name(Some(&store), &extras, name);
+        remember_probe_name(Some(&store), &extras, "BOOT0001:41 BOOT0001 MIDI 1:1");
+        assert_eq!(extras.lock().unwrap().len(), 1);
+        // A static name is never remembered.
+        remember_probe_name(Some(&store), &extras, "FM-1:32 FM-1 MIDI 1:0");
+        assert_eq!(extras.lock().unwrap().len(), 1);
+        std::fs::remove_dir_all(dir).ok();
     }
 }

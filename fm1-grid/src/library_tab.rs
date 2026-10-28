@@ -582,6 +582,8 @@ impl GridApp {
             .collect();
         let has_targets = !units.is_empty() || !slots.is_empty();
         let app = cx.entity().clone();
+        // The dropdown closure is 'static; the firmware name moves in owned.
+        let flash_name = firmware.name.clone();
         Button::new(format!("lib-flash-{name}"))
             .label("Flash To…")
             .icon(Icon::new(Lucide::Zap))
@@ -602,12 +604,14 @@ impl GridApp {
                     let app = app.clone();
                     let unit = unit.clone();
                     let pick = pick.clone();
+                    let name = flash_name.clone();
                     menu = menu.item(PopupMenuItem::new(format!("USB: {unit}")).on_click(
                         move |_, window, cx| {
                             let unit = unit.clone();
                             let pick = pick.clone();
+                            let name = name.clone();
                             app.update(cx, |this, cx| {
-                                this.flash_to_unit(unit, pick, window, cx)
+                                this.flash_to_unit(unit, &name, pick, window, cx)
                             });
                         },
                     ));
@@ -635,6 +639,7 @@ impl GridApp {
     pub(crate) fn flash_to_unit(
         &mut self,
         unit: String,
+        name: &str,
         pick: FirmwarePick,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -642,7 +647,7 @@ impl GridApp {
         match pick.bytes(self.store.as_ref()) {
             Ok(bytes) => {
                 self.hardware.flash(&unit, bytes);
-                crate::flash_dialog::FlashDialog::open(cx.entity(), window, cx);
+                crate::flash_dialog::FlashDialog::open(cx.entity(), window, cx, name);
             }
             Err(e) => self.hardware.report(&unit, e),
         }

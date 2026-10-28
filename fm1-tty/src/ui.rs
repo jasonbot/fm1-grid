@@ -490,9 +490,7 @@ fn flash_modal(frame: &mut Frame, board: &FlashState) {
         .map(|line| Line::from(dim(line.clone())))
         .collect();
     frame.render_widget(Paragraph::new(tail), chunks[2]);
-    if board.error {
-        frame.render_widget(Paragraph::new(dim("Esc close")), chunks[3]);
-    }
+    frame.render_widget(Paragraph::new(dim("Esc close")), chunks[3]);
 }
 
 #[cfg(test)]

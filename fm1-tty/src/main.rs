@@ -118,12 +118,12 @@ fn on_key(app: &mut app::TuiApp, key: ratatui::crossterm::event::KeyEvent) {
         }
         return;
     }
-    // So does the flash modal: closable once it carries an error (success clears the
-    // board by itself); running flashes ignore keys, like the GUI's dialog.
+    // So does the flash modal: Esc closes it any time — a running flash continues on
+    // its own thread, and the board stays down until the next flash starts. Enter
+    // still closes an error board.
     if let Some(board) = app.flash_board() {
-        if board.error
-            && key.kind == KeyEventKind::Press
-            && matches!(key.code, KeyCode::Esc | KeyCode::Enter)
+        if key.kind == KeyEventKind::Press
+            && (key.code == KeyCode::Esc || (board.error && key.code == KeyCode::Enter))
         {
             app.dismiss_flash();
         }
@@ -300,7 +300,7 @@ fn on_mouse(app: &mut app::TuiApp, mouse: ratatui::crossterm::event::MouseEvent)
         }
         return;
     }
-    // The flash modal ignores clicks (Esc when it errors); keep the piano silent.
+    // The flash modal ignores clicks (Esc closes it); keep the piano silent.
     if app.flash_board().is_some() {
         return;
     }

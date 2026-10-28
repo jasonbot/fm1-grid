@@ -25,9 +25,10 @@ pub(crate) struct FlashDialog {
 }
 
 impl FlashDialog {
-    /// Open the modal over the window. The dialog re-renders with the window's frames,
-    /// so the live board state flows in on its own.
-    pub(crate) fn open(app: Entity<GridApp>, window: &mut Window, cx: &mut App) {
+    /// Open the modal over the window, titled with the firmware's name. The dialog
+    /// re-renders with the window's frames, so the live board state flows in on its
+    /// own.
+    pub(crate) fn open(app: Entity<GridApp>, window: &mut Window, cx: &mut App, name: &str) {
         let view = cx.new(|cx| {
             let focus = cx.focus_handle();
             focus.focus(window, cx);
@@ -37,8 +38,9 @@ impl FlashDialog {
                 saw_flash: false,
             }
         });
+        let title: SharedString = format!("Flashing {name}…").into();
         window.open_dialog(cx, move |dialog, _, _| {
-            dialog.title("Flashing…").child(view.clone())
+            dialog.title(title.clone()).child(view.clone())
         });
     }
 }

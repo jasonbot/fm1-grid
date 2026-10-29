@@ -3,7 +3,9 @@
     "name": "SLOOP",
     "version": "2.8.3",
     "file": "sloop-2.8.3.fwsc",
-    "tags": ["groove"],
+    "tags": [
+      "groove"
+    ],
     "description": "A live groovebox: tracks, layers, a step sequencer, song mode, punch-in effects and samples, played on the FM-1 in real time.",
     "byline": "isod89",
     "device": "fm-1",
@@ -16,7 +18,10 @@
     "name": "Felucca",
     "version": "1.7.0",
     "file": "felucca-1.7.0.fwsc",
-    "tags": ["groove", "dev"],
+    "tags": [
+      "groove",
+      "dev"
+    ],
     "description": "The custom firmware the others build on: the FM-1's own synth engines, a sequencer, effects and a better panel, with an editor in the browser.",
     "byline": "Leo Kuroshita (Hügelton Instruments)",
     "device": "fm-1",
@@ -29,7 +34,9 @@
     "name": "FM1 Stock",
     "version": "V16",
     "file": "FM-1_016.fwsc",
-    "tags": ["official"],
+    "tags": [
+      "official"
+    ],
     "description": "M-VAVE's factory firmware for the FM-1: eight voices sharing twenty notes of polyphony, each with its own sound, MIDI channel, level, pan and fine tune, a 64-step sequencer with per-step ratchets and an 8-track by 8-section pattern arranger, and 128 shared FX chains under MIDI control.",
     "byline": "M-VAVE",
     "device": "fm-1",
@@ -42,7 +49,9 @@
     "name": "FM1 Open",
     "version": "V14",
     "file": "FM1-Open-V14.fwsc",
-    "tags": ["official"],
+    "tags": [
+      "official"
+    ],
     "description": "M-VAVE's open-source firmware and SDK for the FM-1: eight tracks, eight sample slots, a 128-voice DX7 library with SysEx import and export, step recording, PLAY track roles that keep their sound across project changes, tap tempo with a synchronized delay and full MIDI routing, plus a browser workbench.",
     "byline": "M-VAVE",
     "device": "fm-1",
@@ -55,7 +64,10 @@
     "name": "ChoralRoot",
     "version": "0.27",
     "file": "choralroot-0.27.fwsc",
-    "tags": ["chords", "beta"],
+    "tags": [
+      "chords",
+      "beta"
+    ],
     "description": "A Telepathic Orchid-style chord instrument: one hand plays roots, the other shapes chords; voicings, performance modes, bass and a looper.",
     "byline": "Quixotic7",
     "device": "fm-1",
@@ -65,36 +77,12 @@
     "license": "GPL-3.0"
   },
   {
-    "name": "DUB-1",
-    "version": "1.3.0",
-    "file": "dub-1.3.0.fwsc",
-    "tags": ["groove"],
-    "description": "A generative dub techno machine that plays itself from the moment it is on: chord stabs into a tape echo, FM pings, a sub bass on five grooves, a ducking kick, crackle, and an eight-bar arrangement with breaks and fills.",
-    "byline": "sbegueria",
-    "device": "fm-1",
-    "url": "https://thefirmwarehub.com/fw/dub-1.3.0.fwsc",
-    "source": "https://github.com/sbegueria/fm1-dub",
-    "sha256": "35a464983c8b0f1143e668db770f36d943df0279a477be5e61435325d9354796",
-    "license": "GPL-3.0"
-  },
-  {
-    "name": "JIANT FM",
-    "version": "0.9.9-par13b-3641c02-preview",
-    "file": "jiant-0.9.9-par13b-3641c02-preview.fwsc",
-    "tags": ["groove", "beta"],
-    "description": "A bio-synthetic groovebox: six tracks drawn as living beings in thermal colours, eight engines (FM6 with Dexed, analog, phase, voice…), mutating macros, song mode from SLOOP. Not yet tested much on a real FM-1.",
-    "byline": "juanjiant-bit",
-    "device": "fm-1",
-    "url": "https://juanjiant-bit.github.io/JIANT/firmware/felucca-v0.9.9-par13b-3641c02-preview.fwsc",
-    "source": "https://github.com/juanjiant-bit/JIANT",
-    "sha256": "b64cbbf3b99c40c92aec51e2441ade9fadc0ce2e4a65ef2420684e74ec28257f",
-    "license": "GPL-3.0"
-  },
-  {
     "name": "FM-1+VA",
     "version": "102",
     "file": "FM-1+VA-102.fwsc",
-    "tags": ["synth"],
+    "tags": [
+      "synth"
+    ],
     "description": "A live-performance rebuild of the FM-1: a Virtual Analog engine with seven-oscillator super stacks, drift and zero-delay-feedback filters, an 8-bit chiptune engine with drums, sound effects and 31-shape arpeggios, a 64-step sequencer with per-step ratchet, chance, gate and parameter locks, patterns chained into songs, and four knobs on every screen.",
     "byline": "Baud Girl",
     "device": "fm-1",
@@ -102,148 +90,5 @@
     "source": "https://baudgirl.com/work/FM-1+VA",
     "sha256": "7b169a69b30570581d0ebc7b44851e3e08898d2956ade155363bcf18fac5c348",
     "license": "Proprietary"
-  },
-  {
-    "name": "386DX",
-    "version": "1.0.2",
-    "file": "386dx-1.0.2.fwsc",
-    "tags": ["other"],
-    "description": "A karaoke robot with a band: it sings songs from karaoke and MIDI files, or lines you type, to the notes you play. Its face is the voice. Keys, bass and drums play along, with a step sequencer and sixteen punch-in effects.",
-    "byline": "seajaysec",
-    "device": "fm-1",
-    "url": "https://thefirmwarehub.com/fw/386dx-1.0.2.fwsc",
-    "source": "https://github.com/seajaysec/386-DX-FM1-KaraokeBot",
-    "sha256": "97dc787a7b5ef4052c6ab519e98a679274e1fd1c25ba46baa3a3d02901008028",
-    "license": "GPL-3.0"
-  },
-  {
-    "name": "Fart Machine One",
-    "version": "1.1.0",
-    "file": "fart-1.1.0.fwsc",
-    "tags": ["other"],
-    "description": "A questionable musical instrument: ten artisanal farts, reverb, delay and a sixteen-step sequencer.",
-    "byline": "adamcharleswilsonmusic-code",
-    "device": "fm-1",
-    "url": "https://thefirmwarehub.com/fw/fart-1.1.0.fwsc",
-    "source": "https://github.com/adamcharleswilsonmusic-code/Fart-Machine-One",
-    "sha256": "b9e380061ddc086d5c45cfa4d4e583249a9bfb45869e1fcd6fdaf5249c7ee7e2",
-    "license": "GPL-3.0"
-  },
-  {
-    "name": "MIN-1",
-    "version": "0.2.1",
-    "file": "min1-0.2.1.fwsc",
-    "tags": ["other", "beta"],
-    "description": "A tiny minimalist ensemble after Philip Glass: it starts playing when you switch on, you join whenever you like. In EASY mode every white key is a chord that fits. Four models, twenty pieces.",
-    "byline": "Reytian",
-    "device": "fm-1",
-    "url": "https://thefirmwarehub.com/fw/min1-0.2.1.fwsc",
-    "source": "https://github.com/Reytian/fm1-min1",
-    "sha256": "82715d6ee18c8b12c287d614c131a4fb37f8606d811ae23301f1cd42bd4548c3",
-    "license": "GPL-3.0"
-  },
-  {
-    "name": "Rainbow Mode",
-    "version": "1.1.5-rb",
-    "file": "rainbow-1.1.5-rb+4b37e9c2.fwsc",
-    "tags": ["other"],
-    "description": "A music toy for little children: 63 cartoon friends, every key in tune, chords, strumming, songs to follow and an ear game, notes on a staff, a volume cap for small ears.",
-    "byline": "joshbartlettband-web",
-    "device": "fm-1",
-    "url": "https://thefirmwarehub.com/fw/rainbow-1.1.5-rb+4b37e9c2.fwsc",
-    "source": "https://github.com/joshbartlettband-web/felucca-rainbow",
-    "sha256": "4b37e9c229484a3864b67ed25df262cd585fb44e72e994a7b9b69c7c1f23317d",
-    "license": "GPL-3.0"
-  },
-  {
-    "name": "HYP-1",
-    "version": "1.5.54",
-    "file": "hyp1-1.5.54.fwsc",
-    "tags": ["groove"],
-    "description": "Hypnotic techno and acid: a breathing pad, a deep drone, a generative 303 line and grain over drums you sequence. Flip patterns on the bar, break it down, build it up. Forked from AMB-1. One of a pack of four: LOF-1 (a lofi groovebox), ECO-1 (a plant plays it) and GRAV-1 (a star and its planets), experimental, on its project page.",
-    "byline": "RedtailWorks",
-    "device": "fm-1",
-    "url": "https://thefirmwarehub.com/fw/hyp1-1.5.54.fwsc",
-    "source": "https://github.com/RustyPawz/fm1-HYP1",
-    "sha256": "2d310b243ea4f01197339819d4228c8c1f21fe267e7991142e91df527e18f049",
-    "license": "GPL-3.0"
-  },
-  {
-    "name": "LOF-1",
-    "version": "0.0.87",
-    "file": "lof1-0.0.87.fwsc",
-    "tags": ["groove", "beta"],
-    "description": "A lofi groovebox: you play the lead and a tired jazz band follows, comp, bass and drums moving with your chords, an Answer voice replying, a record, cassette, reel or radio playing underneath. Part of the RedtailWorks pack with HYP-1.",
-    "byline": "RedtailWorks",
-    "device": "fm-1",
-    "url": "https://rustypawz.github.io/fm1-HYP1/lof/firmware/lof1-0.0.87.fwsc",
-    "source": "https://github.com/RustyPawz/fm1-HYP1/tree/main/lof1",
-    "sha256": "dcae62abc37372788502a42438176f81d9aca26588f9b799628ffe7928f88c2d",
-    "license": "GPL-3.0"
-  },
-  {
-    "name": "ECO-1",
-    "version": "0.0.87",
-    "file": "eco1-0.0.87.fwsc",
-    "tags": ["synth", "beta"],
-    "description": "A plant plays it: three leaves fire notes as light and water charge them, a stem drones beneath, and rain, wind, gusts and the passing day and night play the plant. Eight plants, each in its own place. Part of the RedtailWorks pack with HYP-1.",
-    "byline": "RedtailWorks",
-    "device": "fm-1",
-    "url": "https://rustypawz.github.io/fm1-HYP1/eco/firmware/eco1-0.0.87.fwsc",
-    "source": "https://github.com/RustyPawz/fm1-HYP1/tree/main/eco1",
-    "sha256": "ca0709fb43cdfb58b2f59a2c9f2e00d40d5441f95f882298524f89d50feac3b1",
-    "license": "GPL-3.0"
-  },
-  {
-    "name": "GRAV-1",
-    "version": "0.0.87",
-    "file": "grav1-0.0.87.fwsc",
-    "tags": ["synth", "beta"],
-    "description": "A star and its planets: slow, dark, spacey ambient, a star of coloured noise with up to six planets, each a voice playing around its orbit. Bigger planets swell smaller ones; dust, asteroids and comets drift through. Part of the RedtailWorks pack with HYP-1.",
-    "byline": "RedtailWorks",
-    "device": "fm-1",
-    "url": "https://rustypawz.github.io/fm1-HYP1/grav/firmware/grav1-0.0.87.fwsc",
-    "source": "https://github.com/RustyPawz/fm1-HYP1/tree/main/grav1",
-    "sha256": "393a5d01edea2f4e8a5914fce6863408e384881a3816fa46ff0201ed57469565",
-    "license": "GPL-3.0"
-  },
-  {
-    "name": "CTY-1",
-    "version": "0.0.87",
-    "file": "cty1-0.0.87.fwsc",
-    "tags": ["synth", "beta"],
-    "description": "A city grows and plays: each power-on grows a new town on new land, forest, desert, alpine, volcano isles, plains, beach or river, into a huge city where every car, building, storm and disaster is a note, each land with its own sound. Part of the RedtailWorks pack with HYP-1.",
-    "byline": "RedtailWorks",
-    "device": "fm-1",
-    "url": "https://rustypawz.github.io/fm1-HYP1/cty/firmware/cty1-0.0.87.fwsc",
-    "source": "https://github.com/RustyPawz/fm1-HYP1/tree/main/cty1",
-    "sha256": "effb37ab3439d92597cb28ed2860efdb60390d58836eb8e447d7f577cd6e52b7",
-    "license": "GPL-3.0"
-  },
-  {
-    "name": "DRIFT",
-    "version": "0.9.1",
-    "file": "drift-0.9.1.fwsc",
-    "tags": ["synth", "beta"],
-    "description": "An ambient instrument for live sessions: warm synths, spacious pads and delicate plucks over a generative Euclidean sequencer on one track, with delays and reverbs from spring to shimmer. Built on Felucca.",
-    "byline": "FBNFRTG",
-    "device": "fm-1",
-    "url": "https://thefirmwarehub.com/fw/drift-0.9.1.fwsc",
-    "source": "https://github.com/FBNFRTG/drift-fm1",
-    "sha256": "297a0c55a6323cafe5f38beb28a6f2cbd847a6b54f8419e184df7d233b1e9d14",
-    "license": "GPL-3.0"
-  },
-  {
-    "name": "Matryoshka",
-    "version": "1.5.1",
-    "file": "matryoshka-1.5.1.fwsc",
-    "tags": ["synth"],
-    "description": "A recursively modular synth framework: oscillators, filters, envelopes, sequencers and effects wired into patches in a browser editor, with reusable nested assemblies that become instruments of their own, and the patch played on the FM-1. Forked from Felucca by way of Modular-1.",
-    "byline": "glvno",
-    "device": "fm-1",
-    "url": "https://matryoshka.lol/firmware/matryoshka.fwsc",
-    "source": "https://github.com/glvno/matryoshka",
-    "sha256": "b008a4a517746bb0059e634a8141f5e4e56f3d5b52fc560a24fe4ba57d574f82",
-    "license": "GPL-3.0-only"
   }
 ]

@@ -1,10 +1,10 @@
 {
   "$schema": "https://github.com/longbridge/gpui-kit/raw/refs/heads/main/.theme-schema.json",
-  "name": "FM1 (Ember)",
+  "name": "FM-1 (Ember)",
   "author": "M-VAVE",
   "themes": [
     {
-      "name": "FM1 (Ember)",
+      "name": "FM-1 (Ember)",
       "mode": "dark",
       "colors": {
         "accent.background": "#d7807540",

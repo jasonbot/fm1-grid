@@ -1,10 +1,10 @@
 {
   "$schema": "https://github.com/longbridge/gpui-kit/raw/refs/heads/main/.theme-schema.json",
-  "name": "FM1 (Mint)",
+  "name": "FM-1 (Mint)",
   "author": "M-VAVE",
   "themes": [
     {
-      "name": "FM1 (Mint)",
+      "name": "FM-1 (Mint)",
       "mode": "dark",
       "colors": {
         "accent.background": "#75d7cd40",

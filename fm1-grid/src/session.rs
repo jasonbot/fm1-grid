@@ -113,7 +113,7 @@ mod tests {
             slot: 42,
             bpm: 1,
             download_all: true,
-            theme: "gruvbox".to_string(),
+            theme: "ayu".to_string(),
             appearance: crate::app::Appearance::Dark,
         };
         store.store_object(SESSION_OBJECT, &record).unwrap();
@@ -121,7 +121,7 @@ mod tests {
         assert_eq!(loaded.sidebar_width, SIDEBAR_MAX);
         assert_eq!(loaded.tab, 3);
         assert_eq!(loaded.devices_tab, 1);
-        assert_eq!(loaded.theme, "gruvbox");
+        assert_eq!(loaded.theme, "ayu");
         assert_eq!(loaded.appearance, crate::app::Appearance::Dark);
         assert_eq!(loaded.slot, fm1_performer::MAX_SLOTS - 1);
         assert_eq!(loaded.bpm, MIN_BPM);

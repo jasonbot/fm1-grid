@@ -28,7 +28,8 @@ impl GridApp {
             .label(current_label)
             .icon(Icon::new(Lucide::Palette))
             .outline()
-            .w(px(220.0))
+            .flex_1()
+            .min_w_0()
             .dropdown_menu(move |menu, _, _| {
                 let mut menu = menu.scrollable(true).max_h(px(400.0));
                 for family in crate::theme::theme_families() {
@@ -91,14 +92,6 @@ impl GridApp {
                 app.update(cx, |this, cx| this.set_appearance(appearance, window, cx));
             });
 
-        let section = |title: &'static str| {
-            div()
-                .text_size(px(10.5))
-                .font_weight(FontWeight::BOLD)
-                .text_color(dim)
-                .child(title)
-        };
-
         v_flex()
             .size_full()
             .p_4()
@@ -111,28 +104,12 @@ impl GridApp {
                     .child("SETTINGS"),
             )
             .child(
-                v_flex()
+                h_flex()
+                    .w_full()
+                    .items_center()
                     .gap_2()
-                    .child(section("THEME"))
-                    .child(h_flex().child(theme_picker))
-                    .child(
-                        div()
-                            .text_size(px(9.5))
-                            .text_color(dim)
-                            .child("A DARK-ONLY FAMILY KEEPS THE DEFAULT LIGHT SIDE"),
-                    ),
-            )
-            .child(
-                v_flex()
-                    .gap_2()
-                    .child(section("APPEARANCE"))
-                    .child(h_flex().child(appearance_picker))
-                    .child(
-                        div()
-                            .text_size(px(9.5))
-                            .text_color(dim)
-                            .child("AUTO FOLLOWS THE OS LIGHT/DARK SETTING"),
-                    ),
+                    .child(theme_picker)
+                    .child(appearance_picker),
             )
     }
 }

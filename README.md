@@ -19,10 +19,10 @@ there like they do in the Library.
 The large FM-1 front panel at the bottom of the Emulator tab mirrors the active pane:
 click its keys and buttons, turn knobs with the −/+ ends, and watch its LEDs follow
 the firmware. The computer keyboard plays the pane while that tab shows; a configured
-MIDI keyboard forwards on any tab. The piano keys follow the selected theme: their
-colors are derived from the theme's background hue (the key bed stays dark, even in a
-light theme), and a held key takes the theme's accent color. The buttons and LEDs
-keep the machine's own hardware colors.
+MIDI keyboard forwards on any tab. The keyboard and controls follow the selected
+theme: their colors are derived from the theme's background hue (the panel stays
+dark, even in a light theme), a held key takes the theme's accent color, and the
+button lights take the theme's warning color (success color for PLAY).
 
 A running pane can be **pinned** (the toggle beside its firmware selector): its flash
 contents — the device's settings and project data — are written to disk at power-off
@@ -156,11 +156,13 @@ cannot enumerate. The graph says so while such a pane runs.
 
 ## Settings
 
-The rail's gear icon opens the Settings tab. It has a **theme picker** — gpui-kit's
-built-in themes (Default, Adventure, Ayu, Catppuccin, Gruvbox, Solarized, Tokyo
-Night and friends) — and an **appearance** selector: Auto (follows the OS), Light
-or Dark. Picks apply at once and are saved with the rest of the app state. A
-dark-only theme keeps the default light side, and vice versa.
+The gear icon at the bottom of the rail opens the Settings tab. One row holds the
+**theme picker** — gpui-kit's built-in themes (Default, Ayu, Catppuccin, Solarized
+and friends) plus the six FM-1 sets (Cream, Ember, Frost, Lavender, Mint,
+Shadow) — growing to fill the row — and the
+**appearance** selector: Auto (follows the OS), Light or Dark. Picks apply at once
+and are saved with the rest of the app state. A dark-only theme keeps the default
+light side, and vice versa.
 
 ## fm1-tty
 

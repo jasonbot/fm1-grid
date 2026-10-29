@@ -9,10 +9,7 @@ use crate::app::GridApp;
 use fm1_performer::keys::{
     BLACK_KEYS, FUNCTION_ROW_1, FUNCTION_ROW_2, PANEL_KEYS, WHITE_KEYS, panel_key_hint,
 };
-use crate::theme::{
-    AMBER, GREEN, LIT_HINT, LIT_INK, PANEL_BUTTON, PANEL_BUTTON_EDGE, PANEL_BUTTON_HOVER, SILK,
-    SILK_DIM, mix,
-};
+use crate::theme::mix_hsla;
 use gpui_kit::base::{ElementExt, v_flex};
 use gpui_kit::component::ActiveTheme;
 use gpui_kit::*;
@@ -25,12 +22,25 @@ const KEY_MARGIN: f32 = 6.0;
 const PANEL_CONTROLS_H: f32 = 156.0;
 const GROUP_HEIGHT: f32 = 24.0;
 
-/// The keyboard's colorway, derived from the active theme each render: the bed keeps
+/// The panel's colorway, derived from the active theme each render: the bed keeps
 /// the theme background's hue but stays dark (a light theme still gets a dark
-/// keyboard), the keys are the same hue family stepped out in lightness, and a held
-/// key is the theme's accent with its own on-accent ink.
-struct KeyColors {
+/// panel), the keys and controls are the same hue family stepped out in lightness,
+/// and the lit/accent colours are the theme's own (primary for held keys, warning
+/// for amber LEDs, success for the play LED).
+struct PanelColors {
     bed: Hsla,
+    button: Hsla,
+    button_hover: Hsla,
+    button_edge: Hsla,
+    silk: Hsla,
+    silk_dim: Hsla,
+    led_off: Hsla,
+    amber: Hsla,
+    green: Hsla,
+    lit: Hsla,
+    lit_ink: Hsla,
+    lit_label: Hsla,
+    lit_hint: Hsla,
     white: Hsla,
     white_edge: Hsla,
     white_ink: Hsla,
@@ -38,8 +48,6 @@ struct KeyColors {
     black: Hsla,
     black_edge: Hsla,
     black_ink: Hsla,
-    lit: Hsla,
-    lit_ink: Hsla,
 }
 
 /// A colour at a new lightness and a share of its saturation, hue kept.
@@ -52,14 +60,26 @@ fn relight(color: Hsla, l: f32, s_scale: f32) -> Hsla {
     }
 }
 
-fn key_colors(theme: &gpui_kit::component::Theme) -> KeyColors {
+fn panel_colors(theme: &gpui_kit::component::Theme) -> PanelColors {
     let bg = theme.background;
-    KeyColors {
+    PanelColors {
         bed: Hsla {
             l: bg.l.min(0.16),
             s: (bg.s * 0.85).clamp(0.0, 1.0),
             ..bg
         },
+        button: relight(bg, 0.26, 0.7),
+        button_hover: relight(bg, 0.31, 0.7),
+        button_edge: relight(bg, 0.12, 0.7),
+        silk: relight(bg, 0.80, 0.3),
+        silk_dim: relight(bg, 0.55, 0.35),
+        led_off: relight(bg, 0.20, 0.5),
+        amber: theme.warning,
+        green: theme.success,
+        lit: theme.primary,
+        lit_ink: theme.primary_foreground,
+        lit_label: relight(bg, 0.13, 0.6),
+        lit_hint: relight(bg, 0.26, 0.5),
         white: relight(bg, 0.93, 0.4),
         white_edge: relight(bg, 0.60, 0.4),
         white_ink: relight(bg, 0.16, 0.6),
@@ -67,8 +87,6 @@ fn key_colors(theme: &gpui_kit::component::Theme) -> KeyColors {
         black: relight(bg, 0.24, 0.7),
         black_edge: relight(bg, 0.10, 0.7),
         black_ink: relight(bg, 0.80, 0.4),
-        lit: theme.primary,
-        lit_ink: theme.primary_foreground,
     }
 }
 
@@ -101,7 +119,7 @@ impl GridApp {
         let group_gap = 6.0f32;
         let row_gap = 4.0f32;
         let mono = cx.theme().mono_font_family.clone();
-        let keys = key_colors(cx.theme());
+        let colors = panel_colors(cx.theme());
 
         // The right-hand groups (the four knobs and the function buttons) span one
         // common width, so the knobs sit directly above the button grid.
@@ -121,7 +139,7 @@ impl GridApp {
             .max_w_full()
             .h(px(panel_h))
             .rounded(px(8.0))
-            .bg(keys.bed)
+            .bg(colors.bed)
             .on_prepaint(move |bounds, _, cx| {
                 let width: f32 = bounds.size.width.into();
                 app.update(cx, |this, _| {
@@ -137,16 +155,9 @@ impl GridApp {
                     .left(px(left))
                     .right(px(left))
                     .top(px(7.0))
-                    .flex()
-                    .flex_row()
-                    .justify_between()
                     .text_size(px(9.5))
-                    .text_color(rgb(SILK_DIM))
-                    .child("FM-1 PANEL")
-                    .child(format!(
-                        "CLICKABLE · KEYBOARD LIGHTS · PANE {}",
-                        self.active + 1
-                    )),
+                    .text_color(colors.silk_dim)
+                    .child("FM-1 PANEL"),
             );
 
         // Top left: MASTER / SELECT over PRESETS / ALGORITHM.
@@ -161,7 +172,7 @@ impl GridApp {
             let row = (index / 2) as f32;
             let x = left + column * (group_width + group_gap);
             let y = controls_top + row * (GROUP_HEIGHT + row_gap);
-            panel = panel.child(self.turn_group(cx, x, y, group_width, *salt, label, *target));
+            panel = panel.child(self.turn_group(cx, x, y, group_width, *salt, label, *target, &colors));
         }
 
         // Top right: KNOB 1..4.
@@ -175,6 +186,7 @@ impl GridApp {
                 10 + index,
                 &format!("KNOB {}", index + 1),
                 KnobTarget::Enc(2 + index as u8),
+                &colors,
             ));
         }
 
@@ -194,20 +206,21 @@ impl GridApp {
                 *id,
                 label,
                 hint,
-                AMBER,
+                colors.amber,
                 &mono,
+                &colors,
             ));
         }
 
         // The two rows of six function buttons, with their computer-key hints and
-        // indicators. PLAY uses the same green as the machine's play/pause LED.
+        // indicators. PLAY's LED takes the theme's success colour, the rest warning.
         for (row_index, row) in [FUNCTION_ROW_1, FUNCTION_ROW_2].iter().enumerate() {
             for (column, (label, id, hint)) in row.iter().enumerate() {
                 let x = function_left + column as f32 * (button_width + button_gap);
                 let y = second_band + row_index as f32 * (GROUP_HEIGHT + row_gap);
-                let tint = if *id == 12 { GREEN } else { AMBER };
+                let tint = if *id == 12 { colors.green } else { colors.amber };
                 panel = panel.child(self.panel_button(
-                    cx, x, y, button_width, *id, label, hint, tint, &mono,
+                    cx, x, y, button_width, *id, label, hint, tint, &mono, &colors,
                 ));
             }
         }
@@ -228,13 +241,13 @@ impl GridApp {
                 .flex()
                 .flex_row()
                 .gap(px(1.0))
-                .children(WHITE_KEYS.iter().map(|&id| self.white_key(cx, id, &keys))),
+                .children(WHITE_KEYS.iter().map(|&id| self.white_key(cx, id, &colors))),
         );
         let black_height = key_height * 0.62;
         for &(id, after) in BLACK_KEYS.iter() {
             let center_x = key_left + (after as f32 + 1.0) * white_width;
             let width = white_width * 0.62;
-            panel = panel.child(self.black_key(cx, id, center_x - width / 2.0, key_top, width, black_height, &keys));
+            panel = panel.child(self.black_key(cx, id, center_x - width / 2.0, key_top, width, black_height, &colors));
         }
 
         div().w_full().flex().justify_center().child(panel)
@@ -275,8 +288,15 @@ impl GridApp {
         salt: u32,
         label: &str,
         target: KnobTarget,
+        colors: &PanelColors,
     ) -> impl IntoElement {
         let arrow = 22.0f32;
+        let (silk, hover, button, edge) = (
+            colors.silk,
+            colors.button_hover,
+            colors.button,
+            colors.button_edge,
+        );
         let end = |salt_end: &'static str, glyph: &'static str, clicks: i32| {
             div()
                 .id((salt_end, salt as usize))
@@ -287,8 +307,8 @@ impl GridApp {
                 .justify_center()
                 .cursor_pointer()
                 .text_size(px(13.0))
-                .text_color(rgb(SILK))
-                .hover(|style| style.bg(rgb(PANEL_BUTTON_HOVER)))
+                .text_color(silk)
+                .hover(move |style| style.bg(hover))
                 .child(glyph)
                 .on_mouse_down(
                     MouseButton::Left,
@@ -305,9 +325,9 @@ impl GridApp {
             .w(px(width))
             .h(px(GROUP_HEIGHT))
             .rounded(px(3.0))
-            .bg(rgb(PANEL_BUTTON))
+            .bg(button)
             .border_1()
-            .border_color(rgb(PANEL_BUTTON_EDGE))
+            .border_color(edge)
             .flex()
             .flex_row()
             .items_center()
@@ -324,7 +344,7 @@ impl GridApp {
                 }
             }))
             .child(end("turn-down", "−", -1))
-            .child(div().w(px(1.0)).h_full().bg(rgb(PANEL_BUTTON_EDGE)))
+            .child(div().w(px(1.0)).h_full().bg(edge))
             .child(
                 div()
                     .flex_1()
@@ -334,10 +354,10 @@ impl GridApp {
                     .justify_center()
                     .truncate()
                     .text_size(px(9.5))
-                    .text_color(rgb(SILK))
+                    .text_color(silk)
                     .child(label.to_string()),
             )
-            .child(div().w(px(1.0)).h_full().bg(rgb(PANEL_BUTTON_EDGE)))
+            .child(div().w(px(1.0)).h_full().bg(edge))
             .child(end("turn-up", "+", 1))
     }
 
@@ -353,18 +373,20 @@ impl GridApp {
         id: u8,
         label: &str,
         hint: &str,
-        tint: u32,
+        tint: Hsla,
         mono: &SharedString,
+        colors: &PanelColors,
     ) -> impl IntoElement {
         let lit =
             self.held[id as usize] || self.leds[id as usize] > 0.04 || self.panel_down[id as usize];
         let fill = if lit {
-            mix(PANEL_BUTTON, tint, 0.45)
+            mix_hsla(colors.button, tint, 0.45)
         } else {
-            PANEL_BUTTON
+            colors.button
         };
-        let ink = if lit { LIT_INK } else { SILK };
-        let hint_color = if lit { LIT_HINT } else { SILK_DIM };
+        let ink = if lit { colors.lit_label } else { colors.silk };
+        let hint_color = if lit { colors.lit_hint } else { colors.silk_dim };
+        let button_hover = colors.button_hover;
         let mono = mono.clone();
         div()
             .absolute()
@@ -374,9 +396,9 @@ impl GridApp {
             .h(px(GROUP_HEIGHT))
             .id(("panel-btn", id as usize))
             .rounded(px(4.0))
-            .bg(rgb(fill))
+            .bg(fill)
             .border_1()
-            .border_color(rgb(if lit { tint } else { PANEL_BUTTON_EDGE }))
+            .border_color(if lit { tint } else { colors.button_edge })
             .flex()
             .flex_row()
             .items_center()
@@ -387,7 +409,7 @@ impl GridApp {
                 if lit {
                     style
                 } else {
-                    style.bg(rgb(PANEL_BUTTON_HOVER))
+                    style.bg(button_hover)
                 }
             })
             .on_mouse_down(
@@ -398,22 +420,22 @@ impl GridApp {
                     cx.notify();
                 }),
             )
-            // The LED: the button's own colour while lit.
+            // The LED: the theme's tint while lit, a dark step of the bed otherwise.
             .child(
                 div()
                     .w(px(7.0))
                     .h(px(7.0))
                     .rounded_full()
                     .flex_none()
-                    .bg(rgb(if lit { tint } else { 0x303338 }))
+                    .bg(if lit { tint } else { colors.led_off })
                     .border_1()
-                    .border_color(rgb(PANEL_BUTTON_EDGE)),
+                    .border_color(colors.button_edge),
             )
             .child(
                 div()
                     .truncate()
                     .text_size(px(9.5))
-                    .text_color(rgb(ink))
+                    .text_color(ink)
                     .child(label.to_string()),
             )
             .child(
@@ -421,14 +443,14 @@ impl GridApp {
                     .ml_auto()
                     .text_size(px(8.5))
                     .font_family(mono)
-                    .text_color(rgb(hint_color))
+                    .text_color(hint_color)
                     .child(hint.to_string()),
             )
     }
 
     /// A white piano key: the theme's light step at rest, the theme's accent while
     /// held; hint in the middle, note name at the bottom.
-    fn white_key(&self, cx: &mut Context<Self>, id: u8, keys: &KeyColors) -> impl IntoElement {
+    fn white_key(&self, cx: &mut Context<Self>, id: u8, colors: &PanelColors) -> impl IntoElement {
         let lit =
             self.held[id as usize] || self.leds[id as usize] > 0.04 || self.panel_down[id as usize];
         let note = PANEL_KEYS
@@ -438,9 +460,9 @@ impl GridApp {
             .unwrap_or("");
         let hint = panel_key_hint(id);
         let (key_fill, ink, note_ink) = if lit {
-            (keys.lit, keys.lit_ink, keys.lit_ink)
+            (colors.lit, colors.lit_ink, colors.lit_ink)
         } else {
-            (keys.white, keys.white_ink, keys.white_note)
+            (colors.white, colors.white_ink, colors.white_note)
         };
         div()
             .id(("panel-key", id as usize))
@@ -450,7 +472,7 @@ impl GridApp {
             .rounded(px(1.0))
             .bg(key_fill)
             .border_1()
-            .border_color(keys.white_edge)
+            .border_color(colors.white_edge)
             .cursor_pointer()
             .on_mouse_down(
                 MouseButton::Left,
@@ -493,15 +515,15 @@ impl GridApp {
         y: f32,
         width: f32,
         height: f32,
-        keys: &KeyColors,
+        colors: &PanelColors,
     ) -> impl IntoElement {
         let lit =
             self.held[id as usize] || self.leds[id as usize] > 0.04 || self.panel_down[id as usize];
         let hint = panel_key_hint(id);
         let (fill, ink) = if lit {
-            (keys.lit, keys.lit_ink)
+            (colors.lit, colors.lit_ink)
         } else {
-            (keys.black, keys.black_ink)
+            (colors.black, colors.black_ink)
         };
         div()
             .absolute()
@@ -513,7 +535,7 @@ impl GridApp {
             .rounded(px(1.0))
             .bg(fill)
             .border_1()
-            .border_color(keys.black_edge)
+            .border_color(colors.black_edge)
             .cursor_pointer()
             .flex()
             .items_center()
@@ -542,7 +564,7 @@ impl GridApp {
 mod tests {
     // No `use super::*` — the parent's gpui glob import would drag in GPUI's `test`
     // attribute macro, which re-expands the built-in #[test] (see library_tab.rs).
-    use super::key_colors;
+    use super::panel_colors;
     use gpui_kit::component::Theme;
 
     /// The key colorway follows the theme background's hue with the bed always dark
@@ -554,18 +576,18 @@ mod tests {
 
         // A light background: the bed must stay dark, the keys light.
         theme.background = gpui_kit::hsla(0.08, 0.4, 0.96, 1.0);
-        let keys = key_colors(&theme);
-        assert!(keys.bed.l <= 0.16, "light theme: bed stays dark");
-        assert!(keys.white.l >= 0.9, "white keys read light");
-        assert!(keys.black.l > keys.bed.l && keys.black.l < keys.white.l);
-        assert_eq!(keys.lit, theme.primary, "held keys use the theme accent");
-        assert_eq!(keys.lit_ink, theme.primary_foreground);
+        let colors = panel_colors(&theme);
+        assert!(colors.bed.l <= 0.16, "light theme: bed stays dark");
+        assert!(colors.white.l >= 0.9, "white keys read light");
+        assert!(colors.black.l > colors.bed.l && colors.black.l < colors.white.l);
+        assert_eq!(colors.lit, theme.primary, "held keys use the theme accent");
+        assert_eq!(colors.lit_ink, theme.primary_foreground);
 
         // A dark, saturated background: same invariants, hue carries over.
         theme.background = gpui_kit::hsla(0.6, 0.3, 0.08, 1.0);
-        let keys = key_colors(&theme);
-        assert!(keys.bed.l <= 0.16);
-        assert!((keys.bed.h - 0.6).abs() < 1e-6, "the bed keeps the theme's hue");
-        assert!((keys.white.h - 0.6).abs() < 1e-6, "the keys keep the theme's hue");
+        let colors = panel_colors(&theme);
+        assert!(colors.bed.l <= 0.16);
+        assert!((colors.bed.h - 0.6).abs() < 1e-6, "the bed keeps the theme's hue");
+        assert!((colors.white.h - 0.6).abs() < 1e-6, "the keys keep the theme's hue");
     }
 }

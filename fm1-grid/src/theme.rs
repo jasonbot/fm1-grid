@@ -1,44 +1,25 @@
 //! The look. App chrome follows the gpui-kit theme (`cx.theme()` tokens at the call
-//! site); this module keeps only the fixed colours of the FM-1 hardware the window
-//! depicts — the panel's buttons, silk-screen and LEDs — plus the bundled theme
-//! catalog and the small colour helpers the computed grid background and the panel
-//! need. The piano keys follow the theme (derived in `panel.rs`); the one computed
-//! colour in the app is the grid background (see `grid.rs`).
+//! site), and the front panel's colours are derived from it in `panel.rs`; this
+//! module keeps only the colour helpers they share, the bundled theme catalog and
+//! the layout constants. The one computed colour in the app is the grid background
+//! (see `grid.rs`).
 
-/// The FM-1's front panel and keycaps.
-pub(crate) const PANEL_BUTTON: u32 = 0x404349;
-pub(crate) const PANEL_BUTTON_HOVER: u32 = 0x4e5158;
-pub(crate) const PANEL_BUTTON_EDGE: u32 = 0x1c1c1e;
-pub(crate) const SILK: u32 = 0xc9c6bd;
-pub(crate) const SILK_DIM: u32 = 0x807e78;
-pub(crate) const AMBER: u32 = 0xf2a33a;
-pub(crate) const GREEN: u32 = 0x62d36e;
-
-/// Dark ink on a lit (amber/green) control; from the machine's own palette.
-pub(crate) const LIT_INK: u32 = 0x221a0a;
-pub(crate) const LIT_HINT: u32 = 0x3c3018;
-
-/// Linear per-channel mix of two 0xRRGGBB colours.
-pub(crate) fn mix(a: u32, b: u32, t: f32) -> u32 {
-    let ch = |shift: u32| {
-        let x = ((a >> shift) & 0xFF) as f32;
-        let y = ((b >> shift) & 0xFF) as f32;
-        (x + (y - x) * t).clamp(0.0, 255.0) as u32
-    };
-    (ch(16) << 16) | (ch(8) << 8) | ch(0)
+/// Linear per-channel mix of two theme colours, `t` of the way from `a` to `b`.
+pub(crate) fn mix_hsla(a: gpui_kit::Hsla, b: gpui_kit::Hsla, t: f32) -> gpui_kit::Hsla {
+    let (a, b) = (gpui_kit::Rgba::from(a), gpui_kit::Rgba::from(b));
+    gpui_kit::Rgba {
+        r: a.r + (b.r - a.r) * t,
+        g: a.g + (b.g - a.g) * t,
+        b: a.b + (b.b - a.b) * t,
+        a: a.a + (b.a - a.a) * t,
+    }
+    .into()
 }
 
 /// Halfway between two theme colours, per channel in sRGB: the health ramp's orange
 /// sits between the theme's `warning` and `danger`.
 pub(crate) fn halfway(a: gpui_kit::Hsla, b: gpui_kit::Hsla) -> gpui_kit::Hsla {
-    let (a, b) = (gpui_kit::Rgba::from(a), gpui_kit::Rgba::from(b));
-    gpui_kit::Rgba {
-        r: (a.r + b.r) * 0.5,
-        g: (a.g + b.g) * 0.5,
-        b: (a.b + b.b) * 0.5,
-        a: (a.a + b.a) * 0.5,
-    }
-    .into()
+    mix_hsla(a, b, 0.5)
 }
 
 /// Layout constants shared across the window.

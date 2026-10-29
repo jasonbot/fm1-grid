@@ -16,8 +16,6 @@ use gpui_kit::component::{ActiveTheme, Icon, Sizable};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 
-/// The clock label column's fixed width (RUNNING and STOPPED stay put).
-const CLOCK_LABEL_W: f32 = 108.0;
 /// The tempo field: wide enough that the steppers and the BPM suffix cannot
 /// squeeze the digits out.
 const TEMPO_FIELD_W: f32 = 140.0;
@@ -151,7 +149,7 @@ impl GridApp {
                     .border_1()
                     .border_color(border)
                     .px(px(10.0))
-                    .py(px(6.0))
+                    .py(px(4.0))
                     .child(
                         Switch::new("midi-clock")
                             .checked(running)
@@ -163,27 +161,29 @@ impl GridApp {
                             })),
                     )
                     .child(
-                        // Fixed width: RUNNING and STOPPED have the same number of
-                        // characters in a monospace font, so the tempo display never
-                        // shifts by a pixel when the clock starts.
-                        v_flex().w(px(CLOCK_LABEL_W)).child(
-                            div()
-                                .text_size(px(11.0))
-                                .font_weight(FontWeight::BOLD)
-                                .text_color(ink)
-                                .child("MIDI CLOCK"),
-                        )
-                        .child(
-                            div()
-                                .text_size(px(9.0))
-                                .font_family(mono.clone())
-                                .text_color(if running { accent } else { dim })
-                                .child(if running {
-                                    "RUNNING · 24 PPQN"
-                                } else {
-                                    "STOPPED · 24 PPQN"
-                                }),
-                        ),
+                        h_flex()
+                            .items_baseline()
+                            .gap_2()
+                            .child(
+                                div()
+                                    .text_size(px(11.0))
+                                    .font_weight(FontWeight::BOLD)
+                                    .text_color(ink)
+                                    .child("MIDI CLOCK"),
+                            )
+                            // RUNNING and STOPPED have the same length in a monospace
+                            // font, so the row never shifts when the clock starts.
+                            .child(
+                                div()
+                                    .text_size(px(9.0))
+                                    .font_family(mono.clone())
+                                    .text_color(if running { accent } else { dim })
+                                    .child(if running {
+                                        "RUNNING · 24 PPQN"
+                                    } else {
+                                        "STOPPED · 24 PPQN"
+                                    }),
+                            ),
                     )
                     .child(
                         div()
@@ -221,7 +221,9 @@ impl GridApp {
                             ),
                     )
                     .child(
-                        v_flex()
+                        h_flex()
+                            .items_center()
+                            .gap_2()
                             .child(
                                 div()
                                     .text_size(px(11.0))
@@ -249,13 +251,7 @@ impl GridApp {
                                 .text_color(danger)
                                 .child(format!("audio off: {error}")),
                         )
-                    })
-                    .child(
-                        div()
-                            .text_size(px(9.0))
-                            .text_color(dim)
-                            .child(format!("{MIN_BPM}–{MAX_BPM} BPM · MIDI 0xF8")),
-                    ),
+                    }),
             )
     }
 }

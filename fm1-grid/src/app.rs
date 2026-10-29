@@ -29,7 +29,7 @@ use fm1_performer::midi_keys::MidiKeys;
 use fm1_performer::routing::Routing;
 use fm1_soc::Action;
 use gpui_kit::assets::IconName as Lucide;
-use gpui_kit::base::{VirtualListScrollHandle, resizable_panel};
+use gpui_kit::base::{ElementExt, VirtualListScrollHandle, resizable_panel};
 use gpui_kit::component::combobox::{ComboboxEvent, ComboboxState};
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::component::resizable::{ResizableState, h_resizable};
@@ -309,6 +309,9 @@ pub struct GridApp {
     /// the appearance override.
     pub(crate) theme_id: String,
     pub(crate) appearance: Appearance,
+    /// The tab rail's rendered height, recorded during prepaint — the sliding chip
+    /// aims the gear's bottom slot with it (one frame of lag, like the sidebar's).
+    pub(crate) rail_h: f32,
     /// The library generation the firmware pickers were last built from.
     combos_at_generation: u64,
     _tick: Task<()>,
@@ -556,6 +559,7 @@ impl GridApp {
             download_all: session.download_all,
             theme_id: session.theme.clone(),
             appearance: session.appearance,
+            rail_h: 740.0,
             combos_at_generation: 0,
             _tick: tick,
             _subscriptions: subscriptions,
@@ -1420,12 +1424,12 @@ impl GridApp {
             .child(self.control_display(cx, compact))
     }
 
-    /// The left icon rail: the app tabs as icon-only buttons stacked vertically.
-    /// Mirrors the old segmented TabBar's states — the selected button keeps the
-    /// tab_active_foreground ink on the background token with a small shadow, the
-    /// rest use tab_foreground and pick up a tab_active wash on hover. Icons run
-    /// at size_5 (20px), a notch up from the 16px the large tabs used.
-    fn tab_rail(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    /// The left icon rail: the app tabs as icon-only buttons stacked vertically, the
+    /// gear pinned to the bottom. One chip slides between the buttons on the same
+    /// spring the pill tab bar's indicator uses; the buttons stay transparent —
+    /// the selected one keeps the tab_active_foreground ink, the rest take a
+    /// tab_active wash on hover. Icons run at size_5 (20px).
+    fn tab_rail(&self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let (rail_bg, ink, dim, wash, border, chip) = {
             let theme = cx.theme();
             (
@@ -1443,50 +1447,98 @@ impl GridApp {
             (Lucide::Library, 2),
             (Lucide::Settings, 3),
         ];
-        v_flex()
+
+        // Slot tops: pt_2, then 36px buttons with gap_2; the gear pins to the
+        // bottom (its slot needs the rail's height, recorded last frame).
+        let slot_top = |ix: usize, rail_h: f32| {
+            if ix == 3 {
+                (rail_h - 8.0 - 36.0).max(8.0 + 3.0 * 44.0)
+            } else {
+                8.0 + ix as f32 * 44.0
+            }
+        };
+        let chip_top = gpui_kit::base::spring(
+            ("tab-rail", "chip-top"),
+            px(slot_top(self.active_tab, self.rail_h)),
+            cx.theme().motion_tokens().spring_move,
+            window,
+            cx,
+        );
+
+        let button = |icon: Lucide, ix: usize, cx: &mut Context<Self>| {
+            let selected = ix == self.active_tab;
+            div()
+                .id(("tab", ix))
+                .test_support()
+                .size(px(36.0))
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded(px(6.0))
+                .cursor_pointer()
+                .text_color(if selected { ink } else { dim })
+                .when(!selected, |this| this.hover(|this| this.bg(wash)))
+                .on_click(cx.listener(move |this, _, window, cx| {
+                    if this.active_tab == 0 && ix != 0 {
+                        // The panel hides with the tab: lift computer- and
+                        // mouse-held keys so nothing sticks while it's gone.
+                        // Physical-MIDI notes survive — sync_held re-merges
+                        // them into the wanted state.
+                        this.kb_down = [false; 41];
+                        this.panel_down = [false; 41];
+                        this.sync_held();
+                    }
+                    this.active_tab = ix;
+                    if ix == 2 && hub_online() {
+                        // Opening the library refreshes the online listing.
+                        this.library.refresh_hub();
+                    }
+                    this.refocus(window, cx);
+                    cx.notify();
+                }))
+                .child(Icon::new(icon).size_5())
+                .into_any_element()
+        };
+
+        let app = cx.entity().clone();
+        div()
             .w(px(48.0))
             .h_full()
             .flex_shrink_0()
+            .relative()
             .bg(rail_bg)
             .border_r_1()
             .border_color(border)
-            .pt_2()
-            .items_center()
-            .gap_2()
-            .children(TABS.iter().map(|&(icon, ix)| {
-                let selected = ix == self.active_tab;
+            .on_prepaint(move |bounds, _, cx| {
+                let height: f32 = bounds.size.height.into();
+                app.update(cx, |this, _| {
+                    if (this.rail_h - height).abs() > 0.5 {
+                        this.rail_h = height;
+                    }
+                });
+            })
+            // The sliding chip under the selected button.
+            .child(
                 div()
-                    .id(("tab", ix))
-                    .test_support()
+                    .absolute()
+                    .left(px(6.0))
+                    .top(chip_top)
                     .size(px(36.0))
-                    .flex()
-                    .items_center()
-                    .justify_center()
                     .rounded(px(6.0))
-                    .cursor_pointer()
-                    .text_color(if selected { ink } else { dim })
-                    .when(selected, |this| this.bg(chip).shadow_xs())
-                    .when(!selected, |this| this.hover(|this| this.bg(wash)))
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        if this.active_tab == 0 && ix != 0 {
-                            // The panel hides with the tab: lift computer- and
-                            // mouse-held keys so nothing sticks while it's gone.
-                            // Physical-MIDI notes survive — sync_held re-merges
-                            // them into the wanted state.
-                            this.kb_down = [false; 41];
-                            this.panel_down = [false; 41];
-                            this.sync_held();
-                        }
-                        this.active_tab = ix;
-                        if ix == 2 && hub_online() {
-                            // Opening the library refreshes the online listing.
-                            this.library.refresh_hub();
-                        }
-                        this.refocus(window, cx);
-                        cx.notify();
-                    }))
-                    .child(Icon::new(icon).size_5())
-            }))
+                    .bg(chip)
+                    .shadow_xs(),
+            )
+            .child(
+                v_flex()
+                    .size_full()
+                    .pt_2()
+                    .pb_2()
+                    .items_center()
+                    .gap_2()
+                    .children(TABS[..3].iter().map(|&(icon, ix)| button(icon, ix, cx)))
+                    .child(div().flex_1())
+                    .child(button(TABS[3].0, 3, cx)),
+            )
     }
 
     /// The Devices tab: a centered pill tab bar over the two sections — the live USB
@@ -1582,7 +1634,7 @@ impl Render for GridApp {
                     .flex_1()
                     .min_h_0()
                     .w_full()
-                    .child(self.tab_rail(cx))
+                    .child(self.tab_rail(window, cx))
                     .child(
                         div()
                             .flex_1()

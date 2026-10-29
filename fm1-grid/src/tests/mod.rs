@@ -675,12 +675,12 @@ fn settings_theme_and_appearance(cx: &mut TestAppContext) {
     // A bundled family applies at once (its dark side — the override still pins it).
     // The dropdown's items live in a popup overlay, so drive the apply path directly.
     cx.update_window(window.into(), |_, window, cx| {
-        app.update(cx, |app, cx| app.set_theme_family("gruvbox", window, cx));
+        app.update(cx, |app, cx| app.set_theme_family("ayu", window, cx));
     })
     .unwrap();
     cx.update(|cx| {
         let theme = Theme::global(cx);
-        assert_eq!(theme.theme_name().as_ref(), "Gruvbox Dark");
+        assert_eq!(theme.theme_name().as_ref(), "Ayu Dark");
     });
 
     // Back to Auto: the mode follows the test window's (light) appearance again,
@@ -691,7 +691,7 @@ fn settings_theme_and_appearance(cx: &mut TestAppContext) {
     .unwrap();
     cx.update(|cx| {
         let theme = Theme::global(cx);
-        assert_eq!(theme.theme_name().as_ref(), "Gruvbox Light");
+        assert_eq!(theme.theme_name().as_ref(), "Ayu Light");
         assert!(!theme.is_dark());
         let record: crate::session::Session = app
             .read(cx)
@@ -700,7 +700,7 @@ fn settings_theme_and_appearance(cx: &mut TestAppContext) {
             .expect("a store")
             .fetch_object("session")
             .expect("the settings change should have saved the session");
-        assert_eq!(record.theme, "gruvbox");
+        assert_eq!(record.theme, "ayu");
         assert_eq!(record.appearance, Appearance::Auto);
     });
 
@@ -741,8 +741,8 @@ fn bundled_themes_load(cx: &mut TestAppContext) {
             }
         }
         // The workhorse pair the UI test applies.
-        assert!(registry.themes().contains_key("Gruvbox Light"));
-        assert!(registry.themes().contains_key("Gruvbox Dark"));
+        assert!(registry.themes().contains_key("Ayu Light"));
+        assert!(registry.themes().contains_key("Ayu Dark"));
     });
 }
 

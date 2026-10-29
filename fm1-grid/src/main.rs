@@ -8,13 +8,13 @@ use gpui_kit::*;
 use std::borrow::Cow;
 use std::path::PathBuf;
 
-// Lucide icons beyond gpui-kit's default set: the sidebar's pin toggle, the three
-// tab icons, and the button icons (the default set already covers RefreshCw, Plus
-// and ArrowRight). The macro embeds exactly these SVGs; a misspelled name fails the
-// build.
+// Lucide icons beyond gpui-kit's default set: the sidebar's pin and power toggles,
+// the tab and pill-tab icons, the rescue toggle's life buoy, and the button icons
+// (the default set already covers RefreshCw, Plus, ChevronDown and ArrowRight).
+// The macro embeds exactly these SVGs; a misspelled name fails the build.
 icon_assets!(
     ExtraIcons,
-    [Pin, Monitor, KeyboardMusic, Library, Download, Trash, Zap, FilePlus, Save, X]
+    [Pin, Monitor, KeyboardMusic, Library, Download, Trash, Zap, FilePlus, Save, X, Usb, Waypoints, Power, LifeBuoy]
 );
 
 actions!(fm1_grid, [Quit]);

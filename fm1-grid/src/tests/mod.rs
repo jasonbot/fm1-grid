@@ -22,7 +22,8 @@ fn open_app(cx: &mut TestAppContext) -> (WindowHandle<Root>, Entity<GridApp>) {
 
 /// Open the app in a test window at a given size.
 fn open_app_at(cx: &mut TestAppContext, w: f32, h: f32) -> (WindowHandle<Root>, Entity<GridApp>) {
-    // Tests share one throwaway store for the process (the pin test writes to it).
+    // Tests share one throwaway store for the process (the pin test writes to it),
+    // and stay offline: a real hub answer would move the list mid-click.
     if std::env::var_os("FM1_GRID_DATA_DIR").is_none() {
         unsafe {
             std::env::set_var(
@@ -30,6 +31,9 @@ fn open_app_at(cx: &mut TestAppContext, w: f32, h: f32) -> (WindowHandle<Root>, 
                 std::env::temp_dir().join(format!("fm1-grid-uitest-{}", std::process::id())),
             );
         }
+    }
+    unsafe {
+        std::env::set_var("FM1_GRID_NO_HUB", "1");
     }
     cx.update(gpui_kit::init);
     cx.update(|cx| {
@@ -126,6 +130,7 @@ fn boots_selects_powers(cx: &mut TestAppContext) {
     cx.run_until_parked();
     cx.update_window(window.into(), |_, window, cx| {
         window.click(("tab", 1usize), cx); // the Devices tab
+        window.click(1usize, cx); // the MIDI Graph pill
         window.render_frame(cx);
         assert!(
             window.find("graph-usb-note").visible(),
@@ -451,10 +456,12 @@ fn pin_cycle(cx: &mut TestAppContext) {
 }
 
 /// The Library tab lists the builtins with flash targets (panes are off and unpinned
-/// at startup), and its add form gates Save on a chosen file.
+/// at startup), and its add form gates Save on a chosen file. A short window, so the
+/// offline-length list (builtins only) overflows and the scroll asserts mean
+/// something.
 #[gpui_kit::test]
 fn library_tab_lists(cx: &mut TestAppContext) {
-    let (window, app) = open_app(cx);
+    let (window, app) = open_app_at(cx, 1180.0, 700.0);
     cx.update_window(window.into(), |_, window, cx| {
         window.render_frame(cx);
         window.click(("tab", 2usize), cx); // the Library tab
@@ -577,19 +584,90 @@ fn library_scrolls_to_downloaded(cx: &mut TestAppContext) {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// The Devices tab's MIDI rescue: with no FM-1 found, every system MIDI port is
-/// offered as a flash target (a "MIDI RESCUE: <port>" row with the shared flash
-/// control); with a live unit connected, the rescue rows stay hidden. ALSA owns both
-/// lists, so the test drives the mechanism directly (like the download test): a port
-/// in the app's sweep-fed rescue list, asserted against whichever side of the
-/// "no FM-1" line the machine running the test is on. All inside one window update,
-/// so the 16 ms tick pump never reconciles the fake port away mid-test.
+/// Tag pills toggle the filter: click adds the tag's words as tokens (substring
+/// tokens match rows), clicking again removes them. Presence is token-exact, so a
+/// typed substring doesn't block the add.
+#[gpui_kit::test]
+fn library_tag_pills_toggle_filter(cx: &mut TestAppContext) {
+    let (window, app) = open_app(cx);
+    let filter_text = |app: &GridApp, cx: &App| {
+        app.lib_form.filter.read(cx).value().to_string()
+    };
+    let dev_pill = ("lib-tag", crate::library_tab::pill_id("Felucca", "dev"));
+    let groove_pill = ("lib-tag", crate::library_tab::pill_id("SLOOP", "groove"));
+
+    cx.update_window(window.into(), |_, window, cx| {
+        window.click(("tab", 2usize), cx); // the Library tab
+        window.render_frame(cx);
+        // Token search: "fel gro" matches Felucca (name + tags), not SLOOP.
+        window.click("library-filter", cx);
+        window.input("fel gro", cx);
+        window.render_frame(cx);
+        assert!(window.find("lib-flash-Felucca").visible());
+        assert!(window.try_find("lib-flash-SLOOP").is_none());
+        // Clear the box for the pill steps.
+        let filter = app.read(cx).lib_form.filter.clone();
+        filter.update(cx, |state, cx| state.set_value("", window, cx));
+        window.render_frame(cx);
+        assert!(window.find("lib-flash-SLOOP").visible());
+    })
+    .unwrap();
+
+    // Click Felucca's "dev" pill: the tag joins the filter, SLOOP (no dev tag) hides.
+    cx.update_window(window.into(), |_, window, cx| {
+        window.click(dev_pill, cx);
+    })
+    .unwrap();
+    cx.update(|cx| assert_eq!(filter_text(app.read(cx), cx), "dev"));
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        assert!(window.find("lib-flash-Felucca").visible());
+        assert!(window.try_find("lib-flash-SLOOP").is_none());
+        // Click again: the tag leaves the filter, SLOOP returns.
+        window.click(dev_pill, cx);
+    })
+    .unwrap();
+    cx.update(|cx| assert_eq!(filter_text(app.read(cx), cx), ""));
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        assert!(window.find("lib-flash-SLOOP").visible());
+    })
+    .unwrap();
+
+    // A typed substring is not the tag's token: clicking adds the full word anyway.
+    cx.update_window(window.into(), |_, window, cx| {
+        let filter = app.read(cx).lib_form.filter.clone();
+        filter.update(cx, |state, cx| state.set_value("groo", window, cx));
+        window.click(groove_pill, cx);
+    })
+    .unwrap();
+    cx.update(|cx| assert_eq!(filter_text(app.read(cx), cx), "groo groove"));
+    cx.update_window(window.into(), |_, window, cx| {
+        window.click(groove_pill, cx);
+    })
+    .unwrap();
+    cx.update(|cx| assert_eq!(filter_text(app.read(cx), cx), "groo"));
+}
+
+/// The Devices pane's Rescue toggle: while off, no rescue rows; while on, every
+/// swept system MIDI port is a flash target with the shared flash control — whether
+/// live FM-1 units are around or not. ALSA owns the port list, so the test drives
+/// the mechanism directly (like the download test): a port in the app's sweep-fed
+/// rescue list, all inside one window update so the 16 ms tick pump never
+/// reconciles the fake port away mid-test.
 #[gpui_kit::test]
 fn devices_tab_offers_midi_rescue(cx: &mut TestAppContext) {
     let (window, app) = open_app(cx);
     cx.update_window(window.into(), |_, window, cx| {
+        window.click(("tab", 1usize), cx); // the Devices tab
+        window.render_frame(cx);
+        // Off by default: no rescue rows, whatever ports the sweep fed.
+        assert!(window.find("rescue-toggle").visible());
+        assert!(window.try_find(("rescue-port", 0usize)).is_none());
+        // Arm the toggle; the row and its flash control show, arming works.
+        window.click("rescue-toggle", cx);
+        assert!(app.read(cx).rescue_on);
         let port = "TestPort:28 TestPort MIDI 1:0".to_string();
-        let live = app.read(cx).hardware.devices().len();
         app.update(cx, |app, cx| {
             app.rescue_ports = vec![port.clone()];
             app.open_flash_picker(&port, true, window, cx);
@@ -598,18 +676,51 @@ fn devices_tab_offers_midi_rescue(cx: &mut TestAppContext) {
             app.read(cx).rescue_combos.contains_key(&port),
             "the rescue picker should be filed under the port"
         );
+        window.render_frame(cx);
+        assert!(window.find(("rescue-port", 0usize)).visible());
+        window.click(("rescue-flash", 0usize), cx);
+        assert_eq!(app.read(cx).flash_armed.get(&port), Some(&true));
+        // Disarming hides the rows again.
+        window.click("rescue-toggle", cx);
+        assert!(!app.read(cx).rescue_on);
+    })
+    .unwrap();
+}
+
+/// The Devices tab's pill sections: Devices and MIDI Graph swap the display area
+/// under the centered pill tab bar.
+#[gpui_kit::test]
+fn devices_tab_sections_switch(cx: &mut TestAppContext) {
+    let (window, app) = open_app(cx);
+    cx.update_window(window.into(), |_, window, cx| {
         window.click(("tab", 1usize), cx); // the Devices tab
         window.render_frame(cx);
-        assert_eq!(app.read(cx).active_tab, 1);
-        if live == 0 {
-            // The rescue row and its flash control show; arming works like a row's.
-            assert!(window.find(("rescue-port", 0usize)).visible());
-            window.click(("rescue-flash", 0usize), cx);
-            assert_eq!(app.read(cx).flash_armed.get(&port), Some(&true));
-        } else {
-            // A live unit's rows own the pane; no rescue row shows.
-            assert!(window.try_find(("rescue-port", 0usize)).is_none());
-        }
+        assert!(window.find("devices-scroll").visible());
+        assert!(window.try_find("graph-scroll").is_none());
+        // The pill tab bar sits horizontally centered over the display area.
+        let bar = window.find("devices-sections").bounds();
+        let pane = window.find("devices-scroll").bounds();
+        let bar_center = bar.origin.x + bar.size.width / 2.0;
+        let pane_center = pane.origin.x + pane.size.width / 2.0;
+        assert!(
+            (bar_center - pane_center).abs() < px(2.0),
+            "pill bar centered: bar center {bar_center:?} vs pane center {pane_center:?}"
+        );
+        window.click(1usize, cx); // the MIDI Graph pill
+    })
+    .unwrap();
+    cx.update(|cx| assert_eq!(app.read(cx).devices_tab, 1));
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        assert!(window.find("graph-scroll").visible());
+        assert!(window.try_find("devices-scroll").is_none());
+        window.click(0usize, cx); // back to the Devices pill
+    })
+    .unwrap();
+    cx.update(|cx| assert_eq!(app.read(cx).devices_tab, 0));
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        assert!(window.find("devices-scroll").visible());
     })
     .unwrap();
 }

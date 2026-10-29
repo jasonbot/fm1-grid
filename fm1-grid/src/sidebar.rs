@@ -1,6 +1,6 @@
-//! The device sidebar: the selected pane's screen centred in the spare height, its
-//! power switch and firmware selector pinned to the bottom. The slot number is a pill
-//! on the selector row; the status line lives in the transport's metronome row.
+//! The device sidebar: the selected pane's controls (slot pill, power toggle,
+//! firmware selector, pin) across the top, its screen centred in the spare height
+//! below. The status line lives in the transport's metronome row.
 //! Theme colours throughout; the only computed colour in the window is the grid
 //! background behind it.
 
@@ -8,28 +8,24 @@ use crate::app::{GridApp, Source};
 use crate::lcd;
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::base::{ElementExt, h_flex, v_flex};
-use gpui_kit::component::button::{Button, ButtonVariants};
+use gpui_kit::component::button::{Button, ButtonVariants, Toggle, ToggleVariants};
 use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::{ActiveTheme, Disableable, Icon, IconName, Sizable};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::component::combobox::Combobox;
-use gpui_kit::component::switch::Switch;
 use gpui_kit::*;
 
 /// Exact pixel multiples the screen can show at, largest first (4x, 2x, 1x).
 const SCREEN_SIDES: [f32; 3] = [960.0, 480.0, 240.0];
 /// Horizontal chrome around the screen: the panel's padding and the bezel.
 const FIT_W_CHROME: f32 = 22.0;
-/// Vertical chrome: the attributes row, the gap above it and the padding.
-const FIT_H_CHROME: f32 = 56.0;
+/// Vertical chrome: the controls row, the gap under it and the padding.
+const FIT_H_CHROME: f32 = 64.0;
 /// Smallest screen side the layout falls back to (fractional fit).
 const SCREEN_MIN: f32 = 80.0;
 /// The firmware combobox renders at the component's medium input height (32 px); the
 /// pinned label matches it, so pinning never changes the row's height.
 const COMBO_H: f32 = 32.0;
-/// The attributes row keeps a fixed content width: the controls pin to the bottom of
-/// the sidebar without stretching across it.
-const ATTRS_COMBO_W: f32 = 180.0;
 
 impl GridApp {
     /// The sidebar takes a fixed share of the window's width (the grid keeps the rest)
@@ -74,8 +70,9 @@ impl GridApp {
                     }
                 });
             })
-            // The screen fills the spare height and centres itself in it; the
-            // controls pin to the bottom at their natural size.
+            // The controls pin to the top at their natural size; the screen fills
+            // the spare height and centres itself in it.
+            .child(self.pane_attributes(cx))
             .child(
                 div()
                     .flex_1()
@@ -86,7 +83,6 @@ impl GridApp {
                     .justify_center()
                     .child(self.sidebar_screen(side)),
             )
-            .child(self.pane_attributes(cx))
     }
 
     /// The selected pane's screen in its dark bezel, at the exact upscale the sidebar's
@@ -110,9 +106,9 @@ impl GridApp {
             })
     }
 
-    /// The selected pane's attributes — slot pill, power switch and firmware selector —
-    /// under the screen. The cards are display-only, so this is where firmware
-    /// switching lives.
+    /// The selected pane's attributes — slot pill, power toggle and firmware selector
+    /// across the top of the sidebar, the selector growing to fill the row's width.
+    /// The cards are display-only, so this is where firmware switching lives.
     fn pane_attributes(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
         let slot = self.active;
         let (muted, dim) = {
@@ -160,7 +156,7 @@ impl GridApp {
                     .child(Icon::new(IconName::ChevronDown).xsmall())
             });
 
-        let combo_host = div().id(("firmware", slot)).w(px(ATTRS_COMBO_W));
+        let combo_host = div().id(("firmware", slot)).flex_1().min_w_0();
         let combo_host = match path_tip {
             Some(tip) => combo_host.tooltip(move |window, cx| {
                 Tooltip::new(tip.clone()).build(window, cx)
@@ -173,9 +169,11 @@ impl GridApp {
         // while the pane runs — a stopped pane keeps its state as is.
         let pinned = self.slots[slot].pinned;
         let running = self.slots[slot].handle.is_some();
+        let app = cx.entity().clone();
         h_flex()
             .id("pane-attrs")
             .test_support()
+            .w_full()
             .items_center()
             .gap_2()
             .child(
@@ -190,18 +188,25 @@ impl GridApp {
                     .child(format!("{}", slot + 1)),
             )
             .child(
-                Switch::new("pane-power")
+                Toggle::new("pane-power")
+                    .icon(Icon::new(Lucide::Power))
+                    .large()
+                    .outline()
                     .checked(on)
-                    .on_change(cx.listener(move |this, &on, window, cx| {
-                        this.set_power(slot, on);
-                        this.refocus(window, cx);
-                        cx.notify();
-                    })),
+                    .tooltip(if on { "Power off" } else { "Power on" })
+                    .on_click(move |on, window, cx| {
+                        app.update(cx, |this, cx| {
+                            this.set_power(slot, *on);
+                            this.refocus(window, cx);
+                            cx.notify();
+                        });
+                    }),
             )
             .child(if pinned {
                 div()
                     .id(("firmware", slot))
-                    .w(px(ATTRS_COMBO_W))
+                    .flex_1()
+                    .min_w_0()
                     .h(px(COMBO_H))
                     .flex()
                     .items_center()
@@ -214,7 +219,7 @@ impl GridApp {
             })
             .child(
                 Button::new(("pin", slot))
-                    .xsmall()
+                    .large()
                     .icon(Icon::new(Lucide::Pin))
                     .tooltip(if running {
                         "Keep this pane's device storage across runs"

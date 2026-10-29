@@ -38,7 +38,9 @@ fn bold(text: impl Into<String>) -> Span<'static> {
 /// The frame: every section, then whichever modal is up.
 pub fn draw(frame: &mut Frame, app: &mut TuiApp) {
     let area = frame.area();
-    let devices_h = (app.devices.len() as u16 + 2).clamp(3, 6);
+    let device_rows =
+        app.devices.len() + if app.rescue { app.rescue_ports.len() } else { 0 };
+    let devices_h = (device_rows as u16 + 2).clamp(3, 6);
     let chunks = Layout::vertical([
         Constraint::Length(devices_h),
         Constraint::Min(6),
@@ -64,25 +66,54 @@ pub fn draw(frame: &mut Frame, app: &mut TuiApp) {
     }
 }
 
-/// The live FM-1 units on USB, one row each.
+/// The live FM-1 units on USB, one row each. The rescue toggle's state rides the
+/// title: RESCUE ON while armed, a warning nudge when no FM-1 answered but MIDI
+/// ports exist.
 fn devices(frame: &mut Frame, app: &mut TuiApp, area: Rect) {
-    let block = Block::bordered().title(" DEVICES ");
+    let mut title = vec![Span::raw(" DEVICES ")];
+    if app.rescue {
+        title.push(Span::styled(
+            "· RESCUE ON ",
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        ));
+    } else if app.rescue_warn() {
+        title.push(Span::styled(
+            "· R: RESCUE? ",
+            Style::default().fg(Color::Yellow),
+        ));
+    }
+    let block = Block::bordered().title(Line::from(title));
     if let Some(error) = &app.hardware.error {
         frame.render_widget(Paragraph::new(dim(error.clone())).block(block), area);
         return;
     }
-    if app.devices.is_empty() {
-        frame.render_widget(
-            Paragraph::new(dim("no FM-1 on USB — plug a unit in")).block(block),
-            area,
-        );
-        return;
-    }
-    let rows: Vec<ListItem> = app
+    let mut rows: Vec<ListItem> = app
         .devices
         .iter()
         .map(|device| ListItem::new(device_row(device)))
         .collect();
+    if app.rescue {
+        rows.extend(app.rescue_ports.iter().map(|port| {
+            ListItem::new(Line::from(vec![
+                Span::styled(" ◌ ", Style::default().fg(Color::Yellow)),
+                bold(fm1_performer::routing::label_of(port)),
+                dim("  rescue target — flash only a unit stuck in its loader"),
+            ]))
+        }));
+    }
+    if rows.is_empty() {
+        let text = if app.rescue {
+            "no MIDI port in sight"
+        } else if app.rescue_warn() {
+            "no FM-1 on USB — R offers every MIDI port as a rescue target"
+        } else {
+            "no FM-1 on USB — plug a unit in"
+        };
+        frame.render_widget(Paragraph::new(dim(text)).block(block), area);
+        return;
+    }
     frame.render_widget(List::new(rows).block(block), area);
 }
 
@@ -127,8 +158,9 @@ fn library(frame: &mut Frame, app: &mut TuiApp, area: Rect) {
         Some(HubStatus::Idle) => "hub: online".to_string(),
     };
     let focused = app.focus == Focus::Library;
+    let all = if app.download_all { " · ALL" } else { "" };
     let block = Block::bordered()
-        .title(format!(" LIBRARY — {installed} installed · {hub} "))
+        .title(format!(" LIBRARY — {installed} installed · {hub}{all} "))
         .border_style(Style::default().fg(if focused { ACCENT } else { DIM }));
     let width = area.width.saturating_sub(2) as usize;
     let items: Vec<ListItem> = app
@@ -369,7 +401,7 @@ fn footer(frame: &mut Frame, app: &mut TuiApp, area: Rect) {
         ))
     } else {
         let hints = match app.focus {
-            Focus::Library => " ↑↓ select · d download · f flash · r refresh hub · m MIDI in · space clock · −/+ tempo · Tab keys · q quit",
+            Focus::Library => " ↑↓ select · d download · a all · f flash · R rescue · r refresh hub · m MIDI in · space clock · −/+ tempo · Tab keys · q quit",
             Focus::Keys => " letters and clicks play · Tab/Esc library · space clock · −/+ tempo · Ctrl-C quit",
         };
         Line::from(dim(hints))
@@ -438,11 +470,22 @@ fn midi_popup(frame: &mut Frame, app: &mut TuiApp, sel: usize) {
     list_popup(frame, app, "MIDI keyboard", &items, sel);
 }
 
-/// Pick which of several plugged-in units gets the firmware.
-fn flash_target_popup(frame: &mut Frame, app: &mut TuiApp, sel: usize, names: &[String]) {
-    let items: Vec<Line> = names
+/// Pick which target gets the firmware: the live units, plus every MIDI port while
+/// the rescue toggle is on (flagged, in warning yellow).
+fn flash_target_popup(frame: &mut Frame, app: &mut TuiApp, sel: usize, targets: &[(String, bool)]) {
+    let items: Vec<Line> = targets
         .iter()
-        .map(|name| Line::from(fm1_performer::routing::label_of(name)))
+        .map(|(name, rescue)| {
+            let label = fm1_performer::routing::label_of(name);
+            if *rescue {
+                Line::from(Span::styled(
+                    format!("RESCUE: {label}"),
+                    Style::default().fg(Color::Yellow),
+                ))
+            } else {
+                Line::from(label)
+            }
+        })
         .collect();
     list_popup(frame, app, "Flash to…", &items, sel);
 }

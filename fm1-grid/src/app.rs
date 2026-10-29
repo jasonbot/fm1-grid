@@ -33,6 +33,7 @@ use gpui_kit::base::{VirtualListScrollHandle, resizable_panel};
 use gpui_kit::component::combobox::{ComboboxEvent, ComboboxState};
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::component::resizable::{ResizableState, h_resizable};
+use gpui_kit::component::tab::{Tab, TabBar};
 use gpui_kit::component::{ActiveTheme, Icon, Theme, TitleBar, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{TestSupportExt as _, *};
@@ -173,17 +174,19 @@ pub struct GridApp {
     /// A physical MIDI keyboard driving the on-screen virtual keyboard, on its own
     /// poller thread; the transport bar's selector picks the port.
     pub(crate) midi_keys: MidiKeys,
-    /// The graph source waiting for its first sink (the graph UI's pending row).
-    pub(crate) pending_source: Option<fm1_performer::routing::Port>,
     /// Per-device flash arming (the row's "Flash" toggle) and its combobox, and the
     /// was-flashing marker that re-safes the toggle when a flash succeeds.
     pub(crate) flash_armed: std::collections::HashMap<String, bool>,
     pub(crate) flash_combos:
         std::collections::HashMap<String, Entity<ComboboxState<FirmwareDelegate>>>,
     flash_was: std::collections::HashMap<String, bool>,
-    /// MIDI rescue, for when no FM-1 is found at all: every system MIDI port, offered
-    /// as a flash target ("MIDI RESCUE: …" rows), and the ports' flash comboboxes.
-    /// Both stay empty while any unit is registered or a flash is running.
+    /// MIDI rescue: the Devices pane's Rescue toggle offers every system MIDI port
+    /// as a flash target, for units too bricked to answer to their name (those
+    /// flash through `Hardware::rescue_flash`). `rescue_warn` rings the toggle when
+    /// no FM-1 answered but some MIDI port exists. The sweep fills the ports and
+    /// their flash comboboxes while the toggle is on.
+    pub(crate) rescue_on: bool,
+    pub(crate) rescue_warn: bool,
     pub(crate) rescue_ports: Vec<String>,
     pub(crate) rescue_combos:
         std::collections::HashMap<String, Entity<ComboboxState<FirmwareDelegate>>>,
@@ -238,17 +241,23 @@ pub struct GridApp {
     pub(crate) grid_size: (f32, f32),
     /// The grid cards' screen scale: exactly 1.0 or 0.5.
     pub(crate) grid_scale: f32,
-    /// The splits' bound states, so the quit handler can read the panel widths, and
-    /// the widths restored from the session record (the panels' initial sizes).
+    /// The split's bound state, so the quit handler can read the panel widths, and
+    /// the width restored from the session record (the panel's initial size).
     pub(crate) emulator_split: Entity<ResizableState>,
-    pub(crate) devices_split: Entity<ResizableState>,
     pub(crate) sidebar_width: f32,
-    pub(crate) devices_width: Option<f32>,
     /// Per-slot audio health behind the grid cards' status dot.
     pub(crate) health: [SlotHealth; MAX_SLOTS],
-    /// The main area's tab: 0 = Emulator (grid + sidebar split), 1 = Devices (USB
-    /// devices + MIDI graph split).
+    /// The main area's tab: 0 = Emulator (grid + sidebar split), 1 = Devices, 2 =
+    /// Library.
     pub(crate) active_tab: usize,
+    /// The Devices tab's section: 0 = Devices, 1 = MIDI Graph (saved in the session).
+    pub(crate) devices_tab: usize,
+    /// The Devices and MIDI Graph sections' scroll state (scrollbars, PgUp/PgDn and
+    /// Home/End) and their viewport heights for the page step.
+    pub(crate) devices_scroll: ScrollHandle,
+    pub(crate) graph_scroll: ScrollHandle,
+    pub(crate) devices_view_h: f32,
+    pub(crate) graph_view_h: f32,
     /// The front panel's rendered width, recorded during prepaint.
     pub(crate) panel_width: f32,
     /// Mouse-wheel detent accumulator for the panel knobs: (group, fractional detents).
@@ -320,7 +329,6 @@ impl GridApp {
         let session = crate::session::Session::load(store.as_ref());
         clock.set_bpm(session.bpm);
         let emulator_split = cx.new(|_| ResizableState::default());
-        let devices_split = cx.new(|_| ResizableState::default());
 
         let focus = cx.focus_handle().tab_stop(true);
         focus.focus(window, cx);
@@ -455,7 +463,12 @@ impl GridApp {
         };
         // The hub catalog comes in at app load; later refreshes keep an hourly cadence.
         let mut library = fm1_performer::library::Library::load(store_ref);
-        library.refresh_hub();
+        if hub_online() {
+            library.refresh_hub();
+        }
+        // An armed Download All sweeps when the first catalog lands (the pump's
+        // hub-swap trigger), not on a poll.
+        library.set_download_all(session.download_all);
 
         let mut app = Self {
             slots: std::array::from_fn(|_| Slot::default()),
@@ -465,10 +478,11 @@ impl GridApp {
             hardware,
             routing,
             midi_keys,
-            pending_source: None,
             flash_armed: Default::default(),
             flash_combos: Default::default(),
             flash_was: Default::default(),
+            rescue_on: false,
+            rescue_warn: false,
             rescue_ports: Default::default(),
             rescue_combos: Default::default(),
             rings,
@@ -496,11 +510,14 @@ impl GridApp {
             grid_size: (crate::grid::GRID_W, crate::grid::GRID_W),
             grid_scale: 1.0,
             emulator_split,
-            devices_split,
             sidebar_width: session.sidebar_width,
-            devices_width: session.devices_width,
             health: [SlotHealth::default(); MAX_SLOTS],
             active_tab: session.tab,
+            devices_tab: session.devices_tab,
+            devices_scroll: ScrollHandle::new(),
+            graph_scroll: ScrollHandle::new(),
+            devices_view_h: 400.0,
+            graph_view_h: 400.0,
             panel_width: 1040.0,
             wheel_acc: (u32::MAX, 0.0),
             last_beat: false,
@@ -893,13 +910,34 @@ impl GridApp {
         before != self.held
     }
 
-    /// PgUp/PgDn on the Library tab: scroll the list by ~a viewport. (The offset runs
-    /// negative going down; clamp to the content.)
+    /// PgUp/PgDn on the Library tab: scroll the list by ~a viewport.
     fn scroll_library(&mut self, pages: f32) {
-        let current: f32 = self.lib_scroll.offset().y.into();
-        let max: f32 = f32::from(self.lib_scroll.max_offset().y).abs();
-        let next: f32 = (current - pages * self.lib_view_h * 0.9).clamp(-max, 0.0);
+        let next = page_offset(
+            self.lib_scroll.offset().y.into(),
+            self.lib_scroll.max_offset().y.into(),
+            self.lib_view_h,
+            pages,
+        );
         self.lib_scroll.set_offset(point(px(0.0), px(next)));
+    }
+
+    /// The scroll handle of the Devices tab's visible section.
+    fn devices_handle(&self) -> &ScrollHandle {
+        match self.devices_tab {
+            0 => &self.devices_scroll,
+            _ => &self.graph_scroll,
+        }
+    }
+
+    /// PgUp/PgDn on the Devices tab: scroll the visible section by ~a viewport.
+    fn scroll_devices(&mut self, pages: f32) {
+        let view_h = match self.devices_tab {
+            0 => self.devices_view_h,
+            _ => self.graph_view_h,
+        };
+        let handle = self.devices_handle();
+        let next = page_offset(handle.offset().y.into(), handle.max_offset().y.into(), view_h, pages);
+        handle.set_offset(point(px(0.0), px(next)));
     }
 
     pub(crate) fn turn_encoder(&self, enc: u8, clicks: i32) {
@@ -931,6 +969,13 @@ impl GridApp {
             // The Library tab pages its list.
             "pageup" if self.active_tab == 2 => self.scroll_library(-1.0),
             "pagedown" if self.active_tab == 2 => self.scroll_library(1.0),
+            // The Devices tab pages its visible section.
+            "pageup" if self.active_tab == 1 => self.scroll_devices(-1.0),
+            "pagedown" if self.active_tab == 1 => self.scroll_devices(1.0),
+            "home" if self.active_tab == 1 => {
+                self.devices_handle().set_offset(point(px(0.0), px(0.0)))
+            }
+            "end" if self.active_tab == 1 => self.devices_handle().scroll_to_bottom(),
             // Everything below plays the panel's pane; with the panel hidden the
             // keys stay inert.
             _ if self.active_tab != 0 => return,
@@ -1019,15 +1064,11 @@ impl GridApp {
             self.combos_at_generation = generation;
             self.refresh_firmware_combos(window, cx);
         }
-        // The Download All pump: while the toggle is on, keep one download going,
-        // walking the list (a failed or finished download frees the next tick to
-        // start the next one). Unlike the row's Download button it leaves
-        // lib_scroll_to alone — the list doesn't chase automatic fetches.
-        if self.download_all {
-            if let Some(name) = self.library.next_download() {
-                self.library.start_download(&name);
-            }
-        }
+        // Download All advances on events only — a download finishing, a hub swap,
+        // the toggle's on-click; the pump is cheap while nothing moves. Unlike the
+        // row's Download button it leaves lib_scroll_to alone — the list doesn't
+        // chase automatic fetches.
+        self.library.pump_downloads();
 
         let mut dirty = self.sync_held();
         dirty |= self.upload_lcds();
@@ -1082,19 +1123,14 @@ impl GridApp {
                 }
             }
 
-            // MIDI rescue: with no live FM-1 and no flash running, every system MIDI
-            // port is offered as a flash target (the "MIDI RESCUE: …" rows). The
-            // running check matters: a flash empties the rows (the unit reboots
-            // through its loader), and the rescue list must not pop up mid-update.
-            let flashing = self
-                .hardware
-                .flash_state()
-                .is_some_and(|state| !state.error);
-            let rescue = if names.is_empty() && !flashing {
-                self.hardware.midi_ports()
-            } else {
-                Vec::new()
-            };
+            // MIDI rescue follows the Devices pane's Rescue toggle: while armed,
+            // every system MIDI port is a flash target, live FM-1 units or not.
+            // The sweep also keeps the toggle's warning ring: no FM-1 answered,
+            // but something MIDI is out there.
+            let ports = self.hardware.midi_ports();
+            let warn = names.is_empty() && !ports.is_empty();
+            dirty |= std::mem::replace(&mut self.rescue_warn, warn) != warn;
+            let rescue = if self.rescue_on { ports } else { Vec::new() };
             if rescue != self.rescue_ports {
                 self.rescue_ports = rescue.clone();
                 dirty = true;
@@ -1246,6 +1282,18 @@ impl GridApp {
     }
 }
 
+/// Whether the hub's online listing may be fetched: the UI tests set FM1_GRID_NO_HUB
+/// so no network race can move the list mid-click.
+pub(crate) fn hub_online() -> bool {
+    std::env::var_os("FM1_GRID_NO_HUB").is_none()
+}
+
+/// Paged-scroll math shared by the library list and the Devices tab's sections:
+/// scroll offsets run negative going down; clamp to the content.
+fn page_offset(current: f32, max: f32, view_h: f32, pages: f32) -> f32 {
+    (current - pages * view_h * 0.9).clamp(-max.abs(), 0.0)
+}
+
 /// The window height the full stack needs (title bar, tabs, full panel, 1x grid);
 /// below it the front panel's keyboard sheds its compact allowance.
 const PANEL_COMPACT_BELOW: f32 = 950.0;
@@ -1343,7 +1391,7 @@ impl GridApp {
                             this.sync_held();
                         }
                         this.active_tab = ix;
-                        if ix == 2 {
+                        if ix == 2 && hub_online() {
                             // Opening the library refreshes the online listing.
                             this.library.refresh_hub();
                         }
@@ -1354,21 +1402,49 @@ impl GridApp {
             }))
     }
 
-    /// The Devices tab: the live USB units and the MIDI graph in an even split.
+    /// The Devices tab: a centered pill tab bar over the two sections — the live USB
+    /// units and the MIDI graph. The picked section is session state.
     fn devices_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let background = cx.theme().background;
-        div().size_full().bg(background).child(
-            h_resizable("devices-split")
-                .with_state(&self.devices_split)
-                .child(
-                    match self.devices_width {
-                        Some(width) => resizable_panel().size(px(width)),
-                        None => resizable_panel(),
-                    }
-                    .child(div().size_full().p_2().child(self.devices_pane(window, cx))),
-                )
-                .child(resizable_panel().child(self.graph_section(cx))),
-        )
+        let app = cx.entity().clone();
+        v_flex()
+            .size_full()
+            .bg(background)
+            .child(
+                h_flex().w_full().justify_center().p_2().pb_0().child(
+                    // The shrink-wrap div carries the observable id: the bar's own
+                    // root doesn't register one.
+                    div()
+                        .id("devices-sections")
+                        .test_support()
+                        .child(
+                            TabBar::new("devices-sections-bar")
+                                .pill()
+                                .selected_index(self.devices_tab)
+                                .on_click(move |ix, window, cx| {
+                                    app.update(cx, |this, cx| {
+                                        this.devices_tab = *ix;
+                                        this.refocus(window, cx);
+                                        cx.notify();
+                                    });
+                                })
+                                .child(Tab::new().label("Devices").icon(Icon::new(Lucide::Usb)))
+                                .child(
+                                    Tab::new().label("MIDI Graph").icon(Icon::new(Lucide::Waypoints)),
+                                ),
+                        ),
+                ),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .min_h_0()
+                    .w_full()
+                    .child(match self.devices_tab {
+                        0 => self.devices_pane(window, cx).into_any_element(),
+                        _ => self.graph_section(cx).into_any_element(),
+                    }),
+            )
     }
 }
 

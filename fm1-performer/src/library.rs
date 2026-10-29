@@ -97,9 +97,13 @@ pub struct Library {
     last_refresh: Arc<Mutex<Option<Instant>>>,
     downloads: HashMap<String, Arc<Download>>,
     /// Names whose last download failed; [`Library::next_download`] skips them so a
-    /// broken offer can't jam the Download All pump. A forced hub refresh or an
-    /// explicit [`Library::start_download`] clears the mark.
+    /// broken offer can't jam a Download All sweep. A forced hub refresh, an
+    /// explicit [`Library::start_download`] or a fresh toggle-on clears the mark.
     download_failed: HashSet<String>,
+    /// The Download All toggle, mirrored from the app (session state lives there).
+    download_all: bool,
+    /// A hub swap was observed by `list()` but no sweep has run since.
+    swap_pending: bool,
     /// What the last `list()` returned. Rebuilt only when its inputs move — the UI
     /// calls `list()` every frame.
     view: Vec<Firmware>,
@@ -132,6 +136,8 @@ impl Library {
             last_refresh: Arc::new(Mutex::new(None)),
             downloads: HashMap::new(),
             download_failed: HashSet::new(),
+            download_all: false,
+            swap_pending: false,
             view: Vec::new(),
             view_dirty: true,
             hub_swapped: Arc::new(AtomicBool::new(false)),
@@ -150,6 +156,7 @@ impl Library {
     pub fn list(&mut self) -> &[Firmware] {
         let finished = self.collect_downloads();
         let swapped = self.hub_swapped.swap(false, Ordering::Relaxed);
+        self.swap_pending |= swapped;
         if finished || swapped || self.view_dirty {
             self.rebuild_view();
         } else if self.last_stat.elapsed() >= STAT_CADENCE {
@@ -231,7 +238,50 @@ impl Library {
         self.refresh_hub_inner(true);
     }
 
-    /// The Download All pump's next target: the first entry in `list()` order that
+    /// The Download All toggle. Turning it on sweeps at once; after that a sweep
+    /// runs only when the app's [`Library::pump_downloads`] sees a download finish
+    /// or a fresh hub listing swap in. A fresh toggle-on clears the failed marks,
+    /// so earlier failures get one retry per arming.
+    pub fn set_download_all(&mut self, on: bool) {
+        if on && !self.download_all {
+            self.download_failed.clear();
+        }
+        self.download_all = on;
+        if on {
+            self.sweep_downloads();
+        }
+    }
+
+    /// The app tick's Download All driver. Cheap while idle (one pass over the
+    /// in-flight map plus two flags); the actual sweep runs only when a download
+    /// has an outcome to fold in or a hub swap is waiting.
+    pub fn pump_downloads(&mut self) {
+        if !self.download_all {
+            return;
+        }
+        let finished = self
+            .downloads
+            .values()
+            .any(|d| d.outcome.lock().unwrap().is_some());
+        if finished || self.swap_pending || self.hub_swapped.load(Ordering::Relaxed) {
+            self.sweep_downloads();
+        }
+    }
+
+    /// One Download All step: fold in what finished (a failure marks its name and
+    /// the walk moves past it), then start the next downloadable. One in flight at
+    /// a time; the next step is kicked by [`Library::pump_downloads`].
+    fn sweep_downloads(&mut self) {
+        self.swap_pending = false;
+        // A single attempt: if `start_download` no-ops (the offer vanished under a
+        // hub swap mid-sweep), the walk stalls until the next trigger rather than
+        // spin on the same name.
+        if let Some(name) = self.next_download() {
+            self.start_download(&name);
+        }
+    }
+
+    /// A Download All sweep's next target: the first entry in `list()` order that
     /// can be downloaded — a hub offer whose package isn't at hand (or whose stored
     /// blob went missing) — or upgraded: a builtin the hub carries a newer version
     /// of, where the upgrade lands the same download under the builtin's name. One
@@ -984,6 +1034,74 @@ mod tests {
         // Everything at hand: nothing left.
         library.download_failed.insert("hub-only".to_string());
         assert_eq!(library.next_download(), None);
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    /// Download All is event-driven: a sweep runs on toggle-on, on a hub swap, and
+    /// when a download finishes — never on a poll. A failed item is marked and the
+    /// walk moves past it; with nothing left the pump stays parked.
+    #[test]
+    fn download_all_sweeps_on_events() {
+        let (store, dir) = temp_store("all");
+        let mut library = Library::load(&store);
+        let offer = |name: &str| Firmware {
+            source: FirmwareSource::Hub {
+                // A closed port fails fast and deterministically, offline.
+                path: format!("http://127.0.0.1:1/fw/{name}.fwsc"),
+                blob: None,
+            },
+            ..hub_offer(name, "1.0", "ignored.fwsc")
+        };
+
+        // Toggle-on with an empty listing sweeps without finding anything, and a
+        // pump with nothing moving is a no-op.
+        library.set_download_all(true);
+        assert!(library.downloads.is_empty());
+        library.pump_downloads();
+        assert!(library.downloads.is_empty());
+
+        // A hub swap is a trigger: two closed-port offers, both doomed to fail fast.
+        *library.hub.lock().unwrap() = vec![offer("fail-one"), offer("fail-two")];
+        library.hub_swapped.store(true, Ordering::Relaxed);
+        library.pump_downloads();
+        assert!(
+            library.downloads.contains_key("fail-one"),
+            "the swap should kick the first download"
+        );
+
+        // A finished download kicks the next step: fail-one errors out, the pump
+        // marks it and the walk moves down the list to fail-two.
+        for _ in 0..100 {
+            std::thread::sleep(Duration::from_millis(50));
+            library.pump_downloads();
+            if library.downloads.contains_key("fail-two") {
+                break;
+            }
+        }
+        assert!(library.download_failed.contains("fail-one"));
+        assert!(
+            library.downloads.contains_key("fail-two"),
+            "the walk should move past the failure"
+        );
+
+        // fail-two fails too; the listing is exhausted and the pump parks.
+        for _ in 0..100 {
+            std::thread::sleep(Duration::from_millis(50));
+            library.pump_downloads();
+            if library.downloads.is_empty() {
+                break;
+            }
+        }
+        assert!(library.download_failed.contains("fail-two"));
+        assert!(library.downloads.is_empty());
+        library.pump_downloads();
+        assert!(library.downloads.is_empty(), "nothing left: no retry loop");
+
+        // A fresh toggle-on clears the marks and retries once.
+        library.set_download_all(false);
+        library.set_download_all(true);
+        assert!(library.downloads.contains_key("fail-one"));
+        library.set_download_all(false);
         std::fs::remove_dir_all(dir).ok();
     }
 

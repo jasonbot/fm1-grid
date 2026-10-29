@@ -14,9 +14,10 @@ use gpui_kit::component::input::Input;
 use gpui_kit::component::menu::{DropdownMenu, PopupMenuItem};
 use gpui_kit::component::scroll::ScrollableElement;
 use gpui_kit::component::spinner::Spinner;
+use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::{ActiveTheme, Disableable, Icon, IconName, Selectable, Sizable};
 use gpui_kit::prelude::FluentBuilder;
-use gpui_kit::*;
+use gpui_kit::{TestSupportExt as _, *};
 use std::rc::Rc;
 
 /// Tag pill colors, picked by the tag's hash: the same tag always lands on the same
@@ -41,6 +42,15 @@ fn tag_color(tag: &str) -> u32 {
     TAG_COLORS[(hash % TAG_COLORS.len() as u32) as usize]
 }
 
+/// A tag pill's element id component: FNV-1a over name+tag, stable across frames.
+pub(crate) fn pill_id(name: &str, tag: &str) -> u64 {
+    let mut hash = 0xcbf2_9ce4_8422_2325u64;
+    for byte in name.bytes().chain([0]).chain(tag.bytes()) {
+        hash = (hash ^ u64::from(byte)).wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    hash
+}
+
 /// The row's actions as one button group: ghost buttons fused in a bordered rounded
 /// container with hairline dividers. (The component's ButtonGroup would do the fusion,
 /// but it overwrites each button's own `disabled` at push time, and this row's buttons
@@ -62,13 +72,12 @@ fn action_group(items: Vec<AnyElement>, border: Hsla) -> AnyElement {
     group.into_any_element()
 }
 
-/// The filter box's match: the needle (already lowercase) against name, version, tags,
-/// byline and description.
+/// The filter box's match: every space-separated token of the needle must appear as
+/// a case-insensitive substring of name, version, tags, byline or description.
+/// "f ll gro" finds "Felucca (Groovebox)".
 fn matches_filter(firmware: &Firmware, needle: &str) -> bool {
-    if needle.is_empty() {
-        return true;
-    }
-    format!(
+    let needle = needle.to_lowercase();
+    let haystack = format!(
         "{} {} {} {} {}",
         firmware.name,
         firmware.version,
@@ -76,8 +85,35 @@ fn matches_filter(firmware: &Firmware, needle: &str) -> bool {
         firmware.byline,
         firmware.description
     )
-    .to_lowercase()
-    .contains(needle)
+    .to_lowercase();
+    needle
+        .split_whitespace()
+        .all(|token| haystack.contains(token))
+}
+
+/// Toggle a tag's words in the filter text (a pill click): if every word is already
+/// there as a token (case-insensitive), they all come out; otherwise each missing
+/// word is appended. Returns the rebuilt filter text.
+fn toggle_tag(filter: &str, tag: &str) -> String {
+    let words: Vec<&str> = tag.split_whitespace().collect();
+    let tokens: Vec<&str> = filter.split_whitespace().collect();
+    let present = |word: &str| {
+        tokens
+            .iter()
+            .any(|token| token.eq_ignore_ascii_case(word))
+    };
+    if words.iter().all(|word| present(word)) {
+        tokens
+            .iter()
+            .filter(|token| !words.iter().any(|word| token.eq_ignore_ascii_case(word)))
+            .copied()
+            .collect::<Vec<_>>()
+            .join(" ")
+    } else {
+        let mut out: Vec<&str> = tokens.clone();
+        out.extend(words.iter().copied().filter(|word| !present(word)));
+        out.join(" ")
+    }
 }
 
 /// The list's sections, in order: installed first, hub offers at the bottom.
@@ -149,13 +185,7 @@ impl GridApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
-        let needle = self
-            .lib_form
-            .filter
-            .read(cx)
-            .value()
-            .trim()
-            .to_lowercase();
+        let needle = self.lib_form.filter.read(cx).value().trim().to_string();
         let view = self.library.list();
 
         // Flatten the sections into one fixed-height item stream. Rows are view
@@ -371,6 +401,10 @@ impl GridApp {
                         .tooltip("Download every downloadable or upgradable firmware, one at a time")
                         .on_click(cx.listener(|this, _, _, cx| {
                             this.download_all = !this.download_all;
+                            // Turning it on sweeps at once (and retries what failed
+                            // last time); from there the tick's pump only advances
+                            // on a finished download or a hub swap.
+                            this.library.set_download_all(this.download_all);
                             cx.notify();
                         }))
                         .into_any_element(),
@@ -409,20 +443,39 @@ impl GridApp {
         let downloading = firmware.status == Status::Downloading;
         let percent = self.library.download_percent(&firmware.name);
 
-        // The pills: one per tag, then the device. One row only — a taller wrap
-        // would break the row's fixed height; extras clip instead.
+        // The pills: one per tag, then the device. A tag pill click toggles the tag's
+        // words in the filter box. One row only — a taller wrap would break the
+        // row's fixed height; extras clip instead.
         let mut pills = h_flex().gap_1().flex_nowrap().min_w_0().overflow_hidden();
         for tag in &firmware.tags {
             let color: Hsla = rgb(tag_color(tag)).into();
+            let tag = tag.clone();
+            let id_tag = tag.clone();
             pills = pills.child(
                 div()
+                    .id(("lib-tag", pill_id(&firmware.name, &id_tag)))
+                    .test_support()
                     .rounded_full()
                     .px(px(6.0))
                     .py(px(1.0))
                     .text_size(px(9.0))
                     .bg(color.opacity(0.16))
                     .text_color(color)
-                    .child(tag.clone()),
+                    .cursor_pointer()
+                    .hover(move |el| el.bg(color.opacity(0.3)))
+                    .tooltip(|window, cx| {
+                        Tooltip::new("Toggle this tag in the filter").build(window, cx)
+                    })
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        let text = this.lib_form.filter.read(cx).value().to_string();
+                        let next = toggle_tag(&text, &tag);
+                        this.lib_form.filter.update(cx, |state, cx| {
+                            state.set_value(next, window, cx);
+                        });
+                        this.refocus(window, cx);
+                        cx.notify();
+                    }))
+                    .child(id_tag),
             );
         }
         let device = match firmware.device {
@@ -766,5 +819,55 @@ impl GridApp {
                         cx.notify();
                     })),
             )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    // No `use super::*` — the parent's gpui glob import would drag in GPUI's `test`
+    // attribute macro, which re-expands the built-in #[test] (see tests/mod.rs).
+    use super::{matches_filter, toggle_tag};
+    use fm1_performer::library::{Firmware, FirmwareDevice, FirmwareSource, Status};
+
+    fn firmware(name: &str, tags: &[&str]) -> Firmware {
+        Firmware {
+            name: name.to_string(),
+            byline: "Some Author".to_string(),
+            version: "1.0".to_string(),
+            description: "A test firmware".to_string(),
+            tags: tags.iter().map(|tag| tag.to_string()).collect(),
+            device: FirmwareDevice::Fm1,
+            upgradable: false,
+            status: Status::Available,
+            source: FirmwareSource::Builtin,
+        }
+    }
+
+    /// The filter is space-separated tokens, each a case-insensitive substring of the
+    /// row's searchable text; every token must hit.
+    #[test]
+    fn filter_matches_all_tokens_as_substrings() {
+        let felucca = firmware("Felucca", &["groove", "dev"]);
+        assert!(matches_filter(&felucca, ""));
+        assert!(matches_filter(&felucca, "fel gro"));
+        assert!(matches_filter(&felucca, "GROOVE Dev"));
+        assert!(matches_filter(&felucca, "author"));
+        assert!(!matches_filter(&felucca, "fel zzz"));
+    }
+
+    /// A pill click toggles the tag's words: appended when any is missing as a token
+    /// (case-insensitive), all removed when all are present.
+    #[test]
+    fn tag_toggles_in_filter() {
+        assert_eq!(toggle_tag("", "groove"), "groove");
+        assert_eq!(toggle_tag("groove", "groove"), "");
+        assert_eq!(toggle_tag("groove dev", "dev"), "groove");
+        assert_eq!(toggle_tag("GROOVE", "groove"), "");
+        // Multi-word tags toggle as a unit.
+        assert_eq!(toggle_tag("groove", "dev tools"), "groove dev tools");
+        assert_eq!(toggle_tag("groove dev tools", "dev tools"), "groove");
+        assert_eq!(toggle_tag("groove dev", "dev tools"), "groove dev tools");
+        // Presence is exact tokens: a bare substring does not count.
+        assert_eq!(toggle_tag("groo", "groove"), "groo groove");
     }
 }

@@ -166,8 +166,10 @@ fn on_key(app: &mut app::TuiApp, key: ratatui::crossterm::event::KeyEvent) {
             KeyCode::Home => app.scroll(isize::MIN),
             KeyCode::End => app.scroll(isize::MAX),
             KeyCode::Char('d') => app.download_selected(),
+            KeyCode::Char('a') => app.toggle_download_all(),
             KeyCode::Char('f') => app.flash_selected(),
             KeyCode::Char('r') => app.reload_hub(),
+            KeyCode::Char('R') => app.toggle_rescue(),
             KeyCode::Char('m') => {
                 let current = app.midi_label();
                 let sel = app
@@ -229,9 +231,8 @@ fn popup_key(app: &mut app::TuiApp, code: ratatui::crossterm::event::KeyCode) {
                 app.popup = Some(Popup::FlashTarget(next, names, pick));
             }
             KeyCode::Enter => {
-                if let Some(unit) = names.get(sel) {
-                    let unit = unit.clone();
-                    app.start_flash(&unit, &pick);
+                if let Some((unit, rescue)) = names.get(sel).cloned() {
+                    app.start_flash(&unit, rescue, &pick);
                 } else {
                     app.popup = None;
                 }
@@ -258,9 +259,8 @@ fn popup_click(app: &mut app::TuiApp, index: usize) {
             app.popup = None;
         }
         Some(Popup::FlashTarget(_, names, pick)) => {
-            if let Some(unit) = names.get(index) {
-                let unit = unit.clone();
-                app.start_flash(&unit, &pick);
+            if let Some((unit, rescue)) = names.get(index).cloned() {
+                app.start_flash(&unit, rescue, &pick);
             } else {
                 app.popup = None;
             }

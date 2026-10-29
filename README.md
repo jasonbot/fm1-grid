@@ -11,8 +11,10 @@ small; the selected card's screen gets an NTSC-style filter. The selected pane's
 screen also appears in the sidebar, hqx-upscaled 2x (4x on big windows). The
 grid/sidebar split is draggable, with the sidebar kept wide enough for at least 1x.
 The grid background follows the main colour of the selected screen (resampled once a
-second, faded over 500 ms). The Devices tab splits the window between the live USB
-units and the MIDI graph.
+second, faded over 500 ms). The Devices tab has its own pill tabs on top, centered:
+**Devices** (the live USB units) and **MIDI Graph**. The app remembers which one you
+picked, like the main tab. Both lists scroll, and PageUp/PageDown/Home/End work
+there like they do in the Library.
 
 The large FM-1 front panel at the bottom of the Emulator tab mirrors the active pane:
 click its keys and buttons, turn knobs with the −/+ ends, and watch its LEDs follow
@@ -22,8 +24,9 @@ MIDI keyboard forwards on any tab.
 A running pane can be **pinned** (the toggle beside its firmware selector): its flash
 contents — the device's settings and project data — are written to disk at power-off
 and when the app quits, and come back at the next boot. Pinned panes restore at
-startup (still powered off). The split positions, selected tab and pane, metronome
-tempo and Download All toggle restore the same way. State lives in the com.fm1-grid
+startup (still powered off). The split position, selected tab (and Devices
+section), selected pane, metronome tempo and Download All toggle restore the same
+way. State lives in the com.fm1-grid
 data directory (`~/.local/share/fm1-grid` on Linux).
 
 The **Library** tab lists every firmware the app knows — the bundled set, files you
@@ -31,11 +34,19 @@ import, and (online) everything the
 [FM-1 Firmware Hub](https://thefirmwarehub.com/) offers, downloadable in place. The
 listing also folds in [fm1-editor.com's firmware page](https://fm1-editor.com/firmware/):
 entries the hub lacks appear with their own links, and entries both sites carry get
-the combined tags and the newer side's version and download. Items remove (not
+the combined tags and the newer side's version and download. The filter box at the
+top matches space-separated words, each a case-insensitive substring anywhere in a
+firmware's name, version, tags, author or description — "f ll gro" finds Felucca.
+Clicking a tag pill toggles that tag's words in the filter. Items remove (not
 builtins), download with progress, and **Flash To…** a live unit (modal progress +
 log) or a powered-off unpinned pane (boots it). The **Download All** toggle at the
 bottom of the list downloads every offer in turn, including upgrades of bundled
-firmwares; **Reload** beside it re-fetches both listings. The bottom form imports a
+firmwares; **Reload** beside it re-fetches both listings. Download All walks the
+list from the top and moves past an item that fails (the item gets one retry when
+you flip the toggle off and on, or reload). It is not a poll loop: a sweep runs when
+you turn it on, when the online listing refreshes, and when a download finishes,
+then it parks. Left on when you quit, it resumes when the app starts and the first
+catalog lands. The bottom form imports a
 firmware file with a name, version and description.
 
 ![Screenshot](./screenshot/screen.png)
@@ -63,9 +74,11 @@ A `.fwsc` file is an update package; a `.bin` or `.xip` file is a raw app image.
 
 ### Firmware selector
 
-The slot pill, power switch and selector for the selected pane sit under the
-sidebar's screen; the pane's status (errors, dropped frames, throughput) is on the
-right of the metronome row. The selector only works while the pane is off — hover it
+The slot pill, power toggle and selector for the selected pane sit in a row across
+the top of the sidebar; the selector stretches to fill the row. The power control is
+a large toggle button with a power icon, and the pin button is large too. The pane's
+status (errors, dropped frames, throughput) is on the right of the metronome row.
+The selector only works while the pane is off — hover it
 while the pane is on to see why. It is a searchable list of every firmware the
 library has at hand — embedded, imported or downloaded — grouped by tag. Hovering a
 choice shows its description; embedded entries also show the file name and SHA-256
@@ -106,11 +119,25 @@ The selected pane gets these keys:
 Switching panes releases held keys on the old one, so no note sticks. A powered-off
 pane ignores keys.
 
+## Devices
+
+The Devices tab's first pill lists the live FM-1 units on USB. Each unit gets a big
+name line — what it runs, plus the dim port facts — with the flash toggle and
+firmware picker on their own row under it. Flash progress pins to the bottom of the
+pane while the unit reboots through its loader.
+
+The header's **Rescue** toggle adds every MIDI port on the system as a flash target,
+next to the recognized units. That is for a unit so broken it no longer answers to
+its FM-1 name (stuck in its update loader). If no FM-1 is found but some MIDI
+device is out there, the toggle grows a warning ring.
+
 ## MIDI graph
 
-The Devices tab's MIDI graph connects sources to sinks: system MIDI ports, running
-panes and live FM-1 units. Pick a source with **connect a MIDI out…**, then add
-sinks with a row's **+**; click a chip to remove a connection.
+The Devices tab's second pill is the MIDI graph, connecting sources to sinks: system
+MIDI ports, running panes and live FM-1 units. Every MIDI out gets its own section,
+always shown: the sinks it feeds are listed under its name, each with a small **X**
+pill that removes the connection, and the section's **Connect** dropdown routes
+another sink.
 
 ```mermaid
 flowchart LR
@@ -142,14 +169,22 @@ fm1-tty is its own crate and doesn't depend on the GUI stack at all: it builds a
 cargo build -p fm1-tty
 ```
 
-The screen has three parts:
+The screen has four parts:
 
+* **Devices** — the live FM-1 units on USB, one row each. `R` toggles **rescue
+  mode**: every MIDI port on the system joins the list as a flash target, for a
+  unit too broken to answer to its name. If no FM-1 is found but some MIDI device
+  is, the block's title warns `R: RESCUE?`.
 * **Library** — the firmware list, same as the GUI's Library tab: what came with the
   app, what you imported, and (online) what the Firmware Hub and fm1-editor.com
   offer.
   * `r` re-fetches the online listings.
   * `d` downloads the selected firmware.
-  * `f` flashes it onto a plugged-in FM-1. With more than one unit it asks which
+  * `a` toggles **Download All**: every offer is downloaded in turn, one at a time,
+    skipping items that fail (flip it off and on to retry them). The title shows
+    `ALL` while it runs. It is not remembered between runs.
+  * `f` flashes it onto a plugged-in FM-1 — with rescue mode on, onto any MIDI port
+    (the picker flags those rows `RESCUE:`). With more than one target it asks which
     one. A pop-up shows progress; on failure it stays up until `Esc`.
 * **Keyboard** — an on-screen piano. Click keys with the mouse, or press `Tab` to
   switch to it and use the same letter keys as the GUI. Every note goes to all
@@ -226,8 +261,8 @@ fm1-performer/src/keys.rs       keyboard layout and panel key tables
 fm1-grid/src/app.rs             grid state: pane power, firmware install, key routing, LCD upload
 fm1-grid/src/audio.rs           the four slot queues mixed into one output stream
 fm1-grid/src/grid.rs            the 2x2 grid of cards (screens snap 1x/0.5x to fit) and the background colour
-fm1-grid/src/sidebar.rs         the device sidebar: heading, upscaled screen, pane controls, pin
-fm1-grid/src/devices.rs         the Devices tab's live USB unit rows
+fm1-grid/src/sidebar.rs         the device sidebar: controls row on top, upscaled screen, pin
+fm1-grid/src/devices.rs         the Devices tab's live USB unit rows and the Rescue toggle
 fm1-grid/src/graph.rs           the Devices tab's MIDI graph editor
 fm1-grid/src/panel.rs           the clickable FM-1 front panel (bottom of the Emulator tab)
 fm1-grid/src/transport.rs       the bottom bar: the metronome row, global across tabs
@@ -236,7 +271,7 @@ fm1-grid/src/theme.rs           the FM-1 hardware colours; app chrome follows gp
 fm1-grid/src/library_tab.rs     the Library tab's list, pills, actions and add-file form
 fm1-grid/src/firmware_picker.rs the firmware dropdown's data (searchable, grouped by tag)
 fm1-grid/src/flash_dialog.rs    the modal flash progress + message terminal
-fm1-grid/src/session.rs         the saved UI state (splits, tab, pane, tempo, Download All)
+fm1-grid/src/session.rs         the saved UI state (split, tabs, pane, tempo, Download All)
 fm1-grid/src/main.rs            startup, CLI firmware arguments, the quit hook saving pins
 fm1-grid/src/tests/             headless UI smoke tests
 fm1-tty/src/                    the terminal UI (ratatui): library + flashing, piano, metronome

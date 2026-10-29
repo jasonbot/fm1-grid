@@ -40,8 +40,9 @@ pub enum Focus {
 pub enum Popup {
     /// The MIDI-keyboard selector: the highlighted row (0 is "no keyboard").
     MidiPorts(usize),
-    /// The flash target picker: (selected row, target unit names, what to flash).
-    FlashTarget(usize, Vec<String>, FirmwarePick),
+    /// The flash target picker: (selected row, (target name, is rescue target) rows,
+    /// what to flash).
+    FlashTarget(usize, Vec<(String, bool)>, FirmwarePick),
 }
 
 /// Mouse hit regions, refilled by every draw. Plain data; `ui.rs` writes, `main.rs`
@@ -95,6 +96,16 @@ pub struct TuiApp {
     linked: Vec<(String, String)>,
     /// A dismissed flash board stays down until the next flash starts.
     flash_dismissed: bool,
+    /// The Download All toggle: sweeps run on toggle-on, on a hub swap and when a
+    /// download finishes (the library's pump); never on a poll. Not persisted — the
+    /// TUI has no session record.
+    pub download_all: bool,
+    /// The rescue toggle: offer every system MIDI port as a flash target too, for
+    /// units too bricked to answer to their name. `rescue_ports` is the last sweep.
+    pub rescue: bool,
+    pub rescue_ports: Vec<String>,
+    /// The rescue port sweep's cadence (the hardware scanner's own poll rate).
+    rescue_at: Instant,
     /// A transient footer message and when it was set.
     status: Option<(String, Instant)>,
     /// Mouse hit regions from the last draw.
@@ -175,6 +186,10 @@ impl TuiApp {
             want_midi: None,
             linked: Vec::new(),
             flash_dismissed: false,
+            download_all: false,
+            rescue: false,
+            rescue_ports: Vec::new(),
+            rescue_at: Instant::now() - Duration::from_secs(1),
             status: None,
             regions: Regions::default(),
             list_state: ListState::default().with_selected(Some(0)),
@@ -190,6 +205,9 @@ impl TuiApp {
     /// momentary notes, send note changes, and keep the keyboard's graph links
     /// matched to the units that are actually plugged in.
     pub fn tick(&mut self) {
+        if let Some(library) = &mut self.library {
+            library.pump_downloads();
+        }
         self.firmwares = self
             .library
             .as_mut()
@@ -201,6 +219,11 @@ impl TuiApp {
             self.sel.min(self.firmwares.len() - 1)
         };
         self.devices = self.hardware.devices();
+        // The rescue target list, swept at the scanner's own cadence.
+        if self.rescue_at.elapsed() >= Duration::from_millis(500) {
+            self.rescue_at = Instant::now();
+            self.rescue_ports = self.hardware.midi_ports();
+        }
 
         let now = Instant::now();
         let (expired, pending): (Vec<_>, Vec<_>) =
@@ -455,6 +478,37 @@ impl TuiApp {
         }
     }
 
+    /// The Download All toggle (the `a` key). Turning it on sweeps at once and
+    /// retries what failed last time; a finished download or a hub swap kicks the
+    /// next step from the tick's pump.
+    pub fn toggle_download_all(&mut self) {
+        self.download_all = !self.download_all;
+        if let Some(library) = &mut self.library {
+            library.set_download_all(self.download_all);
+        }
+        self.say(if self.download_all {
+            "downloading everything, one at a time".to_string()
+        } else {
+            "download all off".to_string()
+        });
+    }
+
+    /// The rescue toggle (shift-R): every system MIDI port becomes a flash target,
+    /// for units too bricked to answer to their name.
+    pub fn toggle_rescue(&mut self) {
+        self.rescue = !self.rescue;
+        self.say(if self.rescue {
+            "rescue on: every MIDI port is a flash target".to_string()
+        } else {
+            "rescue off".to_string()
+        });
+    }
+
+    /// The rescue warning: no FM-1 answered, but something MIDI is out there.
+    pub fn rescue_warn(&self) -> bool {
+        self.devices.is_empty() && !self.rescue_ports.is_empty()
+    }
+
     /// The percent of a download in flight, for the list's pill.
     pub fn download_percent(&self, name: &str) -> Option<u32> {
         self.library
@@ -467,8 +521,9 @@ impl TuiApp {
         self.library.as_ref().map(|library| library.hub_status())
     }
 
-    /// Flash the selected firmware: pick the target when several units are plugged
-    /// in, flash directly when there is exactly one.
+    /// Flash the selected firmware: pick the target when several are around, flash
+    /// directly when there is exactly one. Targets are the live units; with the
+    /// rescue toggle on, every system MIDI port joins them, flagged `rescue`.
     pub fn flash_selected(&mut self) {
         let Some(firmware) = self.selected().cloned() else {
             return;
@@ -481,26 +536,46 @@ impl TuiApp {
             self.say(format!("download {} first", firmware.name));
             return;
         };
-        let targets: Vec<String> = self
+        let mut targets: Vec<(String, bool)> = self
             .devices
             .iter()
             .filter(|device| device.flash.is_none())
-            .map(|device| device.name.clone())
+            .map(|device| (device.name.clone(), false))
             .collect();
+        if self.rescue {
+            targets.extend(self.rescue_ports.iter().map(|port| (port.clone(), true)));
+        }
         match targets.len() {
-            0 => self.say("no live FM-1 on USB".to_string()),
-            1 => self.start_flash(&targets[0], &pick),
+            0 => self.say(if self.rescue {
+                "no MIDI port in sight".to_string()
+            } else if self.rescue_warn() {
+                "no live FM-1 on USB — R offers every MIDI port as a rescue target"
+                    .to_string()
+            } else {
+                "no live FM-1 on USB".to_string()
+            }),
+            1 => {
+                let (unit, rescue) = targets[0].clone();
+                self.start_flash(&unit, rescue, &pick);
+            }
             _ => self.popup = Some(Popup::FlashTarget(0, targets, pick)),
         }
     }
 
-    /// Flash the package to the named unit; failures land on the device's row.
-    pub fn start_flash(&mut self, unit: &str, pick: &FirmwarePick) {
+    /// Flash the package to the named target; a rescue target is a bare MIDI port no
+    /// FM-1 answered from, flashed through `Hardware::rescue_flash` with failures on
+    /// the pane-level board. A live unit's failures land on its row.
+    pub fn start_flash(&mut self, unit: &str, rescue: bool, pick: &FirmwarePick) {
         match pick.bytes(self.store.as_ref()) {
             Ok(bytes) => {
-                self.hardware.flash(unit, bytes);
+                if rescue {
+                    self.hardware.rescue_flash(unit, bytes);
+                } else {
+                    self.hardware.flash(unit, bytes);
+                }
                 self.flash_dismissed = false;
             }
+            Err(e) if rescue => self.hardware.report_board(e),
             Err(e) => self.hardware.report(unit, e),
         }
         self.popup = None;

@@ -34,7 +34,7 @@ use gpui_kit::component::combobox::{ComboboxEvent, ComboboxState};
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::component::resizable::{ResizableState, h_resizable};
 use gpui_kit::component::tab::{Tab, TabBar};
-use gpui_kit::component::{ActiveTheme, Icon, Theme, TitleBar, h_flex, v_flex};
+use gpui_kit::component::{ActiveTheme, Icon, Theme, ThemeMode, ThemeRegistry, TitleBar, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{TestSupportExt as _, *};
 use std::path::PathBuf;
@@ -50,6 +50,17 @@ pub(crate) enum Source {
         key: String,
         label: String,
     },
+}
+
+/// The Settings tab's appearance override: follow the OS, or pin light/dark.
+/// Serialized lowercase in the session record.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum Appearance {
+    #[default]
+    Auto,
+    Light,
+    Dark,
 }
 
 #[derive(Default)]
@@ -291,9 +302,13 @@ pub struct GridApp {
     /// don't move the list under the user.
     pub(crate) lib_scroll_to: Option<String>,
     /// The Library tab's Download All toggle (persisted in the session): while on,
-    /// the tick keeps one hub download going until nothing downloadable or
-    /// upgradable remains.
+    /// event-driven sweeps keep one hub download going until nothing downloadable
+    /// or upgradable remains.
     pub(crate) download_all: bool,
+    /// The Settings tab's state (persisted in the session): the theme family and
+    /// the appearance override.
+    pub(crate) theme_id: String,
+    pub(crate) appearance: Appearance,
     /// The library generation the firmware pickers were last built from.
     combos_at_generation: u64,
     _tick: Task<()>,
@@ -350,11 +365,17 @@ impl GridApp {
         });
         let mut subscriptions = vec![focus_out];
 
-        // The chrome follows the OS light/dark setting: take the current appearance
-        // (init() forced Light), then track live changes while the window is up.
-        Theme::sync_system_appearance(Some(window), cx);
-        subscriptions.push(window.observe_window_appearance(|window, cx| {
-            Theme::sync_system_appearance(Some(window), cx);
+        // OS appearance changes apply only while the Settings tab's override is on
+        // Auto; Light/Dark pin the mode. The saved theme family and override apply
+        // after the app struct exists (below).
+        let weak_appearance = cx.weak_entity();
+        subscriptions.push(window.observe_window_appearance(move |window, cx| {
+            let auto = weak_appearance
+                .update(cx, |this: &mut Self, _| this.appearance == Appearance::Auto)
+                .unwrap_or(false);
+            if auto {
+                Theme::sync_system_appearance(Some(window), cx);
+            }
         }));
 
         // One firmware combobox per slot; picking an entry loads it into that slot.
@@ -533,6 +554,8 @@ impl GridApp {
             lib_view_h: 400.0,
             lib_scroll_to: None,
             download_all: session.download_all,
+            theme_id: session.theme.clone(),
+            appearance: session.appearance,
             combos_at_generation: 0,
             _tick: tick,
             _subscriptions: subscriptions,
@@ -592,6 +615,11 @@ impl GridApp {
         // The pickers' lists and selections come from the library.
         app.combos_at_generation = app.library.generation();
         app.refresh_firmware_combos(window, cx);
+
+        // The bundled theme sets register before the saved family applies (a
+        // registry change re-applies by name, so the order matters).
+        crate::theme::load_bundled_themes(cx);
+        app.apply_theme(window, cx);
 
         app
     }
@@ -1280,6 +1308,64 @@ impl GridApp {
     pub(crate) fn refocus(&self, window: &mut Window, cx: &mut Context<Self>) {
         self.focus.focus(window, cx);
     }
+
+    /// Apply the theme family and appearance override: swap the family's configs
+    /// into the registry's light/dark slots, then load the side the mode points at.
+    /// `Theme::change` reloads the current mode's config, so this repaints at once.
+    pub(crate) fn apply_theme(&self, window: &mut Window, cx: &mut Context<Self>) {
+        let family = crate::theme::family(&self.theme_id);
+        let (light, dark) = {
+            let registry = ThemeRegistry::global(cx);
+            let pick = |name: &Option<String>,
+                        fallback: &std::rc::Rc<gpui_kit::component::ThemeConfig>| {
+                name.as_ref()
+                    .and_then(|name| registry.themes().get(name.as_str()).cloned())
+                    .unwrap_or_else(|| fallback.clone())
+            };
+            (
+                pick(&family.light, registry.default_light_theme()),
+                pick(&family.dark, registry.default_dark_theme()),
+            )
+        };
+        let mode = match self.appearance {
+            Appearance::Light => ThemeMode::Light,
+            Appearance::Dark => ThemeMode::Dark,
+            Appearance::Auto => window.appearance().into(),
+        };
+        {
+            let theme = Theme::global_mut(cx);
+            theme.light_theme = light;
+            theme.dark_theme = dark;
+        }
+        Theme::change(mode, None, cx);
+    }
+
+    /// The Settings tab's theme pick: apply at once and save the session record
+    /// immediately (a crash shouldn't lose the choice; the quit hook saves again).
+    pub(crate) fn set_theme_family(
+        &mut self,
+        id: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.theme_id = id.to_string();
+        self.apply_theme(window, cx);
+        self.save_session(cx);
+        cx.notify();
+    }
+
+    /// The Settings tab's appearance pick: apply at once and save.
+    pub(crate) fn set_appearance(
+        &mut self,
+        appearance: Appearance,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.appearance = appearance;
+        self.apply_theme(window, cx);
+        self.save_session(cx);
+        cx.notify();
+    }
 }
 
 /// Whether the hub's online listing may be fetched: the UI tests set FM1_GRID_NO_HUB
@@ -1351,10 +1437,11 @@ impl GridApp {
                 theme.tokens.background,
             )
         };
-        const TABS: [(Lucide, usize); 3] = [
+        const TABS: [(Lucide, usize); 4] = [
             (Lucide::Monitor, 0),
             (Lucide::KeyboardMusic, 1),
             (Lucide::Library, 2),
+            (Lucide::Settings, 3),
         ];
         v_flex()
             .w(px(48.0))
@@ -1414,6 +1501,8 @@ impl GridApp {
                 h_flex().w_full().justify_center().p_2().pb_0().child(
                     // The shrink-wrap div carries the observable id: the bar's own
                     // root doesn't register one.
+                    // A component Tab paints its icon OR its label, never both — the
+                    // captions go through the children slot instead.
                     div()
                         .id("devices-sections")
                         .test_support()
@@ -1428,9 +1517,23 @@ impl GridApp {
                                         cx.notify();
                                     });
                                 })
-                                .child(Tab::new().label("Devices").icon(Icon::new(Lucide::Usb)))
                                 .child(
-                                    Tab::new().label("MIDI Graph").icon(Icon::new(Lucide::Waypoints)),
+                                    Tab::new().aria_label("Devices").child(
+                                        h_flex()
+                                            .items_center()
+                                            .gap_2()
+                                            .child(Icon::new(Lucide::Usb).size_4())
+                                            .child("Devices"),
+                                    ),
+                                )
+                                .child(
+                                    Tab::new().aria_label("MIDI Graph").child(
+                                        h_flex()
+                                            .items_center()
+                                            .gap_2()
+                                            .child(Icon::new(Lucide::Waypoints).size_4())
+                                            .child("MIDI Graph"),
+                                    ),
                                 ),
                         ),
                 ),
@@ -1488,7 +1591,8 @@ impl Render for GridApp {
                             .child(match self.active_tab {
                                 0 => self.emulator_tab(window, cx).into_any_element(),
                                 1 => self.devices_tab(window, cx).into_any_element(),
-                                _ => self.library_tab(window, cx).into_any_element(),
+                                2 => self.library_tab(window, cx).into_any_element(),
+                                _ => self.settings_tab(window, cx).into_any_element(),
                             }),
                     ),
             )

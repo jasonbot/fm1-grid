@@ -649,6 +649,100 @@ fn library_tag_pills_toggle_filter(cx: &mut TestAppContext) {
     cx.update(|cx| assert_eq!(filter_text(app.read(cx), cx), "groo"));
 }
 
+/// The Settings tab: the appearance override pins the mode at once, a bundled theme
+/// family applies by name, and each pick lands in the session record (restored to
+/// the defaults at the end — the store is shared across the process's tests).
+#[gpui_kit::test]
+fn settings_theme_and_appearance(cx: &mut TestAppContext) {
+    use crate::app::Appearance;
+    use gpui_kit::component::Theme;
+
+    let (window, app) = open_app(cx);
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        window.click(("tab", 3usize), cx); // the Settings tab
+        window.render_frame(cx);
+        assert!(window.find("settings-theme").visible());
+        // The dark override pins the mode even in this (light) test window.
+        window.click(("settings-appearance", 2usize), cx);
+    })
+    .unwrap();
+    cx.update(|cx| {
+        assert!(Theme::global(cx).is_dark(), "the dark override should apply");
+        assert_eq!(app.read(cx).appearance, Appearance::Dark);
+    });
+
+    // A bundled family applies at once (its dark side — the override still pins it).
+    // The dropdown's items live in a popup overlay, so drive the apply path directly.
+    cx.update_window(window.into(), |_, window, cx| {
+        app.update(cx, |app, cx| app.set_theme_family("gruvbox", window, cx));
+    })
+    .unwrap();
+    cx.update(|cx| {
+        let theme = Theme::global(cx);
+        assert_eq!(theme.theme_name().as_ref(), "Gruvbox Dark");
+    });
+
+    // Back to Auto: the mode follows the test window's (light) appearance again,
+    // now in the family's light side — and the session record carries the picks.
+    cx.update_window(window.into(), |_, window, cx| {
+        window.click(("settings-appearance", 0usize), cx);
+    })
+    .unwrap();
+    cx.update(|cx| {
+        let theme = Theme::global(cx);
+        assert_eq!(theme.theme_name().as_ref(), "Gruvbox Light");
+        assert!(!theme.is_dark());
+        let record: crate::session::Session = app
+            .read(cx)
+            .store
+            .as_ref()
+            .expect("a store")
+            .fetch_object("session")
+            .expect("the settings change should have saved the session");
+        assert_eq!(record.theme, "gruvbox");
+        assert_eq!(record.appearance, Appearance::Auto);
+    });
+
+    // Leave the shared store at the defaults (the setters save the whole session
+    // record, so leave the Settings tab first — it would persist as the boot tab).
+    cx.update_window(window.into(), |_, window, cx| {
+        window.click(("tab", 0usize), cx);
+        app.update(cx, |app, cx| {
+            app.set_theme_family(crate::theme::DEFAULT_FAMILY, window, cx);
+            app.set_appearance(Appearance::Auto, window, cx);
+        });
+    })
+    .unwrap();
+}
+
+/// Every bundled theme file parses under the pinned gpui-kit's schema and registers
+/// its configs; every family entry names configs that actually registered.
+#[gpui_kit::test]
+fn bundled_themes_load(cx: &mut TestAppContext) {
+    use gpui_kit::component::ThemeRegistry;
+
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        crate::theme::load_bundled_themes(cx);
+        let registry = ThemeRegistry::global(cx);
+        // Default plus the 21 bundled families.
+        assert_eq!(crate::theme::theme_families().len(), 22);
+        for family in crate::theme::theme_families() {
+            for name in [&family.light, &family.dark].into_iter().flatten() {
+                assert!(
+                    registry.themes().contains_key(name.as_str()),
+                    "family {} names {name}, which never registered",
+                    family.id
+                );
+            }
+        }
+        // The workhorse pair the UI test applies.
+        assert!(registry.themes().contains_key("Gruvbox Light"));
+        assert!(registry.themes().contains_key("Gruvbox Dark"));
+    });
+}
+
 /// The Devices pane's Rescue toggle: while off, no rescue rows; while on, every
 /// swept system MIDI port is a flash target with the shared flash control — whether
 /// live FM-1 units are around or not. ALSA owns the port list, so the test drives

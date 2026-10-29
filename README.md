@@ -25,8 +25,8 @@ A running pane can be **pinned** (the toggle beside its firmware selector): its 
 contents — the device's settings and project data — are written to disk at power-off
 and when the app quits, and come back at the next boot. Pinned panes restore at
 startup (still powered off). The split position, selected tab (and Devices
-section), selected pane, metronome tempo and Download All toggle restore the same
-way. State lives in the com.fm1-grid
+section), selected pane, metronome tempo, Download All toggle, theme and appearance
+override restore the same way. State lives in the com.fm1-grid
 data directory (`~/.local/share/fm1-grid` on Linux).
 
 The **Library** tab lists every firmware the app knows — the bundled set, files you
@@ -74,12 +74,12 @@ A `.fwsc` file is an update package; a `.bin` or `.xip` file is a raw app image.
 
 ### Firmware selector
 
-The slot pill, power toggle and selector for the selected pane sit in a row across
-the top of the sidebar; the selector stretches to fill the row. The power control is
-a large toggle button with a power icon, and the pin button is large too. The pane's
-status (errors, dropped frames, throughput) is on the right of the metronome row.
-The selector only works while the pane is off — hover it
-while the pane is on to see why. It is a searchable list of every firmware the
+The power toggle and selector for the selected pane sit in a row across the top of
+the sidebar; the selector stretches to fill the row. The power control is a large
+toggle button with a power icon. The slot number pill sits on its own at the bottom
+right of the sidebar. The pane's status (errors, dropped frames, throughput) is on
+the right of the metronome row. The selector only works while the pane is off —
+hover it while the pane is on to see why. It is a searchable list of every firmware the
 library has at hand — embedded, imported or downloaded — grouped by tag. Hovering a
 choice shows its description; embedded entries also show the file name and SHA-256
 hash. A new firmware boots the next time you power the pane on. To add a file of your
@@ -150,6 +150,14 @@ flowchart LR
 A running pane is a sink only. That is the emulator's limit: the FM-1's TRS jack is
 MIDI-in alone, and the firmwares' real MIDI path is USB, which the emulated chip
 cannot enumerate. The graph says so while such a pane runs.
+
+## Settings
+
+The rail's gear icon opens the Settings tab. It has a **theme picker** — gpui-kit's
+built-in themes (Default, Adventure, Ayu, Catppuccin, Gruvbox, Solarized, Tokyo
+Night and friends) — and an **appearance** selector: Auto (follows the OS), Light
+or Dark. Picks apply at once and are saved with the rest of the app state. A
+dark-only theme keeps the default light side, and vice versa.
 
 ## fm1-tty
 
@@ -267,8 +275,10 @@ fm1-grid/src/graph.rs           the Devices tab's MIDI graph editor
 fm1-grid/src/panel.rs           the clickable FM-1 front panel (bottom of the Emulator tab)
 fm1-grid/src/transport.rs       the bottom bar: the metronome row, global across tabs
 fm1-grid/src/lcd.rs             RGB565 decode, colours, NTSC/ghost/hqx image filters
-fm1-grid/src/theme.rs           the FM-1 hardware colours; app chrome follows gpui-kit
+fm1-grid/src/theme.rs           the FM-1 hardware colours, the bundled theme catalog; chrome follows gpui-kit
 fm1-grid/src/library_tab.rs     the Library tab's list, pills, actions and add-file form
+fm1-grid/src/settings.rs        the Settings tab: theme picker, appearance override
+fm1-grid/themes/                the bundled gpui-kit theme sets (upstream themes/ at the pinned tag)
 fm1-grid/src/firmware_picker.rs the firmware dropdown's data (searchable, grouped by tag)
 fm1-grid/src/flash_dialog.rs    the modal flash progress + message terminal
 fm1-grid/src/session.rs         the saved UI state (split, tabs, pane, tempo, Download All)

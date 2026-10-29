@@ -1,6 +1,7 @@
-//! The device sidebar: the selected pane's controls (slot pill, power toggle,
-//! firmware selector, pin) across the top, its screen centred in the spare height
-//! below. The status line lives in the transport's metronome row.
+//! The device sidebar: the selected pane's controls (power toggle, firmware
+//! selector, pin) across the top, its screen centred in the spare height, and the
+//! slot number pill at the bottom right. The status line lives in the transport's
+//! metronome row.
 //! Theme colours throughout; the only computed colour in the window is the grid
 //! background behind it.
 
@@ -19,8 +20,8 @@ use gpui_kit::*;
 const SCREEN_SIDES: [f32; 3] = [960.0, 480.0, 240.0];
 /// Horizontal chrome around the screen: the panel's padding and the bezel.
 const FIT_W_CHROME: f32 = 22.0;
-/// Vertical chrome: the controls row, the gap under it and the padding.
-const FIT_H_CHROME: f32 = 64.0;
+/// Vertical chrome: the controls row, the slot-pill row, the gaps and the padding.
+const FIT_H_CHROME: f32 = 92.0;
 /// Smallest screen side the layout falls back to (fractional fit).
 const SCREEN_MIN: f32 = 80.0;
 /// The firmware combobox renders at the component's medium input height (32 px); the
@@ -71,7 +72,8 @@ impl GridApp {
                 });
             })
             // The controls pin to the top at their natural size; the screen fills
-            // the spare height and centres itself in it.
+            // the spare height and centres itself in it. The slot pill sits at the
+            // bottom right on its own row.
             .child(self.pane_attributes(cx))
             .child(
                 div()
@@ -82,6 +84,21 @@ impl GridApp {
                     .items_center()
                     .justify_center()
                     .child(self.sidebar_screen(side)),
+            )
+            .child(
+                h_flex().w_full().justify_end().child(
+                    div()
+                        .id("slot-pill")
+                        .test_support()
+                        .rounded_full()
+                        .px(px(10.0))
+                        .py(px(2.0))
+                        .text_size(px(12.0))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .bg(cx.theme().muted)
+                        .text_color(cx.theme().muted_foreground)
+                        .child(format!("{}", self.active + 1)),
+                ),
             )
     }
 
@@ -111,10 +128,6 @@ impl GridApp {
     /// The cards are display-only, so this is where firmware switching lives.
     fn pane_attributes(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
         let slot = self.active;
-        let (muted, dim) = {
-            let theme = cx.theme();
-            (theme.muted, theme.muted_foreground)
-        };
         let on = self.powered[slot];
         let label = self.slots[slot]
             .label
@@ -177,17 +190,6 @@ impl GridApp {
             .items_center()
             .gap_2()
             .child(
-                // The slot number as a pill, matching the library's tag pills.
-                div()
-                    .rounded_full()
-                    .px(px(6.0))
-                    .py(px(1.0))
-                    .text_size(px(9.0))
-                    .bg(muted)
-                    .text_color(dim)
-                    .child(format!("{}", slot + 1)),
-            )
-            .child(
                 Toggle::new("pane-power")
                     .icon(Icon::new(Lucide::Power))
                     .large()
@@ -219,7 +221,6 @@ impl GridApp {
             })
             .child(
                 Button::new(("pin", slot))
-                    .large()
                     .icon(Icon::new(Lucide::Pin))
                     .tooltip(if running {
                         "Keep this pane's device storage across runs"

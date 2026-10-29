@@ -15,6 +15,7 @@ mod lcd;
 mod library_tab;
 mod panel;
 mod session;
+mod settings;
 mod sidebar;
 mod theme;
 mod transport;

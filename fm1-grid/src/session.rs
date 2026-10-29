@@ -30,6 +30,10 @@ pub(crate) struct Session {
     pub bpm: u32,
     /// The Library tab's Download All toggle: on restart, the downloads resume.
     pub download_all: bool,
+    /// The theme family (the Settings tab's picker; "default" is gpui-kit's pair).
+    pub theme: String,
+    /// The appearance override (auto/light/dark).
+    pub appearance: crate::app::Appearance,
 }
 
 impl Default for Session {
@@ -41,6 +45,8 @@ impl Default for Session {
             slot: 0,
             bpm: DEFAULT_BPM,
             download_all: false,
+            theme: crate::theme::DEFAULT_FAMILY.to_string(),
+            appearance: crate::app::Appearance::default(),
         }
     }
 }
@@ -54,7 +60,7 @@ impl Session {
             .and_then(|store| store.fetch_object(SESSION_OBJECT).ok())
             .unwrap_or_default();
         session.sidebar_width = session.sidebar_width.clamp(SIDEBAR_MIN, SIDEBAR_MAX);
-        session.tab = session.tab.min(2);
+        session.tab = session.tab.min(3);
         session.devices_tab = session.devices_tab.min(1);
         session.slot = session.slot.min(fm1_performer::MAX_SLOTS - 1);
         session.bpm = session.bpm.clamp(MIN_BPM, MAX_BPM);
@@ -81,6 +87,8 @@ impl GridApp {
             slot: self.active,
             bpm: self.clock.bpm(),
             download_all: self.download_all,
+            theme: self.theme_id.clone(),
+            appearance: self.appearance,
         };
         if let Err(e) = store.store_object(SESSION_OBJECT, &session) {
             eprintln!("fm1-grid: {e}");
@@ -105,12 +113,16 @@ mod tests {
             slot: 42,
             bpm: 1,
             download_all: true,
+            theme: "gruvbox".to_string(),
+            appearance: crate::app::Appearance::Dark,
         };
         store.store_object(SESSION_OBJECT, &record).unwrap();
         let loaded = Session::load(Some(&store));
         assert_eq!(loaded.sidebar_width, SIDEBAR_MAX);
-        assert_eq!(loaded.tab, 2);
+        assert_eq!(loaded.tab, 3);
         assert_eq!(loaded.devices_tab, 1);
+        assert_eq!(loaded.theme, "gruvbox");
+        assert_eq!(loaded.appearance, crate::app::Appearance::Dark);
         assert_eq!(loaded.slot, fm1_performer::MAX_SLOTS - 1);
         assert_eq!(loaded.bpm, MIN_BPM);
         assert!(loaded.download_all);

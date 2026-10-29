@@ -1,0 +1,157 @@
+{
+  "$schema": "https://github.com/longbridge/gpui-kit/raw/refs/heads/main/.theme-schema.json",
+  "name": "FM1 (Lavender)",
+  "author": "M-VAVE",
+  "themes": [
+    {
+      "name": "FM1 (Lavender)",
+      "mode": "light",
+      "colors": {
+        "accent.background": "#d6d0f1",
+        "accent.foreground": "#3e2d43",
+        "background": "#f4f0f5",
+        "border": "#cdbbd3",
+        "danger.background": "#bd2d28",
+        "danger.active.background": "#a5221d",
+        "danger.foreground": "#ffffff",
+        "foreground": "#3e2d43",
+        "input.border": "#cdbbd3",
+        "link.active.foreground": "#962c5f",
+        "link.foreground": "#962c5f",
+        "link.hover.foreground": "#962c5f",
+        "list.active.background": "#3f2c9626",
+        "list.hover.background": "#e8e0eb",
+        "list.active.border": "#3f2c96",
+        "list.even.background": "#efe9f1",
+        "muted.background": "#cdbbd366",
+        "muted.foreground": "#7b6383",
+        "panel.background": "#e8e0eb",
+        "popover.background": "#f8f6f9",
+        "popover.foreground": "#3e2d43",
+        "primary.active.background": "#423091",
+        "primary.background": "#523fa6",
+        "primary.foreground": "#ffffff",
+        "primary.hover.background": "#5540b5ed",
+        "ring": "#463399",
+        "scrollbar.background": "#f4f0f500",
+        "scrollbar.thumb.background": "#cdbbd3",
+        "secondary.background": "#e8e0eb",
+        "secondary.active.background": "#cdbbd3",
+        "secondary.foreground": "#3e2d43",
+        "secondary.hover.background": "#dfd4e3",
+        "tab.active.background": "#f4f0f5",
+        "tab.active.foreground": "#3e2d43",
+        "tab.background": "#e8e0eb00",
+        "tab.foreground": "#7b6383",
+        "tab_bar.background": "#e8e0eb",
+        "title_bar.background": "#e8e0eb",
+        "title_bar.border": "#cdbbd3",
+        "base.magenta.light": "#adca2b",
+        "base.red": "#96742c",
+        "base.green": "#3f2c96",
+        "base.yellow": "#2c9674",
+        "base.blue": "#962c5f",
+        "base.magenta": "#83962c",
+        "base.cyan": "#862c96"
+      },
+      "highlight": {
+        "editor.foreground": "#3e2d43",
+        "editor.background": "#f4f0f5",
+        "editor.active_line.background": "#e8e0eb",
+        "editor.line_number": "#7b6383",
+        "editor.active_line_number": "#3e2d43",
+        "editor.invisible": "#7b638366",
+        "conflict": "#bd2d28",
+        "created": "#3f2c96",
+        "deleted": "#bd2d28",
+        "error": "#bd2d28",
+        "hidden": "#7b6383",
+        "hint": "#962c5f",
+        "ignored": "#7b6383",
+        "info": "#962c5f",
+        "modified": "#2c9674",
+        "predictive": "#7b6383",
+        "renamed": "#2c9674",
+        "success": "#3f2c96",
+        "unreachable": "#7b6383",
+        "warning": "#2c9674",
+        "syntax": {
+          "attribute": {
+            "color": "#2c9674"
+          },
+          "boolean": {
+            "color": "#96742c"
+          },
+          "comment": {
+            "color": "#7b6383",
+            "font_style": "italic"
+          },
+          "comment.doc": {
+            "color": "#7b6383",
+            "font_style": "italic"
+          },
+          "constant": {
+            "color": "#96742c"
+          },
+          "constructor": {
+            "color": "#2c9674"
+          },
+          "embedded": {
+            "color": "#3e2d43"
+          },
+          "function": {
+            "color": "#3f2c96"
+          },
+          "keyword": {
+            "color": "#83962c"
+          },
+          "link_text": {
+            "color": "#962c5f",
+            "font_style": "normal"
+          },
+          "link_uri": {
+            "color": "#862c96",
+            "font_style": "italic"
+          },
+          "number": {
+            "color": "#96742c"
+          },
+          "string": {
+            "color": "#862c96"
+          },
+          "string.escape": {
+            "color": "#862c96"
+          },
+          "string.regex": {
+            "color": "#862c96"
+          },
+          "string.special": {
+            "color": "#2c9674"
+          },
+          "string.special.symbol": {
+            "color": "#2c9674"
+          },
+          "tag": {
+            "color": "#83962c"
+          },
+          "text.literal": {
+            "color": "#96742c"
+          },
+          "title": {
+            "color": "#962c5f",
+            "font_weight": 600
+          },
+          "type": {
+            "color": "#962c5f"
+          },
+          "property": {
+            "color": "#3e2d43"
+          },
+          "variable.special": {
+            "color": "#83962c"
+          }
+        }
+      }
+    }
+  ]
+}

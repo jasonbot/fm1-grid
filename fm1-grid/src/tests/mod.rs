@@ -726,8 +726,11 @@ fn bundled_themes_load(cx: &mut TestAppContext) {
         gpui_kit::init(cx);
         crate::theme::load_bundled_themes(cx);
         let registry = ThemeRegistry::global(cx);
-        // Default plus the 21 bundled families.
-        assert_eq!(crate::theme::theme_families().len(), 22);
+        // Default plus every bundled themes/*.json (listed by build.rs).
+        assert_eq!(
+            crate::theme::theme_families().len(),
+            crate::theme::THEME_FILES.len() + 1
+        );
         for family in crate::theme::theme_families() {
             for name in [&family.light, &family.dark].into_iter().flatten() {
                 assert!(

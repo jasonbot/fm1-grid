@@ -22,6 +22,10 @@ serde_json = "1"
 # fm1-performer).
 fm1-soc = { git = "https://github.com/joakimeriksson/fm1-emu.git", rev = "40780288c0b010c387ee81fd34a6bfc64df9aced" }
 
+[build-dependencies]
+# build.rs parses each themes/*.json for its picker label.
+serde_json = "1"
+
 [dev-dependencies]
 # Headless UI tests (src/tests); unifies with the dependency above for test builds.
 gpui-kit = { version = "=0.8.0", features = ["test-support"] }

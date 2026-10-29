@@ -10,9 +10,8 @@ use fm1_performer::keys::{
     BLACK_KEYS, FUNCTION_ROW_1, FUNCTION_ROW_2, PANEL_KEYS, WHITE_KEYS, panel_key_hint,
 };
 use crate::theme::{
-    AMBER, GREEN, KEY_BLACK, KEY_BLACK_EDGE, KEY_BLACK_INK, KEY_EDGE, KEY_INK, KEY_NOTE,
-    KEY_WHITE, LIT_HINT, LIT_INK, PANEL_BODY, PANEL_BUTTON, PANEL_BUTTON_EDGE,
-    PANEL_BUTTON_HOVER, SILK, SILK_DIM, mix,
+    AMBER, GREEN, LIT_HINT, LIT_INK, PANEL_BUTTON, PANEL_BUTTON_EDGE, PANEL_BUTTON_HOVER, SILK,
+    SILK_DIM, mix,
 };
 use gpui_kit::base::{ElementExt, v_flex};
 use gpui_kit::component::ActiveTheme;
@@ -25,6 +24,53 @@ const KEY_MARGIN: f32 = 6.0;
 /// The panel's height above the key bed: header, control rows and margins.
 const PANEL_CONTROLS_H: f32 = 156.0;
 const GROUP_HEIGHT: f32 = 24.0;
+
+/// The keyboard's colorway, derived from the active theme each render: the bed keeps
+/// the theme background's hue but stays dark (a light theme still gets a dark
+/// keyboard), the keys are the same hue family stepped out in lightness, and a held
+/// key is the theme's accent with its own on-accent ink.
+struct KeyColors {
+    bed: Hsla,
+    white: Hsla,
+    white_edge: Hsla,
+    white_ink: Hsla,
+    white_note: Hsla,
+    black: Hsla,
+    black_edge: Hsla,
+    black_ink: Hsla,
+    lit: Hsla,
+    lit_ink: Hsla,
+}
+
+/// A colour at a new lightness and a share of its saturation, hue kept.
+fn relight(color: Hsla, l: f32, s_scale: f32) -> Hsla {
+    Hsla {
+        h: color.h,
+        s: (color.s * s_scale).clamp(0.0, 1.0),
+        l,
+        a: 1.0,
+    }
+}
+
+fn key_colors(theme: &gpui_kit::component::Theme) -> KeyColors {
+    let bg = theme.background;
+    KeyColors {
+        bed: Hsla {
+            l: bg.l.min(0.16),
+            s: (bg.s * 0.85).clamp(0.0, 1.0),
+            ..bg
+        },
+        white: relight(bg, 0.93, 0.4),
+        white_edge: relight(bg, 0.60, 0.4),
+        white_ink: relight(bg, 0.16, 0.6),
+        white_note: relight(bg, 0.42, 0.5),
+        black: relight(bg, 0.24, 0.7),
+        black_edge: relight(bg, 0.10, 0.7),
+        black_ink: relight(bg, 0.80, 0.4),
+        lit: theme.primary,
+        lit_ink: theme.primary_foreground,
+    }
+}
 
 /// What a three-part rotary group turns: the MASTER pot or one of the FM-1's encoders.
 #[derive(Clone, Copy)]
@@ -55,6 +101,7 @@ impl GridApp {
         let group_gap = 6.0f32;
         let row_gap = 4.0f32;
         let mono = cx.theme().mono_font_family.clone();
+        let keys = key_colors(cx.theme());
 
         // The right-hand groups (the four knobs and the function buttons) span one
         // common width, so the knobs sit directly above the button grid.
@@ -74,7 +121,7 @@ impl GridApp {
             .max_w_full()
             .h(px(panel_h))
             .rounded(px(8.0))
-            .bg(rgb(PANEL_BODY))
+            .bg(keys.bed)
             .on_prepaint(move |bounds, _, cx| {
                 let width: f32 = bounds.size.width.into();
                 app.update(cx, |this, _| {
@@ -181,13 +228,13 @@ impl GridApp {
                 .flex()
                 .flex_row()
                 .gap(px(1.0))
-                .children(WHITE_KEYS.iter().map(|&id| self.white_key(cx, id))),
+                .children(WHITE_KEYS.iter().map(|&id| self.white_key(cx, id, &keys))),
         );
         let black_height = key_height * 0.62;
         for &(id, after) in BLACK_KEYS.iter() {
             let center_x = key_left + (after as f32 + 1.0) * white_width;
             let width = white_width * 0.62;
-            panel = panel.child(self.black_key(cx, id, center_x - width / 2.0, key_top, width, black_height));
+            panel = panel.child(self.black_key(cx, id, center_x - width / 2.0, key_top, width, black_height, &keys));
         }
 
         div().w_full().flex().justify_center().child(panel)
@@ -379,9 +426,9 @@ impl GridApp {
             )
     }
 
-    /// A white piano key: ivory at rest, amber while held; hint in the middle, note
-    /// name at the bottom.
-    fn white_key(&self, cx: &mut Context<Self>, id: u8) -> impl IntoElement {
+    /// A white piano key: the theme's light step at rest, the theme's accent while
+    /// held; hint in the middle, note name at the bottom.
+    fn white_key(&self, cx: &mut Context<Self>, id: u8, keys: &KeyColors) -> impl IntoElement {
         let lit =
             self.held[id as usize] || self.leds[id as usize] > 0.04 || self.panel_down[id as usize];
         let note = PANEL_KEYS
@@ -390,16 +437,20 @@ impl GridApp {
             .map(|(_, note, _)| *note)
             .unwrap_or("");
         let hint = panel_key_hint(id);
-        let ink = if lit { LIT_INK } else { KEY_INK };
+        let (key_fill, ink, note_ink) = if lit {
+            (keys.lit, keys.lit_ink, keys.lit_ink)
+        } else {
+            (keys.white, keys.white_ink, keys.white_note)
+        };
         div()
             .id(("panel-key", id as usize))
             .flex_1()
             .min_w_0()
             .h_full()
             .rounded(px(1.0))
-            .bg(rgb(if lit { AMBER } else { KEY_WHITE }))
+            .bg(key_fill)
             .border_1()
-            .border_color(rgb(KEY_EDGE))
+            .border_color(keys.white_edge)
             .cursor_pointer()
             .on_mouse_down(
                 MouseButton::Left,
@@ -417,7 +468,7 @@ impl GridApp {
                         div().flex_1().flex().items_center().child(
                             div()
                                 .text_size(px(16.0))
-                                .text_color(rgb(ink))
+                                .text_color(ink)
                                 .child(hint),
                         ),
                     )
@@ -425,13 +476,15 @@ impl GridApp {
                         div()
                             .pb(px(2.0))
                             .text_size(px(10.0))
-                            .text_color(rgb(if lit { LIT_INK } else { KEY_NOTE }))
+                            .text_color(note_ink)
                             .child(note),
                     ),
             )
     }
 
-    /// A black piano key, overlapping the white row.
+    /// A black piano key, overlapping the white row: the theme's dark steps, the
+    /// accent while held.
+    #[allow(clippy::too_many_arguments)]
     fn black_key(
         &self,
         cx: &mut Context<Self>,
@@ -440,10 +493,16 @@ impl GridApp {
         y: f32,
         width: f32,
         height: f32,
+        keys: &KeyColors,
     ) -> impl IntoElement {
         let lit =
             self.held[id as usize] || self.leds[id as usize] > 0.04 || self.panel_down[id as usize];
         let hint = panel_key_hint(id);
+        let (fill, ink) = if lit {
+            (keys.lit, keys.lit_ink)
+        } else {
+            (keys.black, keys.black_ink)
+        };
         div()
             .absolute()
             .left(px(x))
@@ -452,9 +511,9 @@ impl GridApp {
             .h(px(height))
             .id(("panel-key", id as usize))
             .rounded(px(1.0))
-            .bg(rgb(if lit { AMBER } else { KEY_BLACK }))
+            .bg(fill)
             .border_1()
-            .border_color(rgb(KEY_BLACK_EDGE))
+            .border_color(keys.black_edge)
             .cursor_pointer()
             .flex()
             .items_center()
@@ -473,8 +532,40 @@ impl GridApp {
             .child(
                 div()
                     .text_size(px(14.0))
-                    .text_color(rgb(if lit { LIT_INK } else { KEY_BLACK_INK }))
+                    .text_color(ink)
                     .child(hint),
             )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    // No `use super::*` — the parent's gpui glob import would drag in GPUI's `test`
+    // attribute macro, which re-expands the built-in #[test] (see library_tab.rs).
+    use super::key_colors;
+    use gpui_kit::component::Theme;
+
+    /// The key colorway follows the theme background's hue with the bed always dark
+    /// (light themes too), the black keys strictly between bed and white, and a held
+    /// key on the theme's accent with its on-accent ink.
+    #[test]
+    fn keys_follow_theme_with_dark_bed() {
+        let mut theme = Theme::default();
+
+        // A light background: the bed must stay dark, the keys light.
+        theme.background = gpui_kit::hsla(0.08, 0.4, 0.96, 1.0);
+        let keys = key_colors(&theme);
+        assert!(keys.bed.l <= 0.16, "light theme: bed stays dark");
+        assert!(keys.white.l >= 0.9, "white keys read light");
+        assert!(keys.black.l > keys.bed.l && keys.black.l < keys.white.l);
+        assert_eq!(keys.lit, theme.primary, "held keys use the theme accent");
+        assert_eq!(keys.lit_ink, theme.primary_foreground);
+
+        // A dark, saturated background: same invariants, hue carries over.
+        theme.background = gpui_kit::hsla(0.6, 0.3, 0.08, 1.0);
+        let keys = key_colors(&theme);
+        assert!(keys.bed.l <= 0.16);
+        assert!((keys.bed.h - 0.6).abs() < 1e-6, "the bed keeps the theme's hue");
+        assert!((keys.white.h - 0.6).abs() < 1e-6, "the keys keep the theme's hue");
     }
 }

@@ -19,7 +19,10 @@ there like they do in the Library.
 The large FM-1 front panel at the bottom of the Emulator tab mirrors the active pane:
 click its keys and buttons, turn knobs with the −/+ ends, and watch its LEDs follow
 the firmware. The computer keyboard plays the pane while that tab shows; a configured
-MIDI keyboard forwards on any tab.
+MIDI keyboard forwards on any tab. The piano keys follow the selected theme: their
+colors are derived from the theme's background hue (the key bed stays dark, even in a
+light theme), and a held key takes the theme's accent color. The buttons and LEDs
+keep the machine's own hardware colors.
 
 A running pane can be **pinned** (the toggle beside its firmware selector): its flash
 contents — the device's settings and project data — are written to disk at power-off

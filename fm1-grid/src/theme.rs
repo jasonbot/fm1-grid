@@ -1,12 +1,11 @@
 //! The look. App chrome follows the gpui-kit theme (`cx.theme()` tokens at the call
 //! site); this module keeps only the fixed colours of the FM-1 hardware the window
-//! depicts — the panel body, silk-screen, keycaps, LEDs and LCD greens — plus the
-//! small colour helpers the computed grid background and the panel need. The one
-//! computed colour in the app is the grid background (see `grid.rs`); everything else
-//! is a theme token.
+//! depicts — the panel's buttons, silk-screen and LEDs — plus the bundled theme
+//! catalog and the small colour helpers the computed grid background and the panel
+//! need. The piano keys follow the theme (derived in `panel.rs`); the one computed
+//! colour in the app is the grid background (see `grid.rs`).
 
 /// The FM-1's front panel and keycaps.
-pub(crate) const PANEL_BODY: u32 = 0x36383c;
 pub(crate) const PANEL_BUTTON: u32 = 0x404349;
 pub(crate) const PANEL_BUTTON_HOVER: u32 = 0x4e5158;
 pub(crate) const PANEL_BUTTON_EDGE: u32 = 0x1c1c1e;
@@ -14,19 +13,10 @@ pub(crate) const SILK: u32 = 0xc9c6bd;
 pub(crate) const SILK_DIM: u32 = 0x807e78;
 pub(crate) const AMBER: u32 = 0xf2a33a;
 pub(crate) const GREEN: u32 = 0x62d36e;
-pub(crate) const KEY_WHITE: u32 = 0xebe8de;
-pub(crate) const KEY_BLACK: u32 = 0x26262a;
 
 /// Dark ink on a lit (amber/green) control; from the machine's own palette.
 pub(crate) const LIT_INK: u32 = 0x221a0a;
 pub(crate) const LIT_HINT: u32 = 0x3c3018;
-
-/// Ink on the ivory keys, and the key's edge.
-pub(crate) const KEY_INK: u32 = 0x2d2b28;
-pub(crate) const KEY_NOTE: u32 = 0x605b52;
-pub(crate) const KEY_EDGE: u32 = 0x706b60;
-pub(crate) const KEY_BLACK_EDGE: u32 = 0x121214;
-pub(crate) const KEY_BLACK_INK: u32 = 0xd6d3ca;
 
 /// Linear per-channel mix of two 0xRRGGBB colours.
 pub(crate) fn mix(a: u32, b: u32, t: f32) -> u32 {

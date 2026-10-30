@@ -2028,7 +2028,7 @@ dependencies = [
 [[package]]
 name = "fm1-core"
 version = "0.3.0"
-source = "git+https://github.com/joakimeriksson/fm1-emu.git?rev=40780288c0b010c387ee81fd34a6bfc64df9aced#40780288c0b010c387ee81fd34a6bfc64df9aced"
+source = "git+https://github.com/joakimeriksson/fm1-emu.git?rev=93cb7ee3f7008b27959ba73073b864e37efd7289#93cb7ee3f7008b27959ba73073b864e37efd7289"
 dependencies = [
  "fm1-isa",
 ]
@@ -2051,7 +2051,7 @@ dependencies = [
 [[package]]
 name = "fm1-isa"
 version = "0.3.0"
-source = "git+https://github.com/joakimeriksson/fm1-emu.git?rev=40780288c0b010c387ee81fd34a6bfc64df9aced#40780288c0b010c387ee81fd34a6bfc64df9aced"
+source = "git+https://github.com/joakimeriksson/fm1-emu.git?rev=93cb7ee3f7008b27959ba73073b864e37efd7289#93cb7ee3f7008b27959ba73073b864e37efd7289"
 
 [[package]]
 name = "fm1-performer"
@@ -2074,7 +2074,7 @@ dependencies = [
 [[package]]
 name = "fm1-soc"
 version = "0.3.0"
-source = "git+https://github.com/joakimeriksson/fm1-emu.git?rev=40780288c0b010c387ee81fd34a6bfc64df9aced#40780288c0b010c387ee81fd34a6bfc64df9aced"
+source = "git+https://github.com/joakimeriksson/fm1-emu.git?rev=93cb7ee3f7008b27959ba73073b864e37efd7289#93cb7ee3f7008b27959ba73073b864e37efd7289"
 dependencies = [
  "fm1-core",
 ]

@@ -20,7 +20,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # The app builds SoC actions for the emulator client (same deliberate pin as
 # fm1-performer).
-fm1-soc = { git = "https://github.com/joakimeriksson/fm1-emu.git", rev = "40780288c0b010c387ee81fd34a6bfc64df9aced" }
+fm1-soc = { git = "https://github.com/joakimeriksson/fm1-emu.git", rev = "93cb7ee3f7008b27959ba73073b864e37efd7289" }
 
 [build-dependencies]
 # build.rs parses each themes/*.json for its picker label.

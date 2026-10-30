@@ -1,5 +1,7 @@
 # FM-1 Grid
 
+![Logo Image](./logo.svg)
+
 Four emulated M-VAVE FM-1s in a 2×2 grid, each with its own firmware and screen.
 Built with gpui-kit.
 

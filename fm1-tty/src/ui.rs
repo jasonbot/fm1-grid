@@ -401,8 +401,21 @@ fn footer(frame: &mut Frame, app: &mut TuiApp, area: Rect) {
         ))
     } else {
         let hints = match app.focus {
-            Focus::Library => " ↑↓ select · d download · a all · f flash · R rescue · r refresh hub · m MIDI in · space clock · −/+ tempo · Tab keys · q quit",
-            Focus::Keys => " letters and clicks play · Tab/Esc library · space clock · −/+ tempo · Ctrl-C quit",
+            Focus::Library => {
+                // d and x apply only to the selected row: upgrade when the hub
+                // carries a newer version, delete when the entry can leave.
+                let mut hints = String::from(if app.selected_upgradable() {
+                    " ↑↓ select · d upgrade"
+                } else {
+                    " ↑↓ select · d download"
+                });
+                if app.selected_deletable() {
+                    hints.push_str(" · x delete");
+                }
+                hints.push_str(" · a all · f flash · R rescue · r refresh hub · m MIDI in · space clock · −/+ tempo · Tab keys · q quit");
+                hints
+            }
+            Focus::Keys => " letters and clicks play · Tab/Esc library · space clock · −/+ tempo · Ctrl-C quit".to_string(),
         };
         Line::from(dim(hints))
     };

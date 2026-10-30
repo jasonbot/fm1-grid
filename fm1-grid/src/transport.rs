@@ -35,7 +35,7 @@ impl GridApp {
             .border_t_1()
             .border_color(border)
             .px_3()
-            .py_2()
+            .py_1()
             .child(self.metronome(window, cx))
     }
 
@@ -149,7 +149,7 @@ impl GridApp {
                     .border_1()
                     .border_color(border)
                     .px(px(10.0))
-                    .py(px(4.0))
+                    .py(px(2.0))
                     .child(
                         Switch::new("midi-clock")
                             .checked(running)
@@ -190,6 +190,9 @@ impl GridApp {
                             .w(px(TEMPO_FIELD_W))
                             .child(
                                 NumberInput::new(&self.tempo_input)
+                                    // Small (24px): the row's tallest child, so it
+                                    // sets the bar's height.
+                                    .small()
                                     .when(tempo_bad, |this| this.border_color(danger))
                                     .suffix(
                                         div()

@@ -59,7 +59,8 @@ pub struct Firmware {
     #[serde(default)]
     pub tags: Vec<String>,
     pub device: FirmwareDevice,
-    /// A builtin older than the hub's version of the same name. Computed, not stored.
+    /// An installed entry (builtin or downloaded hub package) older than the hub's
+    /// version of the same name. Computed, not stored.
     #[serde(skip)]
     pub upgradable: bool,
     /// Computed on every `list()`, never stored.
@@ -171,13 +172,13 @@ impl Library {
         let hub = self.hub.lock().unwrap().clone();
         let mut view: Vec<Firmware> = Vec::new();
         for firmware in self.builtins.iter_mut().chain(&mut self.stored) {
-            firmware.upgradable = false;
-            if matches!(firmware.source, FirmwareSource::Builtin) {
-                // Hub entries never shadow a builtin; they flag it upgradable.
-                firmware.upgradable = hub.iter().any(|offer| {
+            // Hub entries never shadow an installed entry; they flag it upgradable.
+            // Builtins and installed hub packages both qualify — the listing moving
+            // ahead of an installed version is an upgrade either way.
+            firmware.upgradable = !matches!(firmware.source, FirmwareSource::File { .. })
+                && hub.iter().any(|offer| {
                     offer.name == firmware.name && version_newer(&offer.version, &firmware.version)
                 });
-            }
             firmware.status = entry_status(firmware, &self.downloads, &self.store);
             view.push(firmware.clone());
         }
@@ -283,8 +284,9 @@ impl Library {
 
     /// A Download All sweep's next target: the first entry in `list()` order that
     /// can be downloaded — a hub offer whose package isn't at hand (or whose stored
-    /// blob went missing) — or upgraded: a builtin the hub carries a newer version
-    /// of, where the upgrade lands the same download under the builtin's name. One
+    /// blob went missing) — or upgraded: a builtin or installed hub package the
+    /// hub carries a newer version of, where the upgrade lands the same download
+    /// under the entry's name. One
     /// at a time: None while any download is in flight, when nothing is left, or
     /// once a failed name (marked by [`Library::collect_downloads`]) is all that
     /// remains. An upgrade counts as done once a downloaded same-name entry is at
@@ -314,6 +316,12 @@ impl Library {
                 }
                 FirmwareSource::Hub { blob: None, .. } => Some(firmware.name.clone()),
                 FirmwareSource::Hub { .. } if firmware.status == Status::Missing => {
+                    Some(firmware.name.clone())
+                }
+                // An installed hub package the listing moved ahead of: the upgrade
+                // lands under the same name and replaces the entry, so a satisfied
+                // upgrade (equal versions) never re-arms this arm.
+                FirmwareSource::Hub { blob: Some(_), .. } if firmware.upgradable => {
                     Some(firmware.name.clone())
                 }
                 _ => None,
@@ -977,6 +985,38 @@ mod tests {
         let view = library.list();
         let position = view.iter().position(|f| f.name == "hub-only").unwrap();
         assert_eq!(position, view.len() - 1);
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn installed_hub_entry_is_upgradable() {
+        let (store, dir) = temp_store("hub-upgrade");
+        let mut library = Library::load(&store);
+        // Installed at 1.0 (blob stored); the listing then moves to 2.0.
+        let key = blob_key("fw/pkg.fwsc");
+        store.store_blob(&key, b"package").unwrap();
+        let mut installed = hub_offer("pkg", "1.0", "pkg.fwsc");
+        installed.source = FirmwareSource::Hub {
+            path: "fw/pkg.fwsc".to_string(),
+            blob: Some(key),
+        };
+        library.stored.push(installed);
+        *library.hub.lock().unwrap() = vec![hub_offer("pkg", "2.0", "pkg-2.fwsc")];
+        library.view_dirty = true;
+
+        let view = library.list();
+        let entry = view.iter().find(|f| f.name == "pkg").unwrap();
+        assert!(entry.upgradable, "an installed hub package flags upgradable");
+        // The offer hides behind the install: one row, and the sweep offers it.
+        assert_eq!(view.iter().filter(|f| f.name == "pkg").count(), 1);
+        assert_eq!(library.next_download().as_deref(), Some("pkg"));
+
+        // Caught up: the same version neither flags nor sweeps.
+        *library.hub.lock().unwrap() = vec![hub_offer("pkg", "1.0", "pkg.fwsc")];
+        library.view_dirty = true;
+        let view = library.list();
+        assert!(!view.iter().find(|f| f.name == "pkg").unwrap().upgradable);
+        assert_eq!(library.next_download(), None);
         std::fs::remove_dir_all(dir).ok();
     }
 

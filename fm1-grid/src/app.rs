@@ -623,7 +623,7 @@ impl GridApp {
         // The bundled theme sets register before the saved family applies (a
         // registry change re-applies by name, so the order matters).
         crate::theme::load_bundled_themes(cx);
-        app.apply_theme(window, cx);
+        app.apply_theme(cx);
 
         app
     }
@@ -1316,7 +1316,7 @@ impl GridApp {
     /// Apply the theme family and appearance override: swap the family's configs
     /// into the registry's light/dark slots, then load the side the mode points at.
     /// `Theme::change` reloads the current mode's config, so this repaints at once.
-    pub(crate) fn apply_theme(&self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn apply_theme(&self, cx: &mut Context<Self>) {
         let family = crate::theme::family(&self.theme_id);
         let (light, dark) = {
             let registry = ThemeRegistry::global(cx);
@@ -1334,7 +1334,7 @@ impl GridApp {
         let mode = match self.appearance {
             Appearance::Light => ThemeMode::Light,
             Appearance::Dark => ThemeMode::Dark,
-            Appearance::Auto => window.appearance().into(),
+            Appearance::Auto => cx.window_appearance().into(),
         };
         {
             let theme = Theme::global_mut(cx);
@@ -1346,27 +1346,17 @@ impl GridApp {
 
     /// The Settings tab's theme pick: apply at once and save the session record
     /// immediately (a crash shouldn't lose the choice; the quit hook saves again).
-    pub(crate) fn set_theme_family(
-        &mut self,
-        id: &str,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    pub(crate) fn set_theme_family(&mut self, id: &str, cx: &mut Context<Self>) {
         self.theme_id = id.to_string();
-        self.apply_theme(window, cx);
+        self.apply_theme(cx);
         self.save_session(cx);
         cx.notify();
     }
 
     /// The Settings tab's appearance pick: apply at once and save.
-    pub(crate) fn set_appearance(
-        &mut self,
-        appearance: Appearance,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    pub(crate) fn set_appearance(&mut self, appearance: Appearance, cx: &mut Context<Self>) {
         self.appearance = appearance;
-        self.apply_theme(window, cx);
+        self.apply_theme(cx);
         self.save_session(cx);
         cx.notify();
     }

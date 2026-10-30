@@ -43,8 +43,9 @@ firmware's name, version, tags, author or description — "f ll gro" finds Feluc
 Clicking a tag pill toggles that tag's words in the filter. Items remove (not
 builtins), download with progress, and **Flash To…** a live unit (modal progress +
 log) or a powered-off unpinned pane (boots it). The **Download All** toggle at the
-bottom of the list downloads every offer in turn, including upgrades of bundled
-firmwares; **Reload** beside it re-fetches both listings. Download All walks the
+bottom of the list downloads every offer in turn, including upgrades of rows the
+hub has a newer version of (bundled or downloaded); **Reload** beside it re-fetches
+both listings. Download All walks the
 list from the top and moves past an item that fails (the item gets one retry when
 you flip the toggle off and on, or reload). It is not a poll loop: a sweep runs when
 you turn it on, when the online listing refreshes, and when a download finishes,
@@ -156,13 +157,15 @@ cannot enumerate. The graph says so while such a pane runs.
 
 ## Settings
 
-The gear icon at the bottom of the rail opens the Settings tab. One row holds the
-**theme picker** — gpui-kit's built-in themes (Default, Ayu, Catppuccin, Solarized
-and friends) plus the six FM-1 sets (Cream, Ember, Frost, Lavender, Mint,
-Shadow) — growing to fill the row — and the
-**appearance** selector: Auto (follows the OS), Light or Dark. Picks apply at once
-and are saved with the rest of the app state. A dark-only theme keeps the default
-light side, and vice versa.
+The gear icon at the bottom of the rail opens the Settings tab. It is a searchable
+settings page with its own sidebar, like the Settings app on a Mac or iPhone. Under
+**General → Appearance** there are two dropdowns: **Theme** — the color scheme:
+gpui-kit's Default pair plus the bundled sets (BeOS, Cream, Ember, Frost, Lavender,
+Mint, Shadow and Mac Platinum) — and **Mode**: Auto (follows the OS), Light or Dark.
+Picks apply at once and are saved with the rest of the app state. The page's Reset
+button puts both back to their defaults. The search box at the top of the sidebar
+finds settings by name or keyword ("dark" finds Mode). A dark-only theme keeps the
+default light side, and vice versa.
 
 ## fm1-tty
 
@@ -192,10 +195,18 @@ The screen has four parts:
   app, what you imported, and (online) what the Firmware Hub and fm1-editor.com
   offer.
   * `r` re-fetches the online listings.
-  * `d` downloads the selected firmware.
+  * `d` downloads the selected firmware. If the hub has a newer version of the
+    selected row (marked with `↑`, bundled and downloaded rows alike), `d` upgrades
+    it instead, and the hint at the bottom reads `d upgrade`.
+  * `x` deletes the selected firmware. Only rows that can leave the library —
+    imported files and downloaded packages, never the bundled ones — can be
+    deleted, and the hint at the bottom shows `x delete` only for those. Deleting
+    a downloaded package throws its download away too; an imported file stays on
+    disk.
   * `a` toggles **Download All**: every offer is downloaded in turn, one at a time,
-    skipping items that fail (flip it off and on to retry them). The title shows
-    `ALL` while it runs. It is not remembered between runs.
+    and rows with a newer version on the hub get upgraded, skipping items that
+    fail (flip it off and on to retry them). The title shows `ALL` while it runs.
+    It is not remembered between runs.
   * `f` flashes it onto a plugged-in FM-1 — with rescue mode on, onto any MIDI port
     (the picker flags those rows `RESCUE:`). With more than one target it asks which
     one. A pop-up shows progress; on failure it stays up until `Esc`.
@@ -282,7 +293,7 @@ fm1-grid/src/transport.rs       the bottom bar: the metronome row, global across
 fm1-grid/src/lcd.rs             RGB565 decode, colours, NTSC/ghost/hqx image filters
 fm1-grid/src/theme.rs           the FM-1 hardware colours, the bundled theme catalog; chrome follows gpui-kit
 fm1-grid/src/library_tab.rs     the Library tab's list, pills, actions and add-file form
-fm1-grid/src/settings.rs        the Settings tab: theme picker, appearance override
+fm1-grid/src/settings.rs        the Settings tab (gpui-kit's Settings component): theme and mode dropdowns
 fm1-grid/themes/                the bundled gpui-kit theme sets (upstream themes/ at the pinned tag)
 fm1-grid/src/firmware_picker.rs the firmware dropdown's data (searchable, grouped by tag)
 fm1-grid/src/flash_dialog.rs    the modal flash progress + message terminal

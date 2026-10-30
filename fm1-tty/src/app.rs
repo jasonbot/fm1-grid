@@ -143,6 +143,14 @@ fn in_library(firmware: &Firmware) -> bool {
     }
 }
 
+/// Whether the entry can leave the library: installed, at hand and not a builtin.
+/// Mirrors the GUI's Remove button.
+fn deletable(firmware: &Firmware) -> bool {
+    in_library(firmware)
+        && firmware.status == Status::Available
+        && !matches!(firmware.source, FirmwareSource::Builtin)
+}
+
 impl TuiApp {
     /// Start the shared machinery: clock, MIDI graph, USB scanner, keyboard poller,
     /// store and library (the GUI's store directory, so downloads are shared). The
@@ -451,13 +459,16 @@ impl TuiApp {
         self.firmwares.get(self.sel)
     }
 
-    /// Download the selected hub offer; a no-op with a hint otherwise.
+    /// Download the selected hub offer, or upgrade the selected entry when the
+    /// hub carries a newer version (the newer package lands under the same name).
+    /// A no-op with a hint otherwise.
     pub fn download_selected(&mut self) {
         let Some(firmware) = self.selected() else {
             return;
         };
         let downloadable = firmware.status == Status::Available
-            && matches!(firmware.source, FirmwareSource::Hub { ref blob, .. } if blob.is_none());
+            && (matches!(firmware.source, FirmwareSource::Hub { ref blob, .. } if blob.is_none())
+                || firmware.upgradable);
         if !downloadable {
             self.say(match firmware.status {
                 Status::Downloading => "already downloading".to_string(),
@@ -469,6 +480,34 @@ impl TuiApp {
         if let Some(library) = &mut self.library {
             library.start_download(&name);
         }
+    }
+
+    /// Delete the selected library entry (the `x` key); a no-op with a hint
+    /// otherwise. A hub entry's downloaded package goes with it; an imported file
+    /// stays on disk (see `Library::remove`).
+    pub fn delete_selected(&mut self) {
+        let Some(firmware) = self.selected() else {
+            return;
+        };
+        if !deletable(firmware) {
+            self.say(format!("{} can't be deleted", firmware.name));
+            return;
+        }
+        let name = firmware.name.clone();
+        if let Some(library) = &mut self.library {
+            library.remove(&name);
+            self.say(format!("{name} deleted"));
+        }
+    }
+
+    /// Whether the selected entry takes an upgrade, for the footer's `d` hint.
+    pub fn selected_upgradable(&self) -> bool {
+        self.selected().is_some_and(|firmware| firmware.upgradable)
+    }
+
+    /// Whether the selected entry can be deleted, for the footer's `x` hint.
+    pub fn selected_deletable(&self) -> bool {
+        self.selected().is_some_and(deletable)
     }
 
     /// Re-fetch the hub catalog now.
@@ -654,5 +693,48 @@ impl Drop for TuiApp {
     /// own Drop sends MIDI Stop.)
     fn drop(&mut self) {
         self.release_all();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use fm1_performer::library::FirmwareDevice;
+
+    fn firmware(source: FirmwareSource, status: Status) -> Firmware {
+        Firmware {
+            name: "pkg".to_string(),
+            byline: String::new(),
+            version: "1.0".to_string(),
+            description: String::new(),
+            tags: Vec::new(),
+            device: FirmwareDevice::Fm1,
+            upgradable: false,
+            status,
+            source,
+        }
+    }
+
+    #[test]
+    fn deletable_mirrors_the_remove_button() {
+        let file = || FirmwareSource::File { path: "f.fwsc".to_string() };
+        let installed = || FirmwareSource::Hub {
+            path: "fw/f.fwsc".to_string(),
+            blob: Some("key".to_string()),
+        };
+        let offer = || FirmwareSource::Hub {
+            path: "fw/f.fwsc".to_string(),
+            blob: None,
+        };
+        // Builtins stay, whatever their state.
+        assert!(!deletable(&firmware(FirmwareSource::Builtin, Status::Available)));
+        // Installed and at hand: imported files and downloaded hub packages.
+        assert!(deletable(&firmware(file(), Status::Available)));
+        assert!(deletable(&firmware(installed(), Status::Available)));
+        // A bare hub offer is the catalog, not the library.
+        assert!(!deletable(&firmware(offer(), Status::Available)));
+        // Not at hand: downloading or missing.
+        assert!(!deletable(&firmware(file(), Status::Downloading)));
+        assert!(!deletable(&firmware(installed(), Status::Missing)));
     }
 }

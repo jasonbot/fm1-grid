@@ -166,6 +166,7 @@ fn on_key(app: &mut app::TuiApp, key: ratatui::crossterm::event::KeyEvent) {
             KeyCode::Home => app.scroll(isize::MIN),
             KeyCode::End => app.scroll(isize::MAX),
             KeyCode::Char('d') => app.download_selected(),
+            KeyCode::Char('x') => app.delete_selected(),
             KeyCode::Char('a') => app.toggle_download_all(),
             KeyCode::Char('f') => app.flash_selected(),
             KeyCode::Char('r') => app.reload_hub(),

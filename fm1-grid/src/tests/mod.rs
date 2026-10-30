@@ -662,9 +662,14 @@ fn settings_theme_and_appearance(cx: &mut TestAppContext) {
         window.render_frame(cx);
         window.click(("tab", 3usize), cx); // the Settings tab
         window.render_frame(cx);
-        assert!(window.find("settings-theme").visible());
-        // The dark override pins the mode even in this (light) test window.
-        window.click(("settings-appearance", 2usize), cx);
+        // The settings component renders both fields as dropdown buttons (scoped:
+        // both use the same "btn" id).
+        assert!(window.within("item-0").find("btn").visible());
+        assert!(window.within("item-1").find("btn").visible());
+        // The fields are dropdowns whose items live in a popup overlay, so drive
+        // the apply paths directly. The dark override pins the mode even in this
+        // (light) test window.
+        app.update(cx, |app, cx| app.set_appearance(Appearance::Dark, cx));
     })
     .unwrap();
     cx.update(|cx| {
@@ -673,25 +678,24 @@ fn settings_theme_and_appearance(cx: &mut TestAppContext) {
     });
 
     // A bundled family applies at once (its dark side — the override still pins it).
-    // The dropdown's items live in a popup overlay, so drive the apply path directly.
-    cx.update_window(window.into(), |_, window, cx| {
-        app.update(cx, |app, cx| app.set_theme_family("ayu", window, cx));
+    cx.update_window(window.into(), |_, _window, cx| {
+        app.update(cx, |app, cx| app.set_theme_family("fm1-cream", cx));
     })
     .unwrap();
     cx.update(|cx| {
         let theme = Theme::global(cx);
-        assert_eq!(theme.theme_name().as_ref(), "Ayu Dark");
+        assert_eq!(theme.theme_name().as_ref(), "FM-1 (Cream) Dark");
     });
 
-    // Back to Auto: the mode follows the test window's (light) appearance again,
+    // Back to Auto: the mode follows the test platform's (light) appearance again,
     // now in the family's light side — and the session record carries the picks.
-    cx.update_window(window.into(), |_, window, cx| {
-        window.click(("settings-appearance", 0usize), cx);
+    cx.update_window(window.into(), |_, _window, cx| {
+        app.update(cx, |app, cx| app.set_appearance(Appearance::Auto, cx));
     })
     .unwrap();
     cx.update(|cx| {
         let theme = Theme::global(cx);
-        assert_eq!(theme.theme_name().as_ref(), "Ayu Light");
+        assert_eq!(theme.theme_name().as_ref(), "FM-1 (Cream) Light");
         assert!(!theme.is_dark());
         let record: crate::session::Session = app
             .read(cx)
@@ -700,7 +704,7 @@ fn settings_theme_and_appearance(cx: &mut TestAppContext) {
             .expect("a store")
             .fetch_object("session")
             .expect("the settings change should have saved the session");
-        assert_eq!(record.theme, "ayu");
+        assert_eq!(record.theme, "fm1-cream");
         assert_eq!(record.appearance, Appearance::Auto);
     });
 
@@ -709,8 +713,8 @@ fn settings_theme_and_appearance(cx: &mut TestAppContext) {
     cx.update_window(window.into(), |_, window, cx| {
         window.click(("tab", 0usize), cx);
         app.update(cx, |app, cx| {
-            app.set_theme_family(crate::theme::DEFAULT_FAMILY, window, cx);
-            app.set_appearance(Appearance::Auto, window, cx);
+            app.set_theme_family(crate::theme::DEFAULT_FAMILY, cx);
+            app.set_appearance(Appearance::Auto, cx);
         });
     })
     .unwrap();
@@ -741,8 +745,8 @@ fn bundled_themes_load(cx: &mut TestAppContext) {
             }
         }
         // The workhorse pair the UI test applies.
-        assert!(registry.themes().contains_key("Ayu Light"));
-        assert!(registry.themes().contains_key("Ayu Dark"));
+        assert!(registry.themes().contains_key("FM-1 (Cream) Light"));
+        assert!(registry.themes().contains_key("FM-1 (Cream) Dark"));
     });
 }
 

@@ -207,14 +207,18 @@ pub struct GridApp {
     _audio: Option<cpal::Stream>,
     pub(crate) audio_error: Option<String>,
     /// The per-slot live pictures, rebuilt on tick while a pane runs; `None` when off.
-    /// The selected slot's frame is the sidebar's hqx-upscaled picture.
+    /// The selected slot's frame is the sidebar's upscaled picture (hqx, or
+    /// nearest-neighbour while its dropout health is orange or worse).
     pub(crate) frames: [Option<Arc<RenderImage>>; MAX_SLOTS],
     /// The framebuffer each slot's frame was built from; a pane whose screen has not
     /// changed costs a memcmp per tick instead of a full decode + upload.
     last_fb: [Option<Box<[u16]>>; MAX_SLOTS],
-    /// The selected pane's screen, NTSC-distorted with a slight fisheye bulge and
-    /// refreshed every tick; this is what its grid card shows.
+    /// The selected pane's screen with a slight fisheye bulge; this is what its grid
+    /// card shows.
     pub(crate) ghost: Arc<RenderImage>,
+    /// The framebuffer the ghost was built from; like `last_fb`, an unchanged screen
+    /// costs a memcmp per tick instead of the fisheye pass + upload.
+    ghost_fb: Option<Box<[u16]>>,
     /// Whether the ghost currently holds a live (powered) snapshot.
     ghost_live: bool,
     /// FM-1 keys/buttons currently held on the computer keyboard (event-driven; only
@@ -239,11 +243,9 @@ pub struct GridApp {
     bg_at: Instant,
     bg_sampled_at: Instant,
     dominant_slot: usize,
-    /// Snapshot counter, seeding the ghost's dynamic NTSC distortion.
-    ghost_frame: u64,
     /// The sidebar screen's exact upscale factor (1, 2 or 4), decided by the sidebar
     /// panel's rendered size last frame and applied by `upload_lcds` with the hqx
-    /// filter.
+    /// filter (nearest-neighbour while the pane's dropout health is orange or worse).
     pub(crate) sidebar_scale: usize,
     /// The sidebar panel's rendered size, recorded during prepaint (one frame of lag,
     /// the same trade the egui layout made with the graph height).
@@ -310,6 +312,10 @@ pub struct GridApp {
     /// Newly installed rows and when they appeared; the row plays a 200 ms snap-in
     /// spring and the entries drop once settled.
     pub(crate) lib_added: std::collections::HashMap<String, Instant>,
+    /// Favorited firmwares, as normalized name keys (see `favorite_key`; persisted
+    /// in the session). A favorite's library row carries the synthetic ★ tag, every
+    /// other row the synthetic ☆.
+    pub(crate) favorites: std::collections::HashSet<String>,
     /// The Library tab's Download All toggle (persisted in the session): while on,
     /// event-driven sweeps keep one hub download going until nothing downloadable
     /// or upgradable remains.
@@ -560,6 +566,7 @@ impl GridApp {
             frames: std::array::from_fn(|_| None),
             last_fb: std::array::from_fn(|_| None),
             ghost: lcd::blank_image(),
+            ghost_fb: None,
             ghost_live: false,
             kb_down: [false; 41],
             held: [false; 41],
@@ -573,7 +580,6 @@ impl GridApp {
             bg_at: Instant::now(),
             bg_sampled_at: Instant::now() - Duration::from_secs(1),
             dominant_slot: usize::MAX,
-            ghost_frame: 0,
             sidebar_scale: 1,
             sidebar_size: (512.0, 700.0),
             grid_size: (crate::grid::GRID_W, crate::grid::GRID_W),
@@ -601,6 +607,11 @@ impl GridApp {
             lib_form,
             lib_scroll: VirtualListScrollHandle::new(),
             lib_view_h: 400.0,
+            favorites: session
+                .favorites
+                .iter()
+                .map(|name| crate::library_tab::favorite_key(name))
+                .collect(),
             lib_scroll_to: None,
             lib_known,
             lib_added: Default::default(),
@@ -1183,7 +1194,16 @@ impl GridApp {
                 Some(handle) => (true, handle.drops_5s()),
                 None => (false, 0),
             };
+            let was_degraded = matches!(self.health[slot].color, Health::Orange | Health::Red);
             dirty |= self.health[slot].track(drops, running);
+            // The sidebar's hqx/nearest choice is sampled only when the framebuffer
+            // changes; a class flip forces one rebuild so a pane that recovers on a
+            // static screen gets its hqx back (and a degrading one drops it).
+            if slot == self.active
+                && matches!(self.health[slot].color, Health::Orange | Health::Red) != was_degraded
+            {
+                self.last_fb[slot] = None;
+            }
         }
         // The cards snap between 1x and 0.5x screens to fit the split panel.
         let scale =
@@ -1275,7 +1295,13 @@ impl GridApp {
                 } else {
                     1
                 };
-                let pixels = lcd::upscaled(&faithful, scale);
+                // hqx is the priciest filter here; a pane already dropping audio
+                // (orange or worse) gets nearest-neighbour at the same size instead.
+                let pixels = if matches!(self.health[slot].color, Health::Orange | Health::Red) {
+                    lcd::magnified(&faithful, scale)
+                } else {
+                    lcd::upscaled(&faithful, scale)
+                };
                 lcd::frame_image(&pixels, LCD_W * scale, LCD_H * scale)
             } else {
                 lcd::frame_image(&lcd::recede(&fb), LCD_W, LCD_H)
@@ -1345,10 +1371,10 @@ impl GridApp {
         true
     }
 
-    /// Refresh the snapshot the selected pane shows on its grid card: its screen
-    /// NTSC-distorted with a very slight fisheye bulge, taken every tick while the pane
-    /// runs (the dynamic distortion is the point — it always reports changed). A pane
-    /// that is off shows black, blanked once.
+    /// Refresh the snapshot the selected pane shows on its grid card: its screen with
+    /// a very slight fisheye bulge, rebuilt only when the framebuffer changed since the
+    /// last build (a static screen costs one memcmp per tick). A pane that is off shows
+    /// black, blanked once.
     fn refresh_ghost(&mut self) -> bool {
         match self.slots[self.active]
             .handle
@@ -1356,13 +1382,17 @@ impl GridApp {
             .and_then(|handle| handle.lcd.lock().ok())
         {
             Some(fb) => {
-                self.ghost_frame = self.ghost_frame.wrapping_add(1);
-                let pixels = lcd::ghost(&fb, self.ghost_frame);
+                if self.ghost_fb.as_deref() == Some(fb.as_slice()) {
+                    return false;
+                }
+                self.ghost_fb = Some(fb.as_slice().into());
+                let pixels = lcd::ghost(&fb);
                 self.ghost = lcd::frame_image(&pixels, LCD_W, LCD_H);
                 self.ghost_live = true;
                 true
             }
             None => {
+                self.ghost_fb = None;
                 if self.ghost_live {
                     self.ghost = lcd::blank_image();
                     self.ghost_live = false;

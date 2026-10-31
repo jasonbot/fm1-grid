@@ -42,6 +42,23 @@ fn tag_color(tag: &str) -> u32 {
     TAG_COLORS[(hash % TAG_COLORS.len() as u32) as usize]
 }
 
+/// The synthetic tags every row carries: ★ when the firmware is a favorite, ☆ when
+/// not. They render and filter like real tags but come from the app's favorite set,
+/// not the listing.
+pub(crate) const FAV_TAG: &str = "★";
+pub(crate) const UNFAV_TAG: &str = "☆";
+
+/// A firmware's favorite key: the name normalized so case and stray whitespace
+/// variants (a hub offer vs. the installed entry) share one favorite.
+pub(crate) fn favorite_key(name: &str) -> String {
+    name.trim().to_lowercase()
+}
+
+/// The synthetic tag for a favorite state.
+fn fav_tag(favorite: bool) -> &'static str {
+    if favorite { FAV_TAG } else { UNFAV_TAG }
+}
+
 /// A tag pill's element id component: FNV-1a over name+tag, stable across frames.
 pub(crate) fn pill_id(name: &str, tag: &str) -> u64 {
     let mut hash = 0xcbf2_9ce4_8422_2325u64;
@@ -73,15 +90,16 @@ fn action_group(items: Vec<AnyElement>, border: Hsla) -> AnyElement {
 }
 
 /// The filter box's match: every space-separated token of the needle must appear as
-/// a case-insensitive substring of name, version, tags, byline or description.
-/// "f ll gro" finds "Felucca (Groovebox)".
-fn matches_filter(firmware: &Firmware, needle: &str) -> bool {
+/// a case-insensitive substring of name, version, tags (including the synthetic ★/☆),
+/// byline or description. "f ll gro" finds "Felucca (Groovebox)".
+fn matches_filter(firmware: &Firmware, needle: &str, favorite: bool) -> bool {
     let needle = needle.to_lowercase();
     let haystack = format!(
-        "{} {} {} {} {}",
+        "{} {} {} {} {} {}",
         firmware.name,
         firmware.version,
         firmware.tags.join(" "),
+        fav_tag(favorite),
         firmware.byline,
         firmware.description
     )
@@ -210,7 +228,8 @@ impl GridApp {
         for (header, section) in SECTIONS {
             let mut headed = false;
             for (ix, firmware) in view.iter().enumerate() {
-                if section_of(firmware) != section || !matches_filter(firmware, &needle) {
+                let favorite = self.favorites.contains(&favorite_key(&firmware.name));
+                if section_of(firmware) != section || !matches_filter(firmware, &needle, favorite) {
                     continue;
                 }
                 if !headed {
@@ -459,13 +478,15 @@ impl GridApp {
         let downloading = firmware.status == Status::Downloading;
         let percent = self.library.download_percent(&firmware.name);
 
-        // The pills: one per tag, then the device. A tag pill click toggles the tag's
-        // words in the filter box. One row only — a taller wrap would break the
-        // row's fixed height; extras clip instead.
+        // The pills: the synthetic ★/☆ favorite tag first, then one per tag, then the
+        // device. A tag pill click toggles the tag's words in the filter box. One row
+        // only — a taller wrap would break the row's fixed height; extras clip instead.
+        let favorite = self.favorites.contains(&favorite_key(&firmware.name));
+        let tags = std::iter::once(fav_tag(favorite).to_string())
+            .chain(firmware.tags.iter().cloned());
         let mut pills = h_flex().gap_1().flex_nowrap().min_w_0().overflow_hidden();
-        for tag in &firmware.tags {
-            let color: Hsla = rgb(tag_color(tag)).into();
-            let tag = tag.clone();
+        for tag in tags {
+            let color: Hsla = rgb(tag_color(&tag)).into();
             let id_tag = tag.clone();
             pills = pills.child(
                 div()
@@ -509,12 +530,41 @@ impl GridApp {
                 .child(device),
         );
 
-        // The actions as one fused group: the website/source link pair first
-        // (disabled when the listing carries no such link), then Remove (never
-        // builtins, and only when the package is at hand), Download (hub offers;
-        // its percent while in flight), Flash To…
+        // The actions as one fused group: the favorite toggle first (the row's ★/☆
+        // pill is its readout), then the website/source link pair (disabled when the
+        // listing carries no such link), Remove (never builtins, and only when the
+        // package is at hand), Download (hub offers; its percent while in flight),
+        // Flash To…
         let locally = pick.is_some() && firmware.status == Status::Available;
         let mut buttons: Vec<AnyElement> = Vec::new();
+        {
+            let name = name.clone();
+            buttons.push(
+                Button::new(format!("lib-fav-{name}"))
+                    .icon(Icon::new(Lucide::Star))
+                    .small()
+                    .ghost()
+                    .rounded_none()
+                    .selected(favorite)
+                    .toggled(favorite)
+                    .tooltip(if favorite {
+                        "Drop the favorite"
+                    } else {
+                        "Mark as a favorite (its ★ pill filters the list)"
+                    })
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        let key = favorite_key(&name);
+                        if !this.favorites.insert(key.clone()) {
+                            this.favorites.remove(&key);
+                        }
+                        // Like the theme pick, persist at once — a crash shouldn't
+                        // lose the toggle.
+                        this.save_session(cx);
+                        cx.notify();
+                    }))
+                    .into_any_element(),
+            );
+        }
         for (kind, icon, url) in [
             ("website", Lucide::Globe, &firmware.website),
             ("source", Lucide::Github, &firmware.source_url),
@@ -880,7 +930,7 @@ impl GridApp {
 mod tests {
     // No `use super::*` — the parent's gpui glob import would drag in GPUI's `test`
     // attribute macro, which re-expands the built-in #[test] (see tests/mod.rs).
-    use super::{is_installed, matches_filter, snap_in, toggle_tag};
+    use super::{favorite_key, is_installed, matches_filter, snap_in, toggle_tag};
     use fm1_performer::library::{Firmware, FirmwareDevice, FirmwareSource, Status};
 
     fn firmware(name: &str, tags: &[&str]) -> Firmware {
@@ -935,11 +985,32 @@ mod tests {
     #[test]
     fn filter_matches_all_tokens_as_substrings() {
         let felucca = firmware("Felucca", &["groove", "dev"]);
-        assert!(matches_filter(&felucca, ""));
-        assert!(matches_filter(&felucca, "fel gro"));
-        assert!(matches_filter(&felucca, "GROOVE Dev"));
-        assert!(matches_filter(&felucca, "author"));
-        assert!(!matches_filter(&felucca, "fel zzz"));
+        assert!(matches_filter(&felucca, "", false));
+        assert!(matches_filter(&felucca, "fel gro", false));
+        assert!(matches_filter(&felucca, "GROOVE Dev", false));
+        assert!(matches_filter(&felucca, "author", false));
+        assert!(!matches_filter(&felucca, "fel zzz", false));
+    }
+
+    /// The synthetic ★/☆ tag is searchable: ★ hits only favorites, ☆ only the rest,
+    /// and either composes with the other tokens.
+    #[test]
+    fn filter_matches_the_synthetic_favorite_tag() {
+        let felucca = firmware("Felucca", &["groove"]);
+        assert!(matches_filter(&felucca, "★", true));
+        assert!(!matches_filter(&felucca, "★", false));
+        assert!(matches_filter(&felucca, "☆", false));
+        assert!(!matches_filter(&felucca, "☆", true));
+        assert!(matches_filter(&felucca, "★ groove", true));
+        assert!(!matches_filter(&felucca, "★ groove", false));
+    }
+
+    /// The favorite key ignores case and surrounding whitespace, so differently
+    /// cased listings of one firmware share the favorite.
+    #[test]
+    fn favorite_key_normalizes() {
+        assert_eq!(favorite_key("Felucca"), favorite_key(" felucca "));
+        assert_ne!(favorite_key("Felucca"), favorite_key("Beep"));
     }
 
     /// A pill click toggles the tag's words: appended when any is missing as a token

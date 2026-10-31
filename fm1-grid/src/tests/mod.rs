@@ -15,6 +15,15 @@ use gpui_kit::{
 };
 use std::time::Duration;
 
+/// The UI tests run one at a time: they share a single throwaway store, and a
+/// writer's mid-test save (the favorite toggle, the settings pickers) must not leak
+/// into a sibling's boot session or its reads of the session record.
+static UI_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn ui_lock() -> std::sync::MutexGuard<'static, ()> {
+    UI_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 /// Open the app in a test window at the real default size.
 fn open_app(cx: &mut TestAppContext) -> (WindowHandle<Root>, Entity<GridApp>) {
     open_app_at(cx, 1180.0, 1160.0)
@@ -34,6 +43,13 @@ fn open_app_at(cx: &mut TestAppContext, w: f32, h: f32) -> (WindowHandle<Root>, 
     }
     unsafe {
         std::env::set_var("FM1_GRID_NO_HUB", "1");
+    }
+    // Boot every test app off a default session: writers (the favorite toggle, the
+    // settings pickers) save into this shared store, and a previous test's leftover
+    // record must not decide which tab or sidebar width a fresh app boots with.
+    if let Some(dir) = std::env::var_os("FM1_GRID_DATA_DIR") {
+        let store = fm1_performer::store::Store::in_dir(dir.as_ref());
+        let _ = store.store_object("session", &crate::session::Session::default());
     }
     cx.update(gpui_kit::init);
     cx.update(|cx| {
@@ -59,6 +75,7 @@ fn open_app_at(cx: &mut TestAppContext, w: f32, h: f32) -> (WindowHandle<Root>, 
 /// the exact 4x fit.
 #[gpui_kit::test]
 fn sidebar_grows_with_window(cx: &mut TestAppContext) {
+    let _guard = ui_lock();
     let (window, app) = open_app_at(cx, 2560.0, 1600.0);
     for _ in 0..3 {
         cx.update_window(window.into(), |_, window, cx| window.render_frame(cx))
@@ -75,6 +92,7 @@ fn sidebar_grows_with_window(cx: &mut TestAppContext) {
 
 #[gpui_kit::test]
 fn boots_selects_powers(cx: &mut TestAppContext) {
+    let _guard = ui_lock();
     let (window, app) = open_app(cx);
 
     cx.update_window(window.into(), |_, window, cx| {
@@ -142,6 +160,7 @@ fn boots_selects_powers(cx: &mut TestAppContext) {
 
 #[gpui_kit::test]
 fn metronome_toggles(cx: &mut TestAppContext) {
+    let _guard = ui_lock();
     let (window, app) = open_app(cx);
     // The tempo readout starts showing the clock's BPM.
     cx.update(|cx| {
@@ -160,6 +179,7 @@ fn metronome_toggles(cx: &mut TestAppContext) {
 /// and sanitises onto the metronome on Enter and on blur.
 #[gpui_kit::test]
 fn tempo_sanitizes_on_blur(cx: &mut TestAppContext) {
+    let _guard = ui_lock();
     let (window, app) = open_app(cx);
 
     // Type an out-of-range tempo: the text takes it, the clock does not.
@@ -215,6 +235,7 @@ fn tempo_sanitizes_on_blur(cx: &mut TestAppContext) {
 /// the field and the clock, and a typed tempo moves the thumb.
 #[gpui_kit::test]
 fn tempo_slider_syncs(cx: &mut TestAppContext) {
+    let _guard = ui_lock();
     let (window, app) = open_app(cx);
     cx.update(|cx| {
         assert_eq!(
@@ -287,6 +308,7 @@ fn send_key(window: &mut Window, cx: &mut App, key: &str, down: bool) {
 /// The metronome row stays global.
 #[gpui_kit::test]
 fn panel_and_keys_follow_emulator_tab(cx: &mut TestAppContext) {
+    let _guard = ui_lock();
     let (window, app) = open_app(cx);
 
     // Power pane 1 (the default active pane) so held keys have somewhere to go.
@@ -394,6 +416,7 @@ fn health_dot_lingers_then_hides() {
 /// snap to 0.5x and the window still renders.
 #[gpui_kit::test]
 fn grid_snaps_half_size(cx: &mut TestAppContext) {
+    let _guard = ui_lock();
     let (window, app) = open_app_at(cx, 1280.0, 800.0);
     cx.update_window(window.into(), |_, window, cx| {
         window.render_frame(cx);
@@ -419,6 +442,7 @@ fn grid_snaps_half_size(cx: &mut TestAppContext) {
 /// power-off and the next boot restores it.
 #[gpui_kit::test]
 fn pin_cycle(cx: &mut TestAppContext) {
+    let _guard = ui_lock();
     let (window, app) = open_app(cx);
 
     // Off: the toggle is inert.
@@ -513,6 +537,7 @@ fn pin_cycle(cx: &mut TestAppContext) {
 /// something.
 #[gpui_kit::test]
 fn library_tab_lists(cx: &mut TestAppContext) {
+    let _guard = ui_lock();
     let (window, app) = open_app_at(cx, 1180.0, 700.0);
     cx.update_window(window.into(), |_, window, cx| {
         window.render_frame(cx);
@@ -582,6 +607,7 @@ fn library_tab_lists(cx: &mut TestAppContext) {
 /// scroll target the Download button sets.
 #[gpui_kit::test]
 fn library_scrolls_to_downloaded(cx: &mut TestAppContext) {
+    let _guard = ui_lock();
     let (window, app) = open_app(cx);
     // Enough installed firmwares that the target starts below the viewport. File
     // entries stat as Available only with a real file at hand.
@@ -644,6 +670,7 @@ fn library_scrolls_to_downloaded(cx: &mut TestAppContext) {
 /// typed substring doesn't block the add.
 #[gpui_kit::test]
 fn library_tag_pills_toggle_filter(cx: &mut TestAppContext) {
+    let _guard = ui_lock();
     let (window, app) = open_app(cx);
     let filter_text = |app: &GridApp, cx: &App| {
         app.lib_form.filter.read(cx).value().to_string()
@@ -704,6 +731,82 @@ fn library_tag_pills_toggle_filter(cx: &mut TestAppContext) {
     cx.update(|cx| assert_eq!(filter_text(app.read(cx), cx), "groo"));
 }
 
+/// The favorite toggle: the star button flips the firmware's membership in
+/// `favorites` (persisted in the session record at once, like the theme pick), the
+/// row's synthetic ★/☆ pill follows, and the pill filters the list like any tag.
+#[gpui_kit::test]
+fn library_favorite_toggles(cx: &mut TestAppContext) {
+    use crate::library_tab::pill_id;
+    let _guard = ui_lock();
+    let (window, app) = open_app(cx);
+    let filter_text = |app: &GridApp, cx: &App| {
+        app.lib_form.filter.read(cx).value().to_string()
+    };
+    let fav_key = || crate::library_tab::favorite_key("Felucca");
+    let record = |app: &GridApp, cx: &App| {
+        app.store
+            .as_ref()
+            .expect("a store")
+            .fetch_object::<crate::session::Session>("session")
+            .expect("the favorite toggle should have saved the session")
+    };
+
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        window.click(("tab", 2usize), cx); // the Library tab
+        window.render_frame(cx);
+        // Both rows start unfavorited: ☆ pills, and the favorite set is empty.
+        assert!(window.find(("lib-tag", pill_id("Felucca", "☆"))).visible());
+        assert!(window.find(("lib-tag", pill_id("SLOOP", "☆"))).visible());
+        assert!(!app.read(cx).favorites.contains(&fav_key()));
+        window.click("lib-fav-Felucca", cx);
+    })
+    .unwrap();
+    cx.update(|cx| {
+        let app = app.read(cx);
+        assert!(app.favorites.contains(&fav_key()));
+        assert!(record(app, cx).favorites.contains("felucca"));
+    });
+
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        // Felucca's pill flipped to ★; SLOOP's stays ☆. Clicking SLOOP's ☆ filters
+        // to the non-favorites: Felucca drops out.
+        assert!(window.find(("lib-tag", pill_id("Felucca", "★"))).visible());
+        window.click(("lib-tag", pill_id("SLOOP", "☆")), cx);
+    })
+    .unwrap();
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        assert_eq!(filter_text(app.read(cx), cx), "☆");
+        assert!(window.try_find("lib-flash-Felucca").is_none());
+        assert!(window.find("lib-flash-SLOOP").visible());
+        window.click(("lib-tag", pill_id("SLOOP", "☆")), cx);
+    })
+    .unwrap();
+
+    // Felucca's ★ pill filters to the favorites only.
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        window.click(("lib-tag", pill_id("Felucca", "★")), cx);
+    })
+    .unwrap();
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        assert_eq!(filter_text(app.read(cx), cx), "★");
+        assert!(window.find("lib-flash-Felucca").visible());
+        assert!(window.try_find("lib-flash-SLOOP").is_none());
+        // Toggle back off; the record follows.
+        window.click("lib-fav-Felucca", cx);
+    })
+    .unwrap();
+    cx.update(|cx| {
+        let app = app.read(cx);
+        assert!(!app.favorites.contains(&fav_key()));
+        assert!(!record(app, cx).favorites.contains("felucca"));
+    });
+}
+
 /// The Settings tab: the appearance override pins the mode at once, a bundled theme
 /// family applies by name, and each pick lands in the session record (restored to
 /// the defaults at the end — the store is shared across the process's tests).
@@ -712,6 +815,7 @@ fn settings_theme_and_appearance(cx: &mut TestAppContext) {
     use crate::app::Appearance;
     use gpui_kit::component::Theme;
 
+    let _guard = ui_lock();
     let (window, app) = open_app(cx);
     cx.update_window(window.into(), |_, window, cx| {
         window.render_frame(cx);
@@ -813,6 +917,7 @@ fn bundled_themes_load(cx: &mut TestAppContext) {
 /// reconciles the fake port away mid-test.
 #[gpui_kit::test]
 fn devices_tab_offers_midi_rescue(cx: &mut TestAppContext) {
+    let _guard = ui_lock();
     let (window, app) = open_app(cx);
     cx.update_window(window.into(), |_, window, cx| {
         window.click(("tab", 1usize), cx); // the Devices tab
@@ -847,6 +952,7 @@ fn devices_tab_offers_midi_rescue(cx: &mut TestAppContext) {
 /// under the centered pill tab bar.
 #[gpui_kit::test]
 fn devices_tab_sections_switch(cx: &mut TestAppContext) {
+    let _guard = ui_lock();
     let (window, app) = open_app(cx);
     cx.update_window(window.into(), |_, window, cx| {
         window.click(("tab", 1usize), cx); // the Devices tab

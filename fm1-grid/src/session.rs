@@ -30,6 +30,9 @@ pub(crate) struct Session {
     pub bpm: u32,
     /// The Library tab's Download All toggle: on restart, the downloads resume.
     pub download_all: bool,
+    /// Favorited firmwares, as normalized name keys; sorted so the record on disk
+    /// stays diff-stable.
+    pub favorites: std::collections::BTreeSet<String>,
     /// The theme family (the Settings tab's picker; "default" is gpui-kit's pair).
     pub theme: String,
     /// The appearance override (auto/light/dark).
@@ -45,6 +48,7 @@ impl Default for Session {
             slot: 0,
             bpm: DEFAULT_BPM,
             download_all: false,
+            favorites: Default::default(),
             theme: crate::theme::DEFAULT_FAMILY.to_string(),
             appearance: crate::app::Appearance::default(),
         }
@@ -64,6 +68,11 @@ impl Session {
         session.devices_tab = session.devices_tab.min(1);
         session.slot = session.slot.min(fm1_performer::MAX_SLOTS - 1);
         session.bpm = session.bpm.clamp(MIN_BPM, MAX_BPM);
+        // The builtin "FM-1+VA" was renamed "Baud Girl (FM-1+VA)"; carry its star
+        // over (favorites key on the normalized name, so a rename orphans them).
+        if session.favorites.remove("fm-1+va") {
+            session.favorites.insert("baud girl (fm-1+va)".to_string());
+        }
         session
     }
 }
@@ -87,6 +96,7 @@ impl GridApp {
             slot: self.active,
             bpm: self.clock.bpm(),
             download_all: self.download_all,
+            favorites: self.favorites.iter().cloned().collect(),
             theme: self.theme_id.clone(),
             appearance: self.appearance,
         };
@@ -113,6 +123,9 @@ mod tests {
             slot: 42,
             bpm: 1,
             download_all: true,
+            favorites: ["felucca".to_string(), "fm-1+va".to_string()]
+                .into_iter()
+                .collect(),
             theme: "ayu".to_string(),
             appearance: crate::app::Appearance::Dark,
         };
@@ -126,6 +139,11 @@ mod tests {
         assert_eq!(loaded.slot, fm1_performer::MAX_SLOTS - 1);
         assert_eq!(loaded.bpm, MIN_BPM);
         assert!(loaded.download_all);
+        assert!(loaded.favorites.contains("felucca"));
+        // The pre-rename builtin's star follows to "Baud Girl (FM-1+VA)".
+        assert!(loaded.favorites.contains("baud girl (fm-1+va)"));
+        assert!(!loaded.favorites.contains("fm-1+va"));
+        assert_eq!(loaded.favorites.len(), 2);
 
         // No record: the defaults; a corrupt record: the defaults too.
         std::fs::remove_dir_all(&dir).ok();

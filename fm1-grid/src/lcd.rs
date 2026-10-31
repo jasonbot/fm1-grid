@@ -1,7 +1,8 @@
 //! Everything that turns an emulator's RGB565 framebuffer into pixels on screen: the
 //! colour decode, the dominant-colour pickup for the computed grid background, the
-//! NTSC-distorted fisheye snapshot of the selected pane, the hqx upscale of the
-//! sidebar's picture, and the desaturated vignetted look of the other running panes.
+//! fisheye snapshot of the selected pane, the hqx upscale of the sidebar's picture
+//! (with a nearest-neighbour fallback for struggling panes), and the desaturated
+//! vignetted look of the other running panes.
 //! Pure functions; no app state. Pixels are `[r, g, b]` bytes; [`frame_image`] packs
 //! them into the gpui `RenderImage` the views paint.
 
@@ -61,74 +62,20 @@ pub fn dominant(fb: &[u16]) -> Rgb {
     ]
 }
 
-/// NTSC-style composite artefacts, applied before the lens: sharp luma with the chroma
-/// smeared horizontally (colour bleed) and sampled with a per-line alternating phase
-/// offset (the NTSC subcarrier flips phase every line; this fakes the resulting
-/// dot-crawl / cross-colour combing on vertical edges).
-///
-/// `frame` makes the distortion dynamic: it seeds a tiny xorshift, and per line the
-/// chroma phase offset wanders (mostly the alternating ±1, sometimes 0 or doubled) and
-/// roughly every twelfth line gets a 1 px horizontal sync wobble, so two snapshots of
-/// the very same pixels are never quite identical.
-fn ntsc(fb: &[u16], frame: u64) -> Vec<Rgb> {
-    let src: Vec<Rgb> = fb.iter().map(|&px| rgb565(px)).collect();
-    let lum_of = |c: Rgb| luminance(c[0] as f32, c[1] as f32, c[2] as f32);
-    let mut rng = frame.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1;
-    let mut rand = move || {
-        rng ^= rng << 13;
-        rng ^= rng >> 7;
-        rng ^= rng << 17;
-        rng
-    };
-    let mut out = Vec::with_capacity(src.len());
-    for y in 0..LCD_H {
-        let r = rand();
-        let base = if y % 2 == 0 { 1isize } else { -1 };
-        let off = match r % 8 {
-            0 => 0,
-            1 => base * 2,
-            _ => base,
-        };
-        // H-sync hunt: about one line in twelve shifts sideways a pixel.
-        let shift = if r % 12 == 5 { ((r >> 8) % 3) as isize - 1 } else { 0 };
-        for x in 0..LCD_W {
-            let xw = (x as isize + shift).clamp(0, LCD_W as isize - 1) as usize;
-            let here = src[y * LCD_W + xw];
-            let tap = |d: isize| {
-                src[y * LCD_W + (xw as isize + off + d).clamp(0, LCD_W as isize - 1) as usize]
-            };
-            let (t0, t1, t2) = (tap(-1), tap(0), tap(1));
-            let y_here = lum_of(here);
-            // Luma stays the pixel's own; chroma (channel - luma) is the taps' average.
-            let mix = |chan: fn(&Rgb) -> u8| {
-                let avg = [t0, t1, t2]
-                    .iter()
-                    .map(|t| chan(t) as f32 - lum_of(*t))
-                    .sum::<f32>()
-                    / 3.0;
-                (y_here + avg).clamp(0.0, 255.0) as u8
-            };
-            out.push([mix(|c| c[0]), mix(|c| c[1]), mix(|c| c[2])]);
-        }
-    }
-    out
-}
-
-/// The grid card's picture of the selected pane: the screen NTSC-distorted, then given
-/// a very slight fisheye bulge. The fisheye magnifies the centre ~8%, keeps the edge of
-/// the inscribed circle put and clamps the corners. `frame` varies the NTSC pass, so
-/// every snapshot distorts a little differently.
-pub(crate) fn ghost(fb: &[u16], frame: u64) -> Vec<Rgb> {
-    let screen = ntsc(fb, frame);
+/// The grid card's picture of the selected pane: the screen given a very slight
+/// fisheye bulge. The fisheye magnifies the centre ~4%, keeps the edge of the
+/// inscribed circle put and clamps the corners. A pure function of the framebuffer,
+/// so the caller skips it while the screen is unchanged.
+pub(crate) fn ghost(fb: &[u16]) -> Vec<Rgb> {
     let c = LCD_W as f32 / 2.0;
     (0..LCD_W * LCD_H)
         .map(|i| {
             let u = (i % LCD_W) as f32 + 0.5 - c;
             let v = (i / LCD_W) as f32 + 0.5 - c;
             let r2 = (u * u + v * v) / (c * c);
-            let f = 1.0 - 0.08 * (1.0 - r2);
+            let f = 1.0 - 0.04 * (1.0 - r2);
             let sample = |d: f32| ((d * f + c).round() as i32).clamp(0, LCD_W as i32 - 1) as usize;
-            screen[sample(v) * LCD_W + sample(u)]
+            rgb565(fb[sample(v) * LCD_W + sample(u)])
         })
         .collect()
 }
@@ -153,6 +100,24 @@ pub(crate) fn recede(fb: &[u16]) -> Vec<Rgb> {
             [recessed(r), recessed(g), recessed(b)]
         })
         .collect()
+}
+
+/// Magnify by an exact integer factor with nearest-neighbour sampling: the cheap
+/// stand-in for [`upscaled`]'s hqx when the pane's audio health says the CPU is
+/// already behind. Blocky, but the layout's exact screen size is preserved.
+pub(crate) fn magnified(pixels: &[Rgb], scale: usize) -> Vec<Rgb> {
+    if scale == 1 {
+        return pixels.to_vec();
+    }
+    let side = LCD_W * scale;
+    let mut out = Vec::with_capacity(side * side);
+    for y in 0..side {
+        let row = &pixels[(y / scale) * LCD_W..(y / scale) * LCD_W + LCD_W];
+        for x in 0..side {
+            out.push(row[x / scale]);
+        }
+    }
+    out
 }
 
 /// The sidebar's picture of the selected pane's screen: the faithful pixels run through
@@ -201,3 +166,4 @@ pub(crate) fn frame_image(pixels: &[Rgb], width: usize, height: usize) -> Arc<Re
 pub(crate) fn blank_image() -> Arc<RenderImage> {
     frame_image(&blank(), LCD_W, LCD_H)
 }
+

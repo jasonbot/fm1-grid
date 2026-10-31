@@ -136,6 +136,12 @@ impl Library {
         for firmware in &mut stored {
             if !firmware.tags.iter().any(|tag| tag.starts_with("source:")) {
                 let tag = match &firmware.source {
+                    // Pre-tag downloads of fm1-editor offers were stored as Hub
+                    // entries whose path is the absolute page URL; only the hub's
+                    // own entries carry relative paths.
+                    FirmwareSource::Hub { path, .. } if path.starts_with("http") => {
+                        "source:fm1-editor"
+                    }
                     FirmwareSource::Hub { .. } => "source:hub",
                     FirmwareSource::File { .. } => "source:file",
                     FirmwareSource::Builtin => "source:builtin",
@@ -304,8 +310,8 @@ impl Library {
     /// under the entry's name. One
     /// at a time: None while any download is in flight, when nothing is left, or
     /// once a failed name (marked by [`Library::collect_downloads`]) is all that
-    /// remains. An upgrade counts as done once a downloaded same-name entry is at
-    /// least the hub's version, so a completed upgrade isn't fetched again.
+    /// remains. An upgrade counts as done once a downloaded same-firmware entry is
+    /// at least the hub's version, so a completed upgrade isn't fetched again.
     pub fn next_download(&mut self) -> Option<String> {
         self.list();
         if !self.downloads.is_empty() {
@@ -320,9 +326,12 @@ impl Library {
             }
             match &firmware.source {
                 FirmwareSource::Builtin if firmware.upgradable => {
-                    let offer = hub.iter().find(|o| o.name == firmware.name)?;
+                    // The flag was set by the fuzzy merge; resolve the offer (and
+                    // the covering download) with the same predicate — a variant
+                    // spelling never exact-matches.
+                    let offer = hub.iter().find(|o| same_firmware(firmware, o))?;
                     let done = view.iter().any(|other| {
-                        other.name == firmware.name
+                        same_firmware(firmware, other)
                             && matches!(other.source, FirmwareSource::Hub { blob: Some(_), .. })
                             && other.status == Status::Available
                             && !version_newer(&offer.version, &other.version)
@@ -423,7 +432,14 @@ impl Library {
         }
         let entry = {
             let hub = self.hub.lock().unwrap();
-            hub.iter().find(|f| f.name == name).cloned()
+            hub.iter().find(|f| f.name == name).cloned().or_else(|| {
+                // The caller passes a view row's name; a stored row whose spelling
+                // is a variant of the hub's (the fuzzy merge flags it upgradable)
+                // resolves to its offer by the same predicate. The download still
+                // keys on the row's name, so the row shows the progress.
+                let row = self.view.iter().find(|f| f.name == name)?;
+                hub.iter().find(|offer| same_firmware(row, offer)).cloned()
+            })
         };
         let Some(entry) = entry else { return };
         let FirmwareSource::Hub { path, .. } = entry.source.clone() else {
@@ -521,7 +537,9 @@ impl Library {
             let outcome = download.outcome.lock().unwrap().take();
             match outcome {
                 Some(Ok(entry)) => {
-                    self.stored.retain(|f| f.name != entry.name);
+                    // Replace by firmware, not by exact name: the row that armed
+                    // this download can be a variant spelling of the hub's name.
+                    self.stored.retain(|f| !same_firmware(f, &entry));
                     self.stored.push(entry);
                     changed = true;
                 }
@@ -1248,6 +1266,107 @@ mod tests {
             .filter(|name| name.to_lowercase().contains("purple"))
             .collect();
         assert_eq!(names, vec!["PurpleMonkey FM-1"]);
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    /// Entries stored before origin tags existed get one from their source at load;
+    /// an absolute Hub path means a pre-tag fm1-editor download (the hub's own
+    /// entries carry relative paths).
+    #[test]
+    fn legacy_entries_gain_origin_tags() {
+        let (store, dir) = temp_store("origin-tags");
+        let mut hub_row = hub_offer("Old Hub Row", "1.0", "x.fwsc");
+        hub_row.tags.retain(|tag| !tag.starts_with("source:"));
+        hub_row.source = FirmwareSource::Hub {
+            path: "fw/x.fwsc".to_string(),
+            blob: Some("hub/x.fwsc".to_string()),
+        };
+        let mut editor_row = hub_offer("Old Editor Row", "1.0", "y.fwsc");
+        editor_row.tags.retain(|tag| !tag.starts_with("source:"));
+        editor_row.source = FirmwareSource::Hub {
+            path: "https://fm1-editor.com/firmware/y".to_string(),
+            blob: Some("ext/y".to_string()),
+        };
+        store
+            .store_object(LIBRARY_OBJECT, &vec![hub_row, editor_row])
+            .unwrap();
+        let library = Library::load(&store);
+        let tag_of = |name: &str| {
+            library
+                .stored
+                .iter()
+                .find(|f| f.name == name)
+                .unwrap()
+                .tags
+                .iter()
+                .find(|tag| tag.starts_with("source:"))
+                .cloned()
+        };
+        assert_eq!(tag_of("Old Hub Row").as_deref(), Some("source:hub"));
+        assert_eq!(tag_of("Old Editor Row").as_deref(), Some("source:fm1-editor"));
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    /// The variant-spelled row must still download: the version bump flags it
+    /// upgradable, Download All targets it by its own name, `start_download`
+    /// resolves the hub's offer (an exact-name lookup would miss), and completion
+    /// replaces the variant row with the hub-spelled one.
+    #[test]
+    fn variant_spelling_upgrades_through_the_offer() {
+        let (store, dir) = temp_store("variant-upgrade");
+        let mut library = Library::load(&store);
+        library.stored.push(hub_offer("PurpleMonkey FM-1", "0.11", "ignored.fwsc"));
+        // A dead URL: start_download's fetch thread fails fast and offline (its
+        // error lands in an Arc this test replaces before collecting).
+        let mut offer = hub_offer("PurpleMonkey", "0.12", "pm.fwsc");
+        offer.source = FirmwareSource::Hub {
+            path: "http://127.0.0.1:1/pm.fwsc".to_string(),
+            blob: None,
+        };
+        *library.hub.lock().unwrap() = vec![offer];
+
+        let row = library
+            .list()
+            .iter()
+            .find(|f| f.name == "PurpleMonkey FM-1")
+            .unwrap()
+            .clone();
+        assert!(row.upgradable, "hub's 0.12 moves ahead of the stored 0.11");
+        assert_eq!(library.next_download().as_deref(), Some("PurpleMonkey FM-1"));
+
+        // The row's own name arms the download; the offer resolves fuzzily.
+        library.start_download("PurpleMonkey FM-1");
+        assert!(library.downloads.contains_key("PurpleMonkey FM-1"));
+        assert_eq!(entry_status(&row, &library.downloads, &store), Status::Downloading);
+
+        // Completion folds the package in under the hub's name, replacing the
+        // variant row (the blob is stored for real so the status stats Available).
+        let path = "http://127.0.0.1:1/pm.fwsc";
+        store.store_blob(&blob_key(path), b"\x00\x01 firmware").unwrap();
+        library.downloads.insert(
+            "PurpleMonkey FM-1".to_string(),
+            Arc::new(Download {
+                percent: AtomicU32::new(100),
+                outcome: Mutex::new(Some(Ok(Firmware {
+                    status: Status::Available,
+                    source: FirmwareSource::Hub {
+                        path: path.to_string(),
+                        blob: Some(blob_key(path)),
+                    },
+                    ..hub_offer("PurpleMonkey", "0.12", "pm.fwsc")
+                }))),
+            }),
+        );
+        assert!(library.collect_downloads());
+        let names: Vec<&str> = library
+            .list()
+            .iter()
+            .map(|f| f.name.as_str())
+            .filter(|name| name.to_lowercase().contains("purple"))
+            .collect();
+        assert_eq!(names, vec!["PurpleMonkey"], "the variant row is replaced");
+        // Versions equal: nothing re-arms, Download All parks.
+        assert_eq!(library.next_download(), None);
         std::fs::remove_dir_all(dir).ok();
     }
 

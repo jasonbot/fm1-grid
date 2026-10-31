@@ -79,7 +79,7 @@ impl GridApp {
         v_flex().gap(px(3.0)).children(rows)
     }
 
-    /// One pane card: the pane's picture (the NTSC-distorted realtime snapshot for the
+    /// One pane card: the pane's picture (the fisheye-bulged snapshot for the
     /// selected pane, the receding live picture for the rest) on the dark LCD bezel.
     /// Screens snap between 1x (240 px) and 0.5x (120 px) to fit the split panel. A
     /// status dot in the screen's corner shows the slot's dropout health. Clicking

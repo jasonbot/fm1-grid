@@ -9,8 +9,9 @@ Emulators start **off** — flip a pane's power switch in the sidebar to start i
 Click a pane to send your keyboard there; the selected card gets a colored border.
 
 Grid cards show the screens at 1x (240×240), snapping to 0.5x when the window gets
-small; the selected card's screen gets an NTSC-style filter. The selected pane's
-screen also appears in the sidebar, hqx-upscaled 2x (4x on big windows). The
+small; the selected card's screen gets a slight fisheye bulge. The selected pane's
+screen also appears in the sidebar, hqx-upscaled 2x (4x on big windows), falling
+back to nearest-neighbour while the pane's dropout health is orange or worse. The
 grid/sidebar split is draggable, with the sidebar kept wide enough for at least 1x.
 The grid background follows the main colour of the selected screen (resampled once a
 second, faded over 500 ms). The Devices tab has its own pill tabs on top, centered:
@@ -50,7 +51,10 @@ buttons greyed out. New rows in the Installed section pop in with a quick spring
 animation. The filter box at the
 top matches space-separated words, each a case-insensitive substring anywhere in a
 firmware's name, version, tags, author or description — "f ll gro" finds Felucca.
-Clicking a tag pill toggles that tag's words in the filter. Items remove (not
+Clicking a tag pill toggles that tag's words in the filter. Each row leads with a
+star button: favoriting is remembered across restarts, a favorite's pills gain the
+synthetic `★` tag and every other row the synthetic `☆`, and either pill filters
+the list like any tag. Items remove (not
 builtins), download with progress, and **Flash To…** a live unit (modal progress +
 log) or a powered-off unpinned pane (boots it). The **Download All** toggle at the
 bottom of the list downloads every offer in turn, including upgrades of rows the
@@ -302,7 +306,7 @@ fm1-grid/src/devices.rs         the Devices tab's live USB unit rows and the Res
 fm1-grid/src/graph.rs           the Devices tab's MIDI graph editor
 fm1-grid/src/panel.rs           the clickable FM-1 front panel (bottom of the Emulator tab)
 fm1-grid/src/transport.rs       the bottom bar: the metronome row, global across tabs
-fm1-grid/src/lcd.rs             RGB565 decode, colours, NTSC/ghost/hqx image filters
+fm1-grid/src/lcd.rs             RGB565 decode, colours, ghost/hqx/nearest image filters
 fm1-grid/src/theme.rs           the FM-1 hardware colours, the bundled theme catalog; chrome follows gpui-kit
 fm1-grid/src/library_tab.rs     the Library tab's list, pills, actions and add-file form
 fm1-grid/src/settings.rs        the Settings tab (gpui-kit's Settings component): theme and mode dropdowns

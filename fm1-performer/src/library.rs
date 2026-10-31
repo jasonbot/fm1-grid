@@ -192,14 +192,14 @@ impl Library {
             // ahead of an installed version is an upgrade either way.
             firmware.upgradable = !matches!(firmware.source, FirmwareSource::File { .. })
                 && hub.iter().any(|offer| {
-                    offer.name == firmware.name && version_newer(&offer.version, &firmware.version)
+                    same_firmware(firmware, offer) && version_newer(&offer.version, &firmware.version)
                 });
             firmware.status = entry_status(firmware, &self.downloads, &self.store);
             view.push(firmware.clone());
         }
         // Hub offers not already installed under the same name.
         for offer in hub {
-            if view.iter().any(|f| f.name == offer.name) {
+            if view.iter().any(|f| same_firmware(f, &offer)) {
                 continue;
             }
             let mut offer = offer;
@@ -688,9 +688,48 @@ fn hub_download_url(hub_path: &str) -> String {
     }
 }
 
+/// A name's identity key: lowercase alphanumerics only. Sources spell the same
+/// firmware "PurpleMonkey", "Purple Monkey" and "PurpleMonkey FM-1"; case,
+/// spaces and punctuation are spelling, not identity.
+fn name_key(name: &str) -> String {
+    name.chars()
+        .filter(|c| c.is_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect()
+}
+
+/// Device tokens listings tack onto firmware names, as `name_key` suffixes,
+/// longest first ("SMK-37 Pro" before "SMK37", so no "pro" stump remains).
+const DEVICE_SUFFIXES: [&str; 3] = ["smk37pro", "smk37", "fm1"];
+
+/// `key` minus one trailing device token ("purplemonkeyfm1" -> "purplemonkey").
+fn without_device(key: &str) -> &str {
+    for suffix in DEVICE_SUFFIXES {
+        if let Some(base) = key.strip_suffix(suffix) {
+            if !base.is_empty() {
+                return base;
+            }
+        }
+    }
+    key
+}
+
+/// Whether two entries name the same firmware. Equal name keys always match.
+/// Keys differing only by a trailing device token match only when the authors
+/// agree — "OPX Solo" is not "OPX", and two projects can share a stem.
+fn same_firmware(a: &Firmware, b: &Firmware) -> bool {
+    let (ka, kb) = (name_key(&a.name), name_key(&b.name));
+    if ka == kb {
+        return true;
+    }
+    !a.byline.trim().is_empty()
+        && a.byline.trim().eq_ignore_ascii_case(b.byline.trim())
+        && without_device(&ka) == without_device(&kb)
+}
+
 /// Fold an additive listing into the hub's. The hub is the source of truth: its
 /// entries keep their name, author and description. A name both sources carry
-/// (compared case-insensitively) gets the union of their non-origin tags,
+/// (per [`same_firmware`]) gets the union of their non-origin tags,
 /// website/source links fill gaps (the newer side's win), and the version and
 /// download URL of whichever source is newer — a superseding source's `source:`
 /// origin tag replaces the entry's. Names only the other source carries append at
@@ -700,7 +739,7 @@ fn merge_listings(mut hub: Vec<Firmware>, editor: Vec<Firmware>) -> Vec<Firmware
     for offer in editor {
         let mut matched = false;
         for entry in hub.iter_mut() {
-            if !entry.name.trim().eq_ignore_ascii_case(offer.name.trim()) {
+            if !same_firmware(entry, &offer) {
                 continue;
             }
             matched = true;
@@ -1147,6 +1186,69 @@ mod tests {
             _ => panic!("hub source expected"),
         }
         assert_eq!(merged[2].name, "editor-only");
+    }
+
+    #[test]
+    fn merge_deduplicates_name_spelling_variants() {
+        // The live triplicate: hub "PurpleMonkey", fm1-editor "PurpleMonkey FM-1",
+        // Reverbose "Purple Monkey", all by Quixotic7. Editor first, then
+        // Reverbose — the refresh's fold order.
+        let hub = vec![hub_offer("PurpleMonkey", "0.11", "purplemonkey.fwsc")];
+        let mut editor = hub_offer("PurpleMonkey FM-1", "0.11", "ignored.fwsc");
+        editor.tags = vec!["games".to_string(), "source:fm1-editor".to_string()];
+        let mut reverbose = hub_offer("Purple Monkey", "", "ignored.fwsc");
+        reverbose.tags = vec!["source:reverbose".to_string()];
+        let merged = merge_listings(merge_listings(hub, vec![editor]), vec![reverbose]);
+        assert_eq!(merged.len(), 1);
+        let entry = &merged[0];
+        // The hub's name, version, download and origin tag survive; the equal
+        // version and the empty one never supersede.
+        assert_eq!(entry.name, "PurpleMonkey");
+        assert_eq!(entry.version, "0.11");
+        assert_eq!(entry.tags, vec!["kind", "source:hub", "games"]);
+        match &entry.source {
+            FirmwareSource::Hub { path, .. } => assert_eq!(path, "fw/purplemonkey.fwsc"),
+            _ => panic!("hub source expected"),
+        }
+    }
+
+    #[test]
+    fn merge_name_variants_respect_distinct_firmwares() {
+        let hub = vec![
+            hub_offer("OPX", "0.2.0", "opx.fwsc"),
+            hub_offer("X0X", "1.1.0", "x0x.fwsc"),
+            hub_offer("Tuna", "1.0", "tuna.fwsc"),
+        ];
+        // "OPX Solo" grows the name by a word, "X0X-RMX" by a suffix: distinct
+        // firmwares by the same author, and neither is a device token.
+        let solo = hub_offer("OPX Solo", "0.2.0", "ignored.fwsc");
+        let rmx = hub_offer("X0X-RMX", "1.1.0", "ignored.fwsc");
+        // A device-suffix spelling from a different author is someone else's
+        // firmware, not a variant.
+        let mut other = hub_offer("Tuna FM-1", "1.0", "ignored.fwsc");
+        other.byline = "another author".to_string();
+        let merged = merge_listings(hub, vec![solo, rmx, other]);
+        assert_eq!(merged.len(), 6);
+    }
+
+    #[test]
+    fn installed_variant_spelling_shadows_the_offer() {
+        let (store, dir) = temp_store("shadow");
+        let mut library = Library::load(&store);
+        // Downloaded when the editor listing called it "PurpleMonkey FM-1"; the
+        // stored entry keeps the byline it was scraped with.
+        let installed = hub_offer("PurpleMonkey FM-1", "0.11", "ignored.fwsc");
+        library.stored.push(installed);
+        // The merged listing now carries the hub's spelling.
+        *library.hub.lock().unwrap() = vec![hub_offer("PurpleMonkey", "0.11", "pm.fwsc")];
+        let names: Vec<&str> = library
+            .list()
+            .iter()
+            .map(|f| f.name.as_str())
+            .filter(|name| name.to_lowercase().contains("purple"))
+            .collect();
+        assert_eq!(names, vec!["PurpleMonkey FM-1"]);
+        std::fs::remove_dir_all(dir).ok();
     }
 
     #[test]

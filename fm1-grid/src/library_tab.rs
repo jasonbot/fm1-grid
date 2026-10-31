@@ -517,7 +517,7 @@ impl GridApp {
         let mut buttons: Vec<AnyElement> = Vec::new();
         for (kind, icon, url) in [
             ("website", Lucide::Globe, &firmware.website),
-            ("source", Lucide::FileCode, &firmware.source_url),
+            ("source", Lucide::Github, &firmware.source_url),
         ] {
             let url = url.clone();
             buttons.push(

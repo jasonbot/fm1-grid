@@ -20,7 +20,7 @@ force a re-download.
 ## Where the packages come from
 
 * Everything except the packages below is mirrored by The FM-1 Firmware Hub; hashes
-  were checked against the hub's catalogue on 2026-10-28.
+  were checked against the hub's catalogue on 2026-10-31.
 * **JIANT FM** downloads from its own site (juanjiant-bit.github.io): the hub's cache
   was serving a build older than its catalogue. Hash recorded on download on
   2026-10-28.
@@ -31,8 +31,8 @@ force a re-download.
   download on 2026-10-25.
 * **FM1 Open V14** is the official open firmware bundled with M-VAVE's web workbench
   (open.m-vave.com/fm1-workbench); the hash was recorded on download on 2026-10-24.
-* **FM-1+VA** downloads from baudgirl.com (it is not open source, so the hub does not
-  mirror it); the hash was recorded on download on 2026-10-24.
+* **Baud Girl (FM-1+VA)** downloads from baudgirl.com (it is not open source, so the
+  hub does not mirror it); the hash was recorded on download on 2026-10-24.
 * **Matryoshka** downloads from matryoshka.lol, which carries the newest release's
   package; the hash was recorded on download on 2026-10-28.
 
@@ -42,4 +42,4 @@ force a re-download.
 * Only FM-1 (not SMK-37) packages work in the emulator.
 * Licences stay with the authors: GPL-3.0 for everything hub-mirrored, Apache-2.0 for
   FM-1_016, GPLv3 with the FM1 SDK linking exception for FM1 Open V14, proprietary for
-  FM-1+VA. The Rust application code is MIT.
+  Baud Girl (FM-1+VA). The Rust application code is MIT.

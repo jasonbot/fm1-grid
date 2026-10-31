@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
-/// One entry in firmwares.json. Extra fields (source, license) are documentation for
+/// One entry in firmwares.json. Extra fields (license) are documentation for
 /// humans and other tooling; serde ignores them here.
 #[derive(Deserialize)]
 struct Firmware {
@@ -33,6 +33,11 @@ struct Firmware {
     byline: String,
     #[serde(default)]
     device: String,
+    /// The project's web page and source code home; empty when none.
+    #[serde(default)]
+    website: String,
+    #[serde(default)]
+    source: String,
 }
 
 fn escape(text: &str) -> String {
@@ -138,7 +143,7 @@ fn main() {
         ensure_firmware(fw, &path);
         println!("cargo:rerun-if-changed={}", path.display());
         code.push_str(&format!(
-            "    BuiltinFirmware {{\n        name: \"{}\",\n        version: \"{}\",\n        file: \"{}\",\n        sha256: \"{}\",\n        tags: \"{}\",\n        description: \"{}\",\n        byline: \"{}\",\n        device: \"{}\",\n        bytes: include_bytes!(\"{}\"),\n    }},\n",
+            "    BuiltinFirmware {{\n        name: \"{}\",\n        version: \"{}\",\n        file: \"{}\",\n        sha256: \"{}\",\n        tags: \"{}\",\n        description: \"{}\",\n        byline: \"{}\",\n        device: \"{}\",\n        website: \"{}\",\n        source: \"{}\",\n        bytes: include_bytes!(\"{}\"),\n    }},\n",
             escape(&fw.name),
             escape(&fw.version),
             escape(&fw.file),
@@ -147,6 +152,8 @@ fn main() {
             escape(&fw.description),
             escape(&fw.byline),
             escape(&fw.device),
+            escape(&fw.website),
+            escape(&fw.source),
             escape(&path.to_string_lossy()),
         ));
     }

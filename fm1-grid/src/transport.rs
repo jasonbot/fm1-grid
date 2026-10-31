@@ -11,6 +11,7 @@ use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::component::button::Button;
 use gpui_kit::component::input::NumberInput;
 use gpui_kit::component::menu::{DropdownMenu, PopupMenuItem};
+use gpui_kit::component::slider::Slider;
 use gpui_kit::component::switch::Switch;
 use gpui_kit::component::{ActiveTheme, Icon, Sizable};
 use gpui_kit::prelude::FluentBuilder;
@@ -19,6 +20,9 @@ use gpui_kit::*;
 /// The tempo field: wide enough that the steppers and the BPM suffix cannot
 /// squeeze the digits out.
 const TEMPO_FIELD_W: f32 = 140.0;
+/// The tempo slider before the field: wide enough for 1 BPM steps to feel smooth,
+/// narrow enough to leave the MIDI-keys menu its room.
+const TEMPO_SLIDER_W: f32 = 120.0;
 /// The beat light's diameter.
 const BEAT_LED: f32 = 18.0;
 
@@ -183,6 +187,14 @@ impl GridApp {
                                     } else {
                                         "STOPPED · 24 PPQN"
                                     }),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .w(px(TEMPO_SLIDER_W))
+                            .child(
+                                Slider::new(&self.tempo_slider)
+                                    .accessibility_label("Tempo in BPM"),
                             ),
                     )
                     .child(

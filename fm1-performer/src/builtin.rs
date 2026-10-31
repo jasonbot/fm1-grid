@@ -24,6 +24,10 @@ pub struct BuiltinFirmware {
     pub byline: &'static str,
     /// Target device: "fm-1" or "smk37-pro"; empty when unknown.
     pub device: &'static str,
+    /// The project's web page; empty when it has none.
+    pub website: &'static str,
+    /// The source code's home; empty when there is no public source.
+    pub source: &'static str,
     pub bytes: &'static [u8],
 }
 

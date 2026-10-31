@@ -7,7 +7,7 @@ use crate::app::GridApp;
 // attribute macro, which then re-expands the `#[test]` this macro emits (the
 // gpui-kit docs warn about exactly this).
 use gpui_kit::base::Root;
-use gpui_kit::test::TestWindowExt;
+use gpui_kit::test::{TestEventExt, TestWindowExt};
 use gpui_kit::{
     App, AppContext, Bounds, Entity, Focusable, InputEvent, KeyDownEvent, KeyUpEvent, Keystroke,
     Point, ScrollDelta, TestAppContext, Window, WindowBounds, WindowHandle, WindowOptions,
@@ -208,6 +208,58 @@ fn tempo_sanitizes_on_blur(cx: &mut TestAppContext) {
         let app = app.read(cx);
         assert_eq!(app.clock.bpm(), 300);
         assert_eq!(app.tempo_input.read(cx).value().as_ref(), "300");
+    });
+}
+
+/// The tempo slider and the text field mirror each other: a track click rewrites
+/// the field and the clock, and a typed tempo moves the thumb.
+#[gpui_kit::test]
+fn tempo_slider_syncs(cx: &mut TestAppContext) {
+    let (window, app) = open_app(cx);
+    cx.update(|cx| {
+        assert_eq!(
+            app.read(cx).tempo_slider.read(cx).value(),
+            gpui_kit::component::slider::SliderValue::Single(120.0)
+        );
+    });
+
+    // A click halfway along the track (20..300 BPM) lands on 160 everywhere.
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        let track = window.find("slider-bar-container").bounds();
+        let at = point(
+            track.left() + track.size.width * 0.5,
+            track.center().y,
+        );
+        window.pointer_move(at, None, cx);
+        window.pointer_down(at, gpui_kit::MouseButton::Left, cx);
+        window.pointer_up(at, gpui_kit::MouseButton::Left, cx);
+    })
+    .unwrap();
+    cx.run_until_parked();
+    cx.update(|cx| {
+        let app = app.read(cx);
+        assert_eq!(app.clock.bpm(), 160);
+        assert_eq!(app.tempo_input.read(cx).value().as_ref(), "160");
+    });
+
+    // A typed tempo moves the thumb.
+    cx.update_window(window.into(), |_, window, cx| {
+        let tempo = app.read(cx).tempo_input.clone();
+        tempo.read(cx).focus_handle(cx).focus(window, cx);
+        window.press("ctrl-a", cx);
+        window.input("90", cx);
+        window.press("enter", cx);
+    })
+    .unwrap();
+    cx.run_until_parked();
+    cx.update(|cx| {
+        let app = app.read(cx);
+        assert_eq!(app.clock.bpm(), 90);
+        assert_eq!(
+            app.tempo_slider.read(cx).value(),
+            gpui_kit::component::slider::SliderValue::Single(90.0)
+        );
     });
 }
 
@@ -472,6 +524,9 @@ fn library_tab_lists(cx: &mut TestAppContext) {
         window.render_frame(cx);
         let flash = window.find("lib-flash-SLOOP");
         assert!(flash.visible(), "SLOOP should list with a Flash To… button");
+        // SLOOP knows its pages: the website/source link buttons show.
+        assert!(window.find("lib-website-SLOOP").visible());
+        assert!(window.find("lib-source-SLOOP").visible());
         assert!(window.find("lib-add-file").visible());
         // The hub status item sits at the bottom of the list, spinner while fetching;
         // scroll the list to the end to bring it into view first.

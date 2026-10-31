@@ -32,6 +32,7 @@ use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::base::{ElementExt, VirtualListScrollHandle, resizable_panel};
 use gpui_kit::component::combobox::{ComboboxEvent, ComboboxState};
 use gpui_kit::component::input::{InputEvent, InputState};
+use gpui_kit::component::slider::{SliderEvent, SliderState};
 use gpui_kit::component::resizable::{ResizableState, h_resizable};
 use gpui_kit::component::tab::{Tab, TabBar};
 use gpui_kit::component::{ActiveTheme, Icon, Theme, ThemeMode, ThemeRegistry, TitleBar, h_flex, v_flex};
@@ -284,6 +285,8 @@ pub struct GridApp {
     pub(crate) firmware_combos: [Entity<ComboboxState<FirmwareDelegate>>; MAX_SLOTS],
     /// The tempo readout's text field.
     pub(crate) tempo_input: Entity<InputState>,
+    /// The tempo slider next to the field; the two mirror each other.
+    pub(crate) tempo_slider: Entity<SliderState>,
     /// On-disk state (pinned slots' firmware records and flash snapshots). None if the
     /// platform has no data directory.
     pub(crate) store: Option<fm1_performer::store::Store>,
@@ -301,6 +304,12 @@ pub struct GridApp {
     /// the row's own Download button sets this — Download All's automatic fetches
     /// don't move the list under the user.
     pub(crate) lib_scroll_to: Option<String>,
+    /// Installed firmware names seen so far; a name the library gains lands in
+    /// `lib_added` instead and snaps in.
+    lib_known: std::collections::HashSet<String>,
+    /// Newly installed rows and when they appeared; the row plays a 200 ms snap-in
+    /// spring and the entries drop once settled.
+    pub(crate) lib_added: std::collections::HashMap<String, Instant>,
     /// The Library tab's Download All toggle (persisted in the session): while on,
     /// event-driven sweeps keep one hub download going until nothing downloadable
     /// or upgradable remains.
@@ -458,6 +467,34 @@ impl GridApp {
             },
         ));
 
+        // The tempo slider next to the field: a drag applies at once and rewrites
+        // the field's text; a typed tempo moves the thumb from apply_tempo. The
+        // slider's own set_value emits no event, so the mirror can't loop.
+        let tempo_slider = cx.new(|_| {
+            SliderState::new()
+                .min(fm1_performer::clock::MIN_BPM as f32)
+                .max(fm1_performer::clock::MAX_BPM as f32)
+                .step(1.0)
+                .default_value(clock.bpm() as f32)
+        });
+        subscriptions.push(cx.subscribe_in(
+            &tempo_slider,
+            window,
+            |this, _, event, window, cx| {
+                // Both events carry the value; Release simply repeats the last one.
+                let (SliderEvent::Change(value) | SliderEvent::Release(value)) = event;
+                let bpm = value.start().round() as u32;
+                this.clock.set_bpm(bpm);
+                let formatted = format!("{bpm:03}");
+                if this.tempo_input.read(cx).value() != formatted {
+                    this.tempo_input.update(cx, |state, cx| {
+                        state.set_value(formatted, window, cx);
+                    });
+                }
+                cx.notify();
+            },
+        ));
+
         // The frame pump: 16 ms, replacing egui's request_repaint_after. spawn_in
         // carries the window — the library-generation sweep rebuilds pickers, and
         // that needs one.
@@ -493,6 +530,14 @@ impl GridApp {
         // An armed Download All sweeps when the first catalog lands (the pump's
         // hub-swap trigger), not on a poll.
         library.set_download_all(session.download_all);
+        // The snap-in animation plays for rows the library gains from here on;
+        // what's already installed at boot is known, not new.
+        let lib_known = library
+            .list()
+            .iter()
+            .filter(|f| crate::library_tab::is_installed(f))
+            .map(|f| f.name.clone())
+            .collect();
 
         let mut app = Self {
             slots: std::array::from_fn(|_| Slot::default()),
@@ -550,12 +595,15 @@ impl GridApp {
             focus,
             firmware_combos,
             tempo_input,
+            tempo_slider,
             store,
             library,
             lib_form,
             lib_scroll: VirtualListScrollHandle::new(),
             lib_view_h: 400.0,
             lib_scroll_to: None,
+            lib_known,
+            lib_added: Default::default(),
             download_all: session.download_all,
             theme_id: session.theme.clone(),
             appearance: session.appearance,
@@ -1081,6 +1129,8 @@ impl GridApp {
         if text != formatted {
             state.update(cx, |state, cx| state.set_value(formatted, window, cx));
         }
+        self.tempo_slider
+            .update(cx, |slider, cx| slider.set_value(bpm as f32, window, cx));
     }
 
     /// The 16 ms pump: merge inputs, upload LCD frames, refresh the ghost, decay the
@@ -1095,6 +1145,24 @@ impl GridApp {
         if generation != self.combos_at_generation {
             self.combos_at_generation = generation;
             self.refresh_firmware_combos(window, cx);
+            // A name the installed list gains snaps its row in.
+            let installed: std::collections::HashSet<String> = self
+                .library
+                .list()
+                .iter()
+                .filter(|f| crate::library_tab::is_installed(f))
+                .map(|f| f.name.clone())
+                .collect();
+            for name in installed.difference(&self.lib_known) {
+                self.lib_added.insert(name.clone(), Instant::now());
+            }
+            self.lib_known = installed;
+        }
+        // Snap-in springs keep repainting until they settle, then drop.
+        if !self.lib_added.is_empty() {
+            self.lib_added
+                .retain(|_, at| at.elapsed() < Duration::from_millis(400));
+            cx.notify();
         }
         // Download All advances on events only — a download finishing, a hub swap,
         // the toggle's on-click; the pump is cheap while nothing moves. Unlike the

@@ -24,9 +24,10 @@ pub(crate) fn fetch_package(url: &str, percent: &AtomicU32) -> Result<Vec<u8>, S
 }
 
 /// A listing URL, resolved to the package itself. GitHub release pages go through
-/// the API to the release's `.fwsc` asset; other page URLs (install/flasher
-/// pages) are fetched and scraped for the package their metadata names; anything
-/// that already looks like a package passes through unchanged.
+/// the API to the release's `.fwsc` asset; a Reverbose detail page is followed to
+/// the install page or release it links; other page URLs (install/flasher pages)
+/// are fetched and scraped for the package their metadata names; anything that
+/// already looks like a package passes through unchanged.
 fn resolve_package_url(url: &str) -> Result<String, String> {
     if let Some(api) = github_release_api(url) {
         return fwsc_asset_url(&fetch_text(&api)?);
@@ -36,6 +37,11 @@ fn resolve_package_url(url: &str) -> Result<String, String> {
         return Ok(url.to_string());
     }
     let page = fetch_text(url)?;
+    if url.starts_with(crate::sources::reverbose::HOST) {
+        if let Some(next) = crate::sources::reverbose::package_link(&page) {
+            return resolve_package_url(&next);
+        }
+    }
     install_page_package(&page)
         .and_then(|pkg| resolve_ref(url, &pkg))
         .ok_or_else(|| format!("{url} is a web page and names no package"))

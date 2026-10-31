@@ -15,4 +15,4 @@ and APIS you have not sourced online/in the filesystem first.
 
 # Issues
 
-(none outstanding right now)
+(nothing outstanding)

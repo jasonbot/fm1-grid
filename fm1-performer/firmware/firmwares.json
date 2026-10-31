@@ -1,23 +1,24 @@
 [
   {
     "name": "SLOOP",
-    "version": "2.8.3",
-    "file": "sloop-2.8.3.fwsc",
+    "version": "2.8.4",
+    "file": "sloop-2.8.4.fwsc",
     "tags": [
       "groove"
     ],
     "description": "A live groovebox: tracks, layers, a step sequencer, song mode, punch-in effects and samples, played on the FM-1 in real time.",
     "byline": "isod89",
     "device": "fm-1",
-    "url": "https://thefirmwarehub.com/fw/sloop-2.8.3.fwsc",
+    "url": "https://thefirmwarehub.com/fw/sloop-2.8.4.fwsc",
+    "website": "https://github.com/isod89/sloop-fm1",
     "source": "https://github.com/isod89/sloop-fm1",
-    "sha256": "5444afd3c69c409352e1aed35a56205f13f11e60790de146593c4618a43f3528",
+    "sha256": "5a6a0843c868650dba6718cf85e43e719aec18c3dc5cc803c57c38b382158d4e",
     "license": "GPL-3.0"
   },
   {
     "name": "Felucca",
-    "version": "1.7.0",
-    "file": "felucca-1.7.0.fwsc",
+    "version": "1.8.0",
+    "file": "felucca-1.8.0.fwsc",
     "tags": [
       "groove",
       "dev"
@@ -25,9 +26,10 @@
     "description": "The custom firmware the others build on: the FM-1's own synth engines, a sequencer, effects and a better panel, with an editor in the browser.",
     "byline": "Leo Kuroshita (Hügelton Instruments)",
     "device": "fm-1",
-    "url": "https://thefirmwarehub.com/fw/felucca-1.7.0.fwsc",
+    "url": "https://thefirmwarehub.com/fw/felucca-1.8.0.fwsc",
+    "website": "https://github.com/hugelton/Felucca",
     "source": "https://github.com/hugelton/Felucca",
-    "sha256": "bff7c617cfb2c88e66b22aa691cb798dfa0d9cb12ff9a73deab51d404e82817c",
+    "sha256": "a31760f2588b39bcb3a8d6f78f6041a1a550978a972ecd71564e45513698ecd6",
     "license": "GPL-3.0"
   },
   {
@@ -41,6 +43,7 @@
     "byline": "M-VAVE",
     "device": "fm-1",
     "url": "https://yms-file-store.oss-cn-hongkong.aliyuncs.com/software/firmware/FM-1.fwsc",
+    "website": "https://www.m-vave.com/product?id=fm-1",
     "source": "https://github.com/m-vave/fm1_open",
     "sha256": "d017fb65e70aca97ee29d944470c3515a74581df5c0576bf70de917c7b2b61d5",
     "license": "Apache-2.0"
@@ -56,6 +59,7 @@
     "byline": "M-VAVE",
     "device": "fm-1",
     "url": "https://open.m-vave.com/assets/fm1/7e7b6d260163cdf9d716f7fab44f19be600edeffcd390de74370b83c917fd0c6.bin",
+    "website": "https://open.m-vave.com/",
     "source": "https://github.com/m-vave/fm1_open",
     "sha256": "7e7b6d260163cdf9d716f7fab44f19be600edeffcd390de74370b83c917fd0c6",
     "license": "GPL-3.0-only WITH GPL-3.0-linking-exception"
@@ -72,12 +76,13 @@
     "byline": "Quixotic7",
     "device": "fm-1",
     "url": "https://thefirmwarehub.com/fw/choralroot-0.27.fwsc",
+    "website": "https://github.com/Quixotic7/ChoralRootFM1",
     "source": "https://github.com/Quixotic7/ChoralRootFM1",
     "sha256": "a09f9e19b66a91351de37c532e0d15cdc03ff9e9c82a0b152cdb66ca3fdc0326",
     "license": "GPL-3.0"
   },
   {
-    "name": "FM-1+VA",
+    "name": "Baud Girl (FM-1+VA)",
     "version": "102",
     "file": "FM-1+VA-102.fwsc",
     "tags": [
@@ -87,7 +92,8 @@
     "byline": "Baud Girl",
     "device": "fm-1",
     "url": "https://baudgirl.com/fm1/firmware/FM-1+VA-102.fwsc",
-    "source": "https://baudgirl.com/work/FM-1+VA",
+    "website": "https://baudgirl.com/work/FM-1+VA",
+    "source": "",
     "sha256": "7b169a69b30570581d0ebc7b44851e3e08898d2956ade155363bcf18fac5c348",
     "license": "Proprietary"
   }

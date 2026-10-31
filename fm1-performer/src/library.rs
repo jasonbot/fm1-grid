@@ -1,11 +1,12 @@
 //! The firmware library's data layer: what's installed (builtins, imported files,
 //! downloaded hub packages) and what the online listing offers. The listing merges
-//! two sources fetched together: the Firmware Hub catalog (the source of truth) and
-//! the fm1-editor site's firmware page, which is scraped (it publishes no feed) and
-//! is additive only. The store object `library` is the list of non-builtin entries;
-//! hub packages live in the blob store under `hub/<file>`, packages from absolute
-//! URLs under `ext/<file>-<hash>`. Network work (catalog refresh, downloads) runs
-//! on background threads; `list()` picks up finished downloads.
+//! three sources fetched together: the Firmware Hub catalog (the source of truth),
+//! the fm1-editor site's firmware page and Reverbose's FM-1 list, both scraped
+//! (neither publishes a feed) and additive only. The store object `library` is the
+//! list of non-builtin entries; hub packages live in the blob store under
+//! `hub/<file>`, packages from absolute URLs under `ext/<file>-<hash>`. Network
+//! work (catalog refresh, downloads) runs on background threads; `list()` picks up
+//! finished downloads.
 
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -14,13 +15,10 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use crate::builtin::BUILTINS;
-use crate::download_heuristics::{entry_url, fetch_package, fetch_text, looks_like_web_page};
+use crate::download_heuristics::{fetch_package, fetch_text, looks_like_web_page};
+use crate::sources::{editor, hub, reverbose};
 use crate::store::Store;
 
-const HUB_BASE: &str = "https://thefirmwarehub.com";
-/// The secondary listing: the fm1-editor site's firmware page, scraped for entries
-/// the hub lacks. Additive only — the hub catalog stays the source of truth.
-const EDITOR_PAGE: &str = "https://fm1-editor.com/firmware/";
 /// The store object holding every non-builtin entry.
 const LIBRARY_OBJECT: &str = "library";
 
@@ -66,6 +64,12 @@ pub struct Firmware {
     /// Computed on every `list()`, never stored.
     #[serde(skip)]
     pub status: Status,
+    /// The project's web page, when the listing source carries one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub website: Option<String>,
+    /// The source code's home, when the listing source carries one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_url: Option<String>,
     pub source: FirmwareSource,
 }
 
@@ -127,7 +131,18 @@ const STAT_CADENCE: Duration = Duration::from_millis(500);
 
 impl Library {
     pub fn load(store: &Store) -> Library {
-        let stored: Vec<Firmware> = store.fetch_object(LIBRARY_OBJECT).unwrap_or_default();
+        let mut stored: Vec<Firmware> = store.fetch_object(LIBRARY_OBJECT).unwrap_or_default();
+        // Entries stored before origin tags existed get one from their source.
+        for firmware in &mut stored {
+            if !firmware.tags.iter().any(|tag| tag.starts_with("source:")) {
+                let tag = match &firmware.source {
+                    FirmwareSource::Hub { .. } => "source:hub",
+                    FirmwareSource::File { .. } => "source:file",
+                    FirmwareSource::Builtin => "source:builtin",
+                };
+                firmware.tags.push(tag.to_string());
+            }
+        }
         Library {
             store: store.clone(),
             builtins: BUILTINS.iter().map(builtin_entry).collect(),
@@ -341,41 +356,54 @@ impl Library {
         }
         let day = today_utc();
         self.refresh_hub_from(
-            format!("{HUB_BASE}/catalog.json?{day}"),
-            format!("{EDITOR_PAGE}?{day}"),
+            format!("{}?{day}", hub::CATALOG),
+            format!("{}?{day}", editor::PAGE),
+            format!("{}?{day}", reverbose::PAGE),
         );
     }
 
     /// The workhorse, with the URLs injectable so tests stay offline (a port that's
-    /// closed is a deterministic failure). Both sources are fetched at the same
+    /// closed is a deterministic failure). All sources are fetched at the same
     /// time. The hub decides the outcome: its failure keeps the old listing, while
-    /// an editor-page failure only costs the additive entries (and shows in the
+    /// a scraped page's failure only costs its additive entries (and shows in the
     /// status). Every fetch — cadence or forced — counts for the cadence, so the
     /// timestamp is set here, the single funnel.
-    fn refresh_hub_from(&mut self, url: String, editor_url: String) {
+    fn refresh_hub_from(&mut self, url: String, editor_url: String, reverbose_url: String) {
         *self.last_refresh.lock().unwrap() = Some(Instant::now());
         *self.hub_status.lock().unwrap() = HubStatus::Loading;
         let hub = Arc::clone(&self.hub);
         let status = Arc::clone(&self.hub_status);
         let swapped = Arc::clone(&self.hub_swapped);
         std::thread::spawn(move || {
-            let (listing, editor) = std::thread::scope(|scope| {
-                let editor = scope
-                    .spawn(|| fetch_text(&editor_url).and_then(|body| parse_editor_page(&body)));
-                let listing = fetch_text(&url).and_then(|body| parse_catalog(&body));
-                (listing, editor.join())
+            let (listing, editor_page, reverbose_page) = std::thread::scope(|scope| {
+                let editor_page = scope
+                    .spawn(|| fetch_text(&editor_url).and_then(|body| editor::parse_page(&body)));
+                let reverbose_page =
+                    scope.spawn(|| reverbose::fetch_listing(&reverbose_url));
+                let listing = fetch_text(&url).and_then(|body| hub::parse_catalog(&body));
+                (listing, editor_page.join(), reverbose_page.join())
             });
+            // A panicked scrape thread reads as that source's failure.
+            let editor_page =
+                editor_page.unwrap_or_else(|_| Err("editor page thread panicked".to_string()));
+            let reverbose_page = reverbose_page
+                .unwrap_or_else(|_| Err("reverbose page thread panicked".to_string()));
             let next = match listing {
                 Err(e) => HubStatus::Failed(e),
                 Ok(listing) => {
-                    let (listing, outcome) = match editor {
-                        Ok(Ok(extra)) => (merge_listings(listing, extra), HubStatus::Idle),
-                        Ok(Err(e)) => (listing, HubStatus::Failed(e)),
-                        Err(_) => (
-                            listing,
-                            HubStatus::Failed("editor page thread panicked".to_string()),
-                        ),
-                    };
+                    // The additive sources fold in one after another; the first
+                    // failure is the one the status reports.
+                    let mut outcome = HubStatus::Idle;
+                    let mut listing = listing;
+                    for extra in [editor_page, reverbose_page] {
+                        match extra {
+                            Ok(extra) => listing = merge_listings(listing, extra),
+                            Err(e) if matches!(outcome, HubStatus::Idle) => {
+                                outcome = HubStatus::Failed(e)
+                            }
+                            Err(_) => {}
+                        }
+                    }
                     *hub.lock().unwrap() = listing;
                     swapped.store(true, Ordering::Relaxed);
                     outcome
@@ -439,8 +467,10 @@ impl Library {
             byline: String::new(),
             version: version.to_string(),
             description: description.to_string(),
-            tags: Vec::new(),
+            tags: vec!["source:file".to_string()],
             device: FirmwareDevice::Fm1,
+            website: None,
+            source_url: None,
             upgradable: false,
             status: Status::Available,
             source: FirmwareSource::File { path: path.to_string() },
@@ -553,25 +583,26 @@ fn entry_status(
 }
 
 fn builtin_entry(b: &crate::builtin::BuiltinFirmware) -> Firmware {
+    /// An empty string in the table means the link doesn't exist.
+    fn link(text: &str) -> Option<String> {
+        (!text.is_empty()).then(|| text.to_string())
+    }
+    let mut tags: Vec<String> = b.tags.split(',').map(str::trim).filter(|t| !t.is_empty()).map(str::to_string).collect();
+    // The origin tag names the listing the entry's package came from; a merge
+    // swaps it when a newer listing supersedes the download.
+    tags.push("source:builtin".to_string());
     Firmware {
         name: b.name.to_string(),
         byline: b.byline.to_string(),
         version: b.version.to_string(),
         description: b.description.to_string(),
-        tags: b.tags.split(',').map(str::trim).filter(|t| !t.is_empty()).map(str::to_string).collect(),
-        device: parse_device(b.device),
+        tags,
+        device: crate::sources::parse_device(b.device),
+        website: link(b.website),
+        source_url: link(b.source),
         upgradable: false,
         status: Status::Available,
         source: FirmwareSource::Builtin,
-    }
-}
-
-/// The hub's device strings ("fm-1", "smk37-pro"); unknown/empty falls back to Fm1.
-fn parse_device(product: &str) -> FirmwareDevice {
-    if product.to_ascii_uppercase().starts_with("SMK") {
-        FirmwareDevice::Smk37Pro
-    } else {
-        FirmwareDevice::Fm1
     }
 }
 
@@ -622,45 +653,6 @@ fn today_utc() -> String {
     format!("{year:04}-{month:02}-{day:02}")
 }
 
-/// One catalog entry, with the hub's real field names; unknown fields are ignored,
-/// missing ones default.
-#[derive(Deserialize)]
-struct CatalogEntry {
-    name: String,
-    #[serde(default, rename = "author")]
-    byline: String,
-    #[serde(default)]
-    version: String,
-    #[serde(default, rename = "what")]
-    description: String,
-    /// The hub's kind is one string or a list, depending on the entry.
-    #[serde(default)]
-    kind: Kind,
-    #[serde(default)]
-    vintage: bool,
-    #[serde(default, rename = "product")]
-    device: String,
-    /// The package path on the hub ("fw/<file>", M-VAVE's under "fw/mvave/").
-    pkg: String,
-    #[serde(default)]
-    #[allow(dead_code)]
-    sha256: Option<String>,
-}
-
-/// The hub's `kind` field: one string for most entries, a list for some.
-#[derive(Deserialize)]
-#[serde(untagged)]
-enum Kind {
-    One(String),
-    Many(Vec<String>),
-}
-
-impl Default for Kind {
-    fn default() -> Self {
-        Kind::One(String::new())
-    }
-}
-
 /// The blob-store key for a package path. Hub paths keep their file names; absolute
 /// URLs (fm1-editor entries) get a hash of the whole URL, since their last segments
 /// collide ("…/releases/latest" is common) or carry queries.
@@ -692,185 +684,17 @@ fn hub_download_url(hub_path: &str) -> String {
     if hub_path.starts_with("http") {
         hub_path.to_string()
     } else {
-        format!("{HUB_BASE}/{hub_path}")
+        format!("{}/{hub_path}", hub::BASE)
     }
 }
 
-/// Parse the hub catalog into hub-source entries. Accepts either a bare array or an
-/// object with a `firmwares` array. Separated from the fetch so tests stay offline.
-fn parse_catalog(json: &str) -> Result<Vec<Firmware>, String> {
-    #[derive(Deserialize)]
-    struct Catalog {
-        firmwares: Vec<CatalogEntry>,
-    }
-    let entries: Vec<CatalogEntry> = serde_json::from_str(json)
-        .or_else(|_| serde_json::from_str::<Catalog>(json).map(|c| c.firmwares))
-        .map_err(|e| format!("parse catalog: {e}"))?;
-    Ok(entries
-        .into_iter()
-        .map(|entry| {
-            let mut tags = match entry.kind {
-                Kind::One(kind) if !kind.is_empty() => vec![kind],
-                Kind::One(_) => Vec::new(),
-                Kind::Many(kinds) => kinds,
-            };
-            if entry.vintage {
-                tags.push("vintage".to_string());
-            }
-            Firmware {
-                name: entry.name,
-                byline: entry.byline,
-                version: entry.version,
-                description: entry.description,
-                tags,
-                device: parse_device(&entry.device),
-                upgradable: false,
-                status: Status::Available,
-                source: FirmwareSource::Hub {
-                    path: entry.pkg,
-                    blob: None,
-                },
-            }
-        })
-        .collect())
-}
-
-/// The slice from the end of `from` to the next `to` after it.
-fn between<'a>(hay: &'a str, from: &str, to: &str) -> Option<&'a str> {
-    let start = hay.find(from)? + from.len();
-    let end = hay[start..].find(to)? + start;
-    Some(&hay[start..end])
-}
-
-/// The few entities the editor page emits; `&amp;` last so it can't double-decode.
-fn unescape(text: &str) -> String {
-    text.replace("&#x27;", "'")
-        .replace("&#39;", "'")
-        .replace("&quot;", "\"")
-        .replace("&lt;", "<")
-        .replace("&gt;", ">")
-        .replace("&amp;", "&")
-}
-
-/// Tags stripped, entities resolved, whitespace collapsed to single spaces.
-fn text_of(html: &str) -> String {
-    let mut out = String::with_capacity(html.len());
-    let mut rest = html;
-    while let Some(open) = rest.find('<') {
-        out.push_str(&rest[..open]);
-        rest = match rest[open..].find('>') {
-            Some(close) => &rest[open + close + 1..],
-            None => "",
-        };
-    }
-    out.push_str(rest);
-    unescape(&out).split_whitespace().collect::<Vec<_>>().join(" ")
-}
-
-/// The status line's version: "Latest 1.4" and "Beta · Latest 1.4" carry one;
-/// "No numbered releases" doesn't, and an empty version never wins a conflict.
-fn status_version(status: &str) -> String {
-    status
-        .split_once("Latest ")
-        .map(|(_, version)| version.trim().to_string())
-        .unwrap_or_default()
-}
-
-/// Parse the fm1-editor firmware page into hub-style offers. The page is a static,
-/// hand-maintained listing (its repo confirms no feed exists) with one `<article>`
-/// per entry: the kicker is the author, `data-categories` the tags, the status line
-/// the version, the blurb paragraphs the description. Entries without a name or any
-/// external link are skipped. Separated from the fetch so tests stay offline.
-fn parse_editor_page(html: &str) -> Result<Vec<Firmware>, String> {
-    let mut entries = Vec::new();
-    let mut rest = html;
-    while let Some(start) = rest.find("<article") {
-        rest = &rest[start + "<article".len()..];
-        // Closing tags are matched by their prefix only: the page wraps them across
-        // lines ("</span\n>"), and the content slice ends at the marker either way.
-        let end = rest.find("</article");
-        let chunk = &rest[..end.unwrap_or(rest.len())];
-        rest = &rest[end.unwrap_or(rest.len())..];
-
-        let Some(name) = between(chunk, "<h2 class=\"firmware-title\"", "</h2")
-            .and_then(|inner| inner.find('>').map(|i| &inner[i + 1..]))
-            .map(text_of)
-            .filter(|name| !name.is_empty())
-        else {
-            continue;
-        };
-        let byline = between(chunk, "<p class=\"synthwave-kicker\">", "</p")
-            .map(text_of)
-            .unwrap_or_default();
-        let version = between(chunk, "<p class=\"firmware-status\">", "</p")
-            .and_then(|inner| between(inner, "<span>", "</span"))
-            .map(|status| status_version(&text_of(status)))
-            .unwrap_or_default();
-        let tags = between(chunk, "data-categories=\"", "\"")
-            .map(|kinds| kinds.split_whitespace().map(str::to_string).collect())
-            .unwrap_or_default();
-        let mut blurbs = Vec::new();
-        let mut section = chunk;
-        while let Some(open) = section.find("<p class=\"firmware-blurb\">") {
-            let from = open + "<p class=\"firmware-blurb\">".len();
-            let Some(close) = section[from..].find("</p") else { break };
-            blurbs.push(text_of(&section[from..from + close]));
-            let past = section[from + close..]
-                .find('>')
-                .map_or(section.len(), |i| from + close + i + 1);
-            section = &section[past..];
-        }
-        let mut links = Vec::new();
-        let mut section = chunk;
-        // The page writes anchors across lines: `<a\n class=…` and `…</a\n>`.
-        while let Some(anchor) = section.find("<a") {
-            section = &section[anchor + 2..];
-            if !section.starts_with(|c: char| c.is_ascii_whitespace()) {
-                continue;
-            }
-            let Some(tag_end) = section.find('>') else { break };
-            if let Some(href) = between(&section[..tag_end], "href=\"", "\"") {
-                if href.starts_with("http") {
-                    let label = section[tag_end + 1..]
-                        .find("</a")
-                        .map(|i| text_of(&section[tag_end + 1..tag_end + 1 + i]))
-                        .unwrap_or_default();
-                    links.push((href.to_string(), label));
-                }
-            }
-            section = &section[tag_end + 1..];
-        }
-        let Some(url) = entry_url(&links) else { continue };
-
-        entries.push(Firmware {
-            device: if name.to_ascii_uppercase().contains("SMK") {
-                FirmwareDevice::Smk37Pro
-            } else {
-                FirmwareDevice::Fm1
-            },
-            name,
-            byline,
-            version,
-            description: blurbs.join("\n\n"),
-            tags,
-            upgradable: false,
-            status: Status::Available,
-            source: FirmwareSource::Hub {
-                path: url,
-                blob: None,
-            },
-        });
-    }
-    if entries.is_empty() {
-        return Err("no firmware entries found on the editor page".to_string());
-    }
-    Ok(entries)
-}
-
-/// Fold the editor listing into the hub's. The hub is the source of truth: its
+/// Fold an additive listing into the hub's. The hub is the source of truth: its
 /// entries keep their name, author and description. A name both sources carry
-/// (compared case-insensitively) gets the union of their tags, and the version and
-/// download URL of whichever source is newer. Editor-only names append at the end.
+/// (compared case-insensitively) gets the union of their non-origin tags,
+/// website/source links fill gaps (the newer side's win), and the version and
+/// download URL of whichever source is newer — a superseding source's `source:`
+/// origin tag replaces the entry's. Names only the other source carries append at
+/// the end.
 fn merge_listings(mut hub: Vec<Firmware>, editor: Vec<Firmware>) -> Vec<Firmware> {
     let mut extra = Vec::new();
     for offer in editor {
@@ -880,14 +704,39 @@ fn merge_listings(mut hub: Vec<Firmware>, editor: Vec<Firmware>) -> Vec<Firmware
                 continue;
             }
             matched = true;
+            if version_newer(&offer.version, &entry.version) {
+                entry.version = offer.version.clone();
+                entry.source = offer.source.clone();
+                // The newer side's links describe the version the URL now fetches.
+                if offer.website.is_some() {
+                    entry.website = offer.website.clone();
+                }
+                if offer.source_url.is_some() {
+                    entry.source_url = offer.source_url.clone();
+                }
+                // The download now comes from the offer's listing: its origin tag
+                // replaces the entry's.
+                entry.tags.retain(|tag| !tag.starts_with("source:"));
+                entry
+                    .tags
+                    .extend(offer.tags.iter().filter(|tag| tag.starts_with("source:")).cloned());
+            }
             for tag in &offer.tags {
+                // Origin tags never union in: the entry keeps its own listing's tag
+                // unless the offer superseded it above.
+                if tag.starts_with("source:") {
+                    continue;
+                }
                 if !entry.tags.iter().any(|have| have.eq_ignore_ascii_case(tag)) {
                     entry.tags.push(tag.clone());
                 }
             }
-            if version_newer(&offer.version, &entry.version) {
-                entry.version = offer.version.clone();
-                entry.source = offer.source.clone();
+            // Either way, links the entry lacks fill in from the offer.
+            if entry.website.is_none() {
+                entry.website = offer.website.clone();
+            }
+            if entry.source_url.is_none() {
+                entry.source_url = offer.source_url.clone();
             }
         }
         if !matched {
@@ -917,8 +766,10 @@ mod tests {
             byline: "hub author".to_string(),
             version: version.to_string(),
             description: "a hub firmware".to_string(),
-            tags: vec!["kind".to_string()],
+            tags: vec!["kind".to_string(), "source:hub".to_string()],
             device: FirmwareDevice::Fm1,
+            website: None,
+            source_url: None,
             upgradable: false,
             status: Status::Available,
             source: FirmwareSource::Hub {
@@ -1244,175 +1095,27 @@ mod tests {
     }
 
     #[test]
-    fn catalog_parses() {
-        // The real catalog's field names (author/what/kind/vintage/product/pkg).
-        let json = r#"{"firmwares": [
-            {"name": "fm1-open", "version": "2.1", "pkg": "fw/mvave/fm1-open.fwsc",
-             "sha256": "abc123", "author": "M-VAVE", "product": "FM-1_975",
-             "what": "dev kit firmware", "kind": "official"},
-            {"name": "smk-os", "version": "0.9", "pkg": "fw/smk-os.fwsc",
-             "product": "SMK-37 Pro", "kind": "synth", "vintage": true}
-        ]}"#;
-        let listing = parse_catalog(json).unwrap();
-        assert_eq!(listing.len(), 2);
-        assert_eq!(listing[0].name, "fm1-open");
-        assert_eq!(listing[0].device, FirmwareDevice::Fm1);
-        assert_eq!(listing[0].byline, "M-VAVE");
-        assert_eq!(listing[0].description, "dev kit firmware");
-        assert_eq!(listing[0].tags, vec!["official"]);
-        match &listing[0].source {
-            FirmwareSource::Hub { path, blob } => {
-                assert_eq!(path, "fw/mvave/fm1-open.fwsc");
-                assert_eq!(blob, &None);
-                assert_eq!(
-                    hub_download_url(path),
-                    "https://thefirmwarehub.com/fw/mvave/fm1-open.fwsc"
-                );
-                assert_eq!(blob_key(path), "hub/fm1-open.fwsc");
-            }
-            _ => panic!("hub source expected"),
-        }
-        assert_eq!(listing[1].device, FirmwareDevice::Smk37Pro);
-        assert_eq!(listing[1].tags, vec!["synth", "vintage"]);
-        // A bare array works too.
-        let listing = parse_catalog(r#"[{"name": "x", "pkg": "fw/x.fwsc"}]"#).unwrap();
-        assert_eq!(listing.len(), 1);
-        assert!(parse_catalog("not json").is_err());
-    }
-
-    #[test]
-    fn editor_page_parses() {
-        // The page's real markup shape: one <article> per entry.
-        let html = r##"
-        <article class="firmware-entry synthwave-panel" id="karaoke"
-                 aria-labelledby="firmware-karaoke" data-categories="grooveboxes games"
-                 data-updated="2026-10-19" data-stars="4">
-          <div class="firmware-body">
-            <p class="synthwave-kicker">seajaysec</p>
-            <h2 class="firmware-title" id="firmware-karaoke">Karaoke &amp; Robots</h2>
-            <p class="firmware-status">
-              <span>Beta · Latest 0.10.0</span
-              ><span class="firmware-updated"
-                >Updated <time datetime="2026-10-19">19 Oct 2026</time></span
-              >
-            </p>
-            <p class="firmware-blurb">
-              Sings songs you
-              bring.
-            </p>
-            <p class="firmware-blurb">A <a href="#official-open">linked</a> second paragraph.</p>
-            <ul class="firmware-links">
-              <li>
-                <a
-                  class="firmware-anchor"
-                  href="#karaoke"
-                  >#</a
-                >
-              </li>
-              <li>
-                <a
-                  class="hero-action firmware-link"
-                  href="https://karaoke.example.com"
-                  rel="noopener"
-                  target="_blank"
-                  >Install ↗</a
-                >
-              </li>
-              <li>
-                <a
-                  class="hero-action firmware-link"
-                  href="https://github.com/seajaysec/karaoke"
-                  rel="noopener"
-                  target="_blank"
-                  >Source ↗</a
-                >
-              </li>
-            </ul>
-          </div>
-        </article>
-        <article class="firmware-entry" id="doom" data-categories="games" data-updated="2026-10-22">
-          <div class="firmware-body">
-            <p class="synthwave-kicker">id</p>
-            <h2 class="firmware-title" id="firmware-doom">Doom FM-1 / SMK</h2>
-            <p class="firmware-status"><span>No numbered releases</span></p>
-            <p class="firmware-blurb">It runs.</p>
-            <ul class="firmware-links">
-              <li>
-                <a
-                  href="https://doom.example.com/play"
-                  >Try it in a browser ↗</a
-                >
-              </li>
-              <li>
-                <a
-                  href="https://files.example.com/doom.zip?raw=1"
-                  >Download ↗</a
-                >
-              </li>
-            </ul>
-          </div>
-        </article>
-        <article class="firmware-entry" id="linkless" data-categories="tools">
-          <div class="firmware-body">
-            <h2 class="firmware-title" id="firmware-linkless">No Links</h2>
-            <p class="firmware-status"><span>Latest 1.0</span></p>
-          </div>
-        </article>
-        <article class="not-an-entry" data-stars="1">
-          <p>No title, skipped.</p>
-        </article>
-        "##;
-        let entries = parse_editor_page(html).unwrap();
-        assert_eq!(entries.len(), 2);
-        let karaoke = &entries[0];
-        assert_eq!(karaoke.name, "Karaoke & Robots");
-        assert_eq!(karaoke.byline, "seajaysec");
-        assert_eq!(karaoke.version, "0.10.0");
-        assert_eq!(karaoke.tags, vec!["grooveboxes", "games"]);
-        assert_eq!(karaoke.description, "Sings songs you bring.\n\nA linked second paragraph.");
-        assert_eq!(karaoke.device, FirmwareDevice::Fm1);
-        match &karaoke.source {
-            FirmwareSource::Hub { path, blob } => {
-                assert_eq!(path, "https://karaoke.example.com");
-                assert_eq!(blob, &None);
-            }
-            _ => panic!("hub source expected"),
-        }
-        let doom = &entries[1];
-        assert_eq!(doom.name, "Doom FM-1 / SMK");
-        assert_eq!(doom.device, FirmwareDevice::Smk37Pro);
-        // "No numbered releases" carries no version, and a direct package link beats
-        // every page link.
-        assert_eq!(doom.version, "");
-        match &doom.source {
-            FirmwareSource::Hub { path, .. } => {
-                assert_eq!(path, "https://files.example.com/doom.zip?raw=1")
-            }
-            _ => panic!("hub source expected"),
-        }
-        // An entry with no external link and a non-entry article are both skipped.
-        assert!(entries.iter().all(|f| f.name != "No Links"));
-        assert!(parse_editor_page("<p>nothing here</p>").is_err());
-    }
-
-    #[test]
     fn merge_combines_tags_and_prefers_the_newer_side() {
         let hub = vec![
             hub_offer("zp12", "2.5", "zp12-2.5.fwsc"),
             hub_offer("Rainbow Mode", "1.1.5-rb", "rainbow.fwsc"),
         ];
-        // The editor has a newer zp12: its version and URL win, its tags join in.
+        // The editor has a newer zp12: its version and URL win, its tags join in,
+        // and its origin tag replaces the hub's.
         let mut newer = hub_offer("zp12", "3.0", "ignored.fwsc");
-        newer.tags = vec!["kind".to_string(), "drums".to_string()];
+        newer.tags = vec!["kind".to_string(), "drums".to_string(), "source:fm1-editor".to_string()];
         newer.byline = "editor author".to_string();
+        newer.website = Some("https://zp12.example.com".to_string());
+        newer.source_url = Some("https://github.com/x/zp12".to_string());
         newer.source = FirmwareSource::Hub {
             path: "https://example.com/zp12-3.0.fwsc".to_string(),
             blob: None,
         };
         // Same Rainbow Mode, spelled differently and older: tags merge, the hub's
-        // version and URL stay.
+        // version, URL and origin tag stay; the offer's links fill the gaps.
         let mut older = hub_offer("rainbow mode", "1.0", "ignored.fwsc");
-        older.tags = vec!["ambient".to_string()];
+        older.tags = vec!["ambient".to_string(), "source:fm1-editor".to_string()];
+        older.website = Some("https://rainbow.example.com".to_string());
         older.source = FirmwareSource::Hub {
             path: "https://example.com/rainbow.fwsc".to_string(),
             blob: None,
@@ -1423,7 +1126,9 @@ mod tests {
         assert_eq!(merged.len(), 3);
         let zp12 = merged.iter().find(|f| f.name == "zp12").unwrap();
         assert_eq!(zp12.version, "3.0");
-        assert_eq!(zp12.tags, vec!["kind", "drums"]);
+        assert_eq!(zp12.tags, vec!["kind", "source:fm1-editor", "drums"]);
+        assert_eq!(zp12.website.as_deref(), Some("https://zp12.example.com"));
+        assert_eq!(zp12.source_url.as_deref(), Some("https://github.com/x/zp12"));
         // The hub stays the source of truth for the rest.
         assert_eq!(zp12.byline, "hub author");
         match &zp12.source {
@@ -1434,7 +1139,9 @@ mod tests {
         }
         let rainbow = merged.iter().find(|f| f.name == "Rainbow Mode").unwrap();
         assert_eq!(rainbow.version, "1.1.5-rb");
-        assert_eq!(rainbow.tags, vec!["kind", "ambient"]);
+        assert_eq!(rainbow.tags, vec!["kind", "source:hub", "ambient"]);
+        assert_eq!(rainbow.website.as_deref(), Some("https://rainbow.example.com"));
+        assert_eq!(rainbow.source_url, None);
         match &rainbow.source {
             FirmwareSource::Hub { path, .. } => assert_eq!(path, "fw/rainbow.fwsc"),
             _ => panic!("hub source expected"),
@@ -1468,6 +1175,7 @@ mod tests {
         library.refresh_hub_from(
             "http://127.0.0.1:1/catalog.json".to_string(),
             "http://127.0.0.1:1/firmware/".to_string(),
+            "http://127.0.0.1:1/h/m-vave/fm-1".to_string(),
         );
         for _ in 0..50 {
             std::thread::sleep(Duration::from_millis(50));
@@ -1494,6 +1202,7 @@ mod tests {
         library.refresh_hub_from(
             "http://127.0.0.1:1/catalog.json".to_string(),
             "http://127.0.0.1:1/firmware/".to_string(),
+            "http://127.0.0.1:1/h/m-vave/fm-1".to_string(),
         );
         assert!(matches!(library.hub_status(), HubStatus::Loading));
         for _ in 0..50 {

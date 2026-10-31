@@ -178,6 +178,22 @@ fn section_of(firmware: &Firmware) -> Section {
     }
 }
 
+/// Rows in the Installed section — the app watches for names entering it to play
+/// the snap-in animation.
+pub(crate) fn is_installed(firmware: &Firmware) -> bool {
+    matches!(section_of(firmware), Section::Installed)
+}
+
+/// The snap-in curve: a slightly underdamped spring (200 ms response, damping
+/// 0.72 — a hint of overshoot), settled well inside the 400 ms the app keeps the
+/// entry. `t` in seconds.
+fn snap_in(t: f32) -> f32 {
+    const W: f32 = 2.0 * std::f32::consts::PI / 0.2;
+    const Z: f32 = 0.72;
+    let wd = W * (1.0 - Z * Z).sqrt();
+    1.0 - (-Z * W * t).exp() * ((wd * t).cos() + (Z * W / wd) * (wd * t).sin())
+}
+
 impl GridApp {
     /// The Library tab's content: the grouped list, then the add-file form.
     pub(crate) fn library_tab(
@@ -493,11 +509,36 @@ impl GridApp {
                 .child(device),
         );
 
-        // The actions as one fused group: Remove (never builtins, and only when the
-        // package is at hand), Download (hub offers; its percent while in flight),
-        // Flash To…
+        // The actions as one fused group: the website/source link pair first
+        // (disabled when the listing carries no such link), then Remove (never
+        // builtins, and only when the package is at hand), Download (hub offers;
+        // its percent while in flight), Flash To…
         let locally = pick.is_some() && firmware.status == Status::Available;
         let mut buttons: Vec<AnyElement> = Vec::new();
+        for (kind, icon, url) in [
+            ("website", Lucide::Globe, &firmware.website),
+            ("source", Lucide::FileCode, &firmware.source_url),
+        ] {
+            let url = url.clone();
+            buttons.push(
+                Button::new(format!("lib-{kind}-{name}"))
+                    .icon(Icon::new(icon))
+                    .small()
+                    .ghost()
+                    .rounded_none()
+                    .disabled(url.is_none())
+                    .tooltip(match &url {
+                        Some(url) => format!("Open the {kind}: {url}"),
+                        None => format!("No {kind} link known"),
+                    })
+                    .on_click(move |_, _, cx| {
+                        if let Some(url) = &url {
+                            cx.open_url(url);
+                        }
+                    })
+                    .into_any_element(),
+            );
+        }
         if !matches!(firmware.source, FirmwareSource::Builtin) {
             let name = name.clone();
             buttons.push(
@@ -568,6 +609,17 @@ impl GridApp {
         }
         line.push_str(&firmware.description);
 
+        // A row the Installed section just gained snaps in: a 6 px rise on the
+        // spring curve, faded in over the first 120 ms. Settled entries are gone
+        // from lib_added, so a resting row pays one map lookup.
+        let (nudge, fade) = match self.lib_added.get(&firmware.name) {
+            Some(at) => {
+                let t = at.elapsed().as_secs_f32();
+                ((1.0 - snap_in(t)) * 6.0, (t / 0.12).min(1.0))
+            }
+            None => (0.0, 1.0),
+        };
+
         // Fixed height (the virtual list positions rows from LIB_ROW_H): the
         // description is one truncated line and overflow clips.
         v_flex()
@@ -577,6 +629,8 @@ impl GridApp {
             .items_start()
             .gap_1()
             .py_1()
+            .pt(px(4.0 + nudge))
+            .opacity(fade)
             .child(
                 h_flex()
                     .w_full()
@@ -826,7 +880,7 @@ impl GridApp {
 mod tests {
     // No `use super::*` — the parent's gpui glob import would drag in GPUI's `test`
     // attribute macro, which re-expands the built-in #[test] (see tests/mod.rs).
-    use super::{matches_filter, toggle_tag};
+    use super::{is_installed, matches_filter, snap_in, toggle_tag};
     use fm1_performer::library::{Firmware, FirmwareDevice, FirmwareSource, Status};
 
     fn firmware(name: &str, tags: &[&str]) -> Firmware {
@@ -837,10 +891,43 @@ mod tests {
             description: "A test firmware".to_string(),
             tags: tags.iter().map(|tag| tag.to_string()).collect(),
             device: FirmwareDevice::Fm1,
+            website: None,
+            source_url: None,
             upgradable: false,
             status: Status::Available,
             source: FirmwareSource::Builtin,
         }
+    }
+
+    /// The snap-in curve starts at 0, lands at 1 with a slight overshoot on the way,
+    /// and stays settled.
+    #[test]
+    fn snap_in_curve() {
+        assert_eq!(snap_in(0.0), 0.0);
+        assert!(snap_in(0.1) > 0.5, "well underway at 100 ms");
+        let peak = (0..=400)
+            .map(|ms| snap_in(ms as f32 / 1000.0))
+            .fold(f32::MIN, f32::max);
+        assert!(peak > 1.0, "the spring overshoots its target");
+        assert!(peak < 1.2, "but only slightly");
+        let settled = snap_in(0.4);
+        assert!((settled - 1.0).abs() < 0.01, "settled by 400 ms: {settled}");
+    }
+
+    /// Only Installed-section rows animate: hub offers, downloads in flight and
+    /// missing packages don't count as added.
+    #[test]
+    fn installed_means_the_installed_section() {
+        assert!(is_installed(&firmware("x", &[])));
+        let mut offer = firmware("y", &[]);
+        offer.source = FirmwareSource::Hub {
+            path: "fw/y.fwsc".to_string(),
+            blob: None,
+        };
+        assert!(!is_installed(&offer));
+        let mut downloading = firmware("z", &[]);
+        downloading.status = Status::Downloading;
+        assert!(!is_installed(&downloading));
     }
 
     /// The filter is space-separated tokens, each a case-insensitive substring of the

@@ -37,9 +37,17 @@ data directory (`~/.local/share/fm1-grid` on Linux).
 The **Library** tab lists every firmware the app knows — the bundled set, files you
 import, and (online) everything the
 [FM-1 Firmware Hub](https://thefirmwarehub.com/) offers, downloadable in place. The
-listing also folds in [fm1-editor.com's firmware page](https://fm1-editor.com/firmware/):
-entries the hub lacks appear with their own links, and entries both sites carry get
-the combined tags and the newer side's version and download. The filter box at the
+listing also folds in [fm1-editor.com's firmware page](https://fm1-editor.com/firmware/)
+and [Reverbose's FM-1 list](https://reverbose.com/h/m-vave/fm-1):
+entries the hub lacks appear with their own links, and entries several sites carry get
+the combined tags and the newer side's version and download. Each row has a
+`source:` tag saying where its download comes from — `builtin`, `hub`, `fm1-editor`,
+`reverbose` or `file` — and when a site with a newer version takes over a row's
+download, the tag switches to that site. Rows that know their project's pages get two
+small buttons at the right: a globe opens the project's web page, and a code-file icon
+opens its source code, both in your browser; a row without those links shows the
+buttons greyed out. New rows in the Installed section pop in with a quick spring
+animation. The filter box at the
 top matches space-separated words, each a case-insensitive substring anywhere in a
 firmware's name, version, tags, author or description — "f ll gro" finds Felucca.
 Clicking a tag pill toggles that tag's words in the filter. Items remove (not
@@ -47,7 +55,7 @@ builtins), download with progress, and **Flash To…** a live unit (modal progre
 log) or a powered-off unpinned pane (boots it). The **Download All** toggle at the
 bottom of the list downloads every offer in turn, including upgrades of rows the
 hub has a newer version of (bundled or downloaded); **Reload** beside it re-fetches
-both listings. Download All walks the
+all three listings. Download All walks the
 list from the top and moves past an item that fails (the item gets one retry when
 you flip the toggle off and on, or reload). It is not a poll loop: a sweep runs when
 you turn it on, when the online listing refreshes, and when a download finishes,
@@ -194,8 +202,8 @@ The screen has four parts:
   unit too broken to answer to its name. If no FM-1 is found but some MIDI device
   is, the block's title warns `R: RESCUE?`.
 * **Library** — the firmware list, same as the GUI's Library tab: what came with the
-  app, what you imported, and (online) what the Firmware Hub and fm1-editor.com
-  offer.
+  app, what you imported, and (online) what the Firmware Hub, fm1-editor.com and
+  Reverbose offer.
   * `r` re-fetches the online listings.
   * `d` downloads the selected firmware. If the hub has a newer version of the
     selected row (marked with `↑`, bundled and downloaded rows alike), `d` upgrades
@@ -233,9 +241,11 @@ removals raise desktop notifications (OSC 9). Inside tmux these need
 
 Starts **off**; the rocker switch starts and stops it. While running it sends a MIDI
 clock (24 PPQN) to every emulator, with MIDI Start/Stop on switch on/off. Tempo is
-20–300 BPM — the −/+ steppers apply at once; a typed value is free-form while you
+20–300 BPM — the slider beside the field and the −/+ steppers apply at once; a typed
+value is free-form while you
 edit (a bad draft paints the field's error border) and applies on Enter or when the
 field loses focus, clamped into range (unparsable text snaps back to the live tempo).
+The slider and the field always show the same tempo: drag one and the other follows.
 The small light blinks on every beat.
 
 The clock runs on its own thread, independent of the window's frame rate, so timing
@@ -258,8 +268,8 @@ revision in `Cargo.toml`; bump the `rev` deliberately.
 The firmware images are unmodified packages from
 [The FM-1 Firmware Hub](https://thefirmwarehub.com/), M-VAVE and the firmware authors.
 They keep their own licences: most are GPL-3.0, M-VAVE's FM1 Stock is Apache-2.0,
-FM1 Open adds a linking exception, and FM-1+VA is proprietary. The emulator crates
-are MIT. See `fm1-performer/firmware/README.md`.
+FM1 Open adds a linking exception, and Baud Girl (FM-1+VA) is proprietary. The
+emulator crates are MIT. See `fm1-performer/firmware/README.md`.
 
 ## Layout
 

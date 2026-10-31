@@ -709,6 +709,8 @@ mod tests {
             description: String::new(),
             tags: Vec::new(),
             device: FirmwareDevice::Fm1,
+            website: None,
+            source_url: None,
             upgradable: false,
             status,
             source,

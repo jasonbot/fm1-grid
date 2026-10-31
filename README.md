@@ -14,7 +14,9 @@ screen also appears in the sidebar, hqx-upscaled 2x (4x on big windows), falling
 back to nearest-neighbour while the pane's dropout health is orange or worse. The
 grid/sidebar split is draggable, with the sidebar kept wide enough for at least 1x.
 The grid background follows the main colour of the selected screen (resampled once a
-second, faded over 500 ms). The Devices tab has its own pill tabs on top, centered:
+second, faded over 500 ms). The sidebar's firmware selector shows the library entry's
+name and version, not the package's file name. The Devices tab has its own pill tabs
+on top, centered:
 **Devices** (the live USB units) and **MIDI Graph**. The app remembers which one you
 picked, like the main tab. Both lists scroll, and PageUp/PageDown/Home/End work
 there like they do in the Library.
@@ -25,7 +27,9 @@ the firmware. The computer keyboard plays the pane while that tab shows; a confi
 MIDI keyboard forwards on any tab. The keyboard and controls follow the selected
 theme: their colors are derived from the theme's background hue (the panel stays
 dark, even in a light theme), a held key takes the theme's accent color, and the
-button lights take the theme's warning color (success color for PLAY).
+button lights take the theme's warning color (success color for PLAY). The panel
+tracks the window width both ways and reflows its control groups so they stay clear
+of each other.
 
 A running pane can be **pinned** (the toggle beside its firmware selector): its flash
 contents — the device's settings and project data — are written to disk at power-off
@@ -48,10 +52,9 @@ the combined tags and the newer side's version and download. Each row has a
 `source:` tag saying where its download comes from — `builtin`, `hub`, `fm1-editor`,
 `reverbose` or `file` — and when a site with a newer version takes over a row's
 download, the tag switches to that site. Rows that know their project's pages get two
-small buttons at the right: a globe opens the project's web page, and a code-file icon
-opens its source code, both in your browser; a row without those links shows the
-buttons greyed out. New rows in the Installed section pop in with a quick spring
-animation. The filter box at the
+labelled buttons — **Web site** and **Github** — that open the project's pages in
+your browser; a row without those links shows the buttons greyed out. New rows in the
+Installed section pop in with a quick spring animation. The filter box at the
 top matches space-separated words, each a case-insensitive substring anywhere in a
 firmware's name, version, tags, author or description — "f ll gro" finds Felucca.
 Clicking a tag pill toggles that tag's words in the filter. Each row leads with a
@@ -156,9 +159,9 @@ device is out there, the toggle grows a warning ring.
 
 The Devices tab's second pill is the MIDI graph, connecting sources to sinks: system
 MIDI ports, running panes and live FM-1 units. Every MIDI out gets its own section,
-always shown: the sinks it feeds are listed under its name, each with a small **X**
-pill that removes the connection, and the section's **Connect** dropdown routes
-another sink.
+always shown: the sinks it feeds are listed under its name, each on its own ruled row
+with an **X** button at the left that removes the connection, and the section's
+**Connect** dropdown routes another sink.
 
 ```mermaid
 flowchart LR

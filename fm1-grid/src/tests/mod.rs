@@ -604,6 +604,43 @@ fn slot_records_restore(cx: &mut TestAppContext) {
     });
 }
 
+/// A slot set to a library file shows the library's firmware name (and version),
+/// not the package's file name; a file outside the library keeps its file name.
+#[gpui_kit::test]
+fn firmware_selector_shows_library_name(cx: &mut TestAppContext) {
+    let _guard = ui_lock();
+    let (_window, app) = open_app(cx);
+    let dir = std::env::temp_dir().join(format!("fm1-grid-labeltest-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let named = dir.join("raw-file-name.fwsc");
+    std::fs::write(&named, b"not a real package").unwrap();
+    let plain = dir.join("not-in-library.fwsc");
+    std::fs::write(&plain, b"not a real package").unwrap();
+
+    cx.update(|cx| {
+        app.update(cx, |app, _| {
+            app.library
+                .import_file(&named.to_string_lossy(), "Nice Firmware Name", "1.2", "");
+            app.load_file(1, named.clone());
+            app.load_file(2, plain.clone());
+            assert_eq!(
+                app.slots[1].label.as_deref(),
+                Some("Nice Firmware Name 1.2"),
+                "the selector must show the library name, not the file name"
+            );
+            assert_eq!(
+                app.slots[2].label.as_deref(),
+                Some("not-in-library.fwsc"),
+                "a file outside the library keeps its own name"
+            );
+        })
+    });
+
+    // Leave the shared store as the other tests expect it.
+    cx.update(|cx| app.update(cx, |app, _| app.library.remove("Nice Firmware Name")));
+    std::fs::remove_dir_all(&dir).ok();
+}
+
 /// Removing a library firmware powers off the slots set to it and re-seats them
 /// with a firmware that's still available.
 #[gpui_kit::test]
@@ -1119,6 +1156,56 @@ fn devices_tab_sections_switch(cx: &mut TestAppContext) {
     cx.update_window(window.into(), |_, window, cx| {
         window.render_frame(cx);
         assert!(window.find("devices-scroll").visible());
+    })
+    .unwrap();
+}
+
+/// The front panel follows the window in both directions: a narrowed window must not
+/// pin its recorded width, so widening it again restores the full panel. At the
+/// minimum window width the left control columns and the function-button block stay
+/// clear of each other.
+#[gpui_kit::test]
+fn panel_resizes_with_window(cx: &mut TestAppContext) {
+    let _guard = ui_lock();
+    let (window, _app) = open_app(cx);
+    cx.update_window(window.into(), |_, window, cx| {
+        let panel = |window: &mut Window, cx: &mut App| {
+            window.render_frame(cx);
+            window.render_frame(cx);
+            window.find("fm1-panel").bounds()
+        };
+        assert_eq!(f32::from(panel(window, cx).size.width), 1040.0);
+
+        // 700 wide minus the 48 px icon rail; the old width ratcheted here.
+        window.resize(size(px(700.0), px(800.0)));
+        window.bounds_changed(cx);
+        assert_eq!(f32::from(panel(window, cx).size.width), 652.0);
+
+        window.resize(size(px(1180.0), px(1160.0)));
+        window.bounds_changed(cx);
+        assert_eq!(
+            f32::from(panel(window, cx).size.width),
+            1040.0,
+            "the panel must grow back with the window"
+        );
+
+        // The minimum window: every panel button keeps its own rectangle.
+        window.resize(size(px(620.0), px(680.0)));
+        window.bounds_changed(cx);
+        window.render_frame(cx);
+        window.render_frame(cx);
+        let buttons: Vec<_> = (0usize..14)
+            .map(|id| window.find(("panel-btn", id)).bounds())
+            .collect();
+        for (i, a) in buttons.iter().enumerate() {
+            for (j, b) in buttons.iter().enumerate().skip(i + 1) {
+                let overlap = f32::from(a.origin.x) < f32::from(b.origin.x) + f32::from(b.size.width)
+                    && f32::from(b.origin.x) < f32::from(a.origin.x) + f32::from(a.size.width)
+                    && f32::from(a.origin.y) < f32::from(b.origin.y) + f32::from(b.size.height)
+                    && f32::from(b.origin.y) < f32::from(a.origin.y) + f32::from(a.size.height);
+                assert!(!overlap, "panel buttons {i} and {j} overlap: {a:?} {b:?}");
+            }
+        }
     })
     .unwrap();
 }

@@ -21,6 +21,10 @@ const KEY_MARGIN: f32 = 6.0;
 /// The panel's height above the key bed: header, control rows and margins.
 const PANEL_CONTROLS_H: f32 = 156.0;
 const GROUP_HEIGHT: f32 = 24.0;
+/// The panel never grows past the card grid's width.
+const PANEL_MAX_W: f32 = 1040.0;
+/// The smallest the panel lays out at; a narrower window clips the right edge.
+const PANEL_MIN_W: f32 = 320.0;
 
 /// The panel's colorway, derived from the active theme each render: the bed keeps
 /// the theme background's hue but stays dark (a light theme still gets a dark
@@ -110,8 +114,9 @@ impl GridApp {
             KEY_HEIGHT
         };
         let panel_h = PANEL_CONTROLS_H + key_height;
-        // Keep the panel roughly as wide as the card grid.
-        let w = self.panel_width.clamp(320.0, 1040.0);
+        // The last measured width drives the absolute geometry; the element itself
+        // stays full-width, so narrowing and widening the window both take effect.
+        let w = self.panel_width.clamp(PANEL_MIN_W, PANEL_MAX_W);
         let left = 14.0f32;
         let right = w - 14.0;
         let controls_top = 24.0f32;
@@ -122,8 +127,11 @@ impl GridApp {
         let colors = panel_colors(cx.theme());
 
         // The right-hand groups (the four knobs and the function buttons) span one
-        // common width, so the knobs sit directly above the button grid.
-        let function_width = (w * 0.52).clamp(360.0, 520.0);
+        // common width, so the knobs sit directly above the button grid. Cap it to
+        // what the two left group columns leave, or narrow windows overlap them.
+        let left_columns = left + 2.0 * group_width + group_gap;
+        let max_function_width = (right - left_columns - 12.0).max(0.0);
+        let function_width = (w * 0.52).clamp(360.0, 520.0).min(max_function_width);
         let function_left = right - function_width;
         let button_gap = 4.0f32;
         let button_width = (function_width - button_gap * 5.0) / 6.0;
@@ -135,16 +143,18 @@ impl GridApp {
             .id("fm1-panel")
             .test_support()
             .relative()
-            .w(px(w))
-            .max_w_full()
+            .w_full()
+            .max_w(px(PANEL_MAX_W))
             .h(px(panel_h))
             .rounded(px(8.0))
+            .overflow_hidden()
             .bg(colors.bed)
             .on_prepaint(move |bounds, _, cx| {
                 let width: f32 = bounds.size.width.into();
-                app.update(cx, |this, _| {
+                app.update(cx, |this, cx| {
                     if (this.panel_width - width).abs() > 0.5 {
                         this.panel_width = width;
+                        cx.notify();
                     }
                 });
             })
@@ -395,7 +405,9 @@ impl GridApp {
             .w(px(width))
             .h(px(GROUP_HEIGHT))
             .id(("panel-btn", id as usize))
+            .test_support()
             .rounded(px(4.0))
+            .overflow_hidden()
             .bg(fill)
             .border_1()
             .border_color(if lit { tint } else { colors.button_edge })
@@ -433,6 +445,7 @@ impl GridApp {
             )
             .child(
                 div()
+                    .min_w_0()
                     .truncate()
                     .text_size(px(9.5))
                     .text_color(ink)

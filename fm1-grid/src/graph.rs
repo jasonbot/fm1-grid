@@ -21,9 +21,9 @@ impl GridApp {
     /// The sections scroll (wheel, scrollbar, PgUp/PgDn); the heading lines stay
     /// pinned.
     pub(crate) fn graph_section(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
-        let (ink, dim) = {
+        let (ink, dim, border) = {
             let theme = cx.theme();
-            (theme.foreground, theme.muted_foreground)
+            (theme.foreground, theme.muted_foreground, theme.border)
         };
         let endpoints = self.routing.endpoints();
         let links = self.routing.links();
@@ -49,7 +49,7 @@ impl GridApp {
                     div()
                         .id(("graph-source", row_ix))
                         .test_support()
-                        .text_size(px(11.0))
+                        .text_size(px(12.0))
                         .font_weight(FontWeight::BOLD)
                         .text_color(ink)
                         .child(label(&source)),
@@ -60,6 +60,7 @@ impl GridApp {
                 links.iter().filter(|(s, _)| *s == source).enumerate()
             {
                 let sink = sink.clone();
+                let sink_label = label(&sink);
                 // A pane whose firmware advertises USB-MIDI has MIDI out on real
                 // hardware; in the emulator only its MIDI IN jack exists.
                 let tip = match &sink {
@@ -68,37 +69,41 @@ impl GridApp {
                             "Remove this connection. {} advertises USB-MIDI in/out on real \
                              hardware; the emulator bridges its MIDI IN only, so its MIDI \
                              out stays silent.",
-                            label(&sink)
+                            sink_label
                         )
                     }
                     _ => "Remove this connection".to_string(),
                 };
                 let src = source.clone();
+                // The unroute X sits first, beside the sink it removes; the rule
+                // above each row separates connections and gives them height.
                 section = section.child(
                     h_flex()
                         .w_full()
                         .items_center()
-                        .justify_between()
-                        .gap_2()
-                        .child(
-                            div()
-                                .text_size(px(11.0))
-                                .text_color(ink)
-                                .child(label(&sink)),
-                        )
+                        .gap_3()
+                        .px_2()
+                        .py_2()
+                        .border_t_1()
+                        .border_color(border)
                         .child(
                             Button::new(("sink-x", row_ix * 1024 + sink_ix))
                                 .icon(Icon::new(Lucide::X))
                                 .accessibility_label("unroute")
                                 .tooltip(tip)
-                                .compact()
-                                .xsmall()
+                                .small()
                                 .rounded(px(999.0))
                                 .on_click(cx.listener(move |this, _, window, cx| {
                                     this.routing.disconnect(src.clone(), sink.clone());
                                     this.refocus(window, cx);
                                     cx.notify();
                                 })),
+                        )
+                        .child(
+                            div()
+                                .text_size(px(13.0))
+                                .text_color(ink)
+                                .child(sink_label),
                         ),
                 );
             }

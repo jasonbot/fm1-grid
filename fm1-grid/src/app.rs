@@ -734,6 +734,24 @@ impl GridApp {
         self.install(slot, label, bytes, true, Source::Builtin(index));
     }
 
+    /// The library entry's display label (its name and version) for a slot source.
+    /// Files and blobs not imported into the library have none.
+    fn source_label(&mut self, source: &Source) -> Option<String> {
+        use fm1_performer::library::FirmwareSource;
+        self.library.list_clone().into_iter().find_map(|firmware| {
+            let matches = match (&firmware.source, source) {
+                (FirmwareSource::File { path }, Source::File(file)) => {
+                    std::path::Path::new(path) == file.as_path()
+                }
+                (FirmwareSource::Hub { blob: Some(key), .. }, Source::Blob { key: blob, .. }) => {
+                    key == blob
+                }
+                _ => false,
+            };
+            matches.then(|| format!("{} {}", firmware.name, firmware.version))
+        })
+    }
+
     pub(crate) fn load_file(&mut self, slot: usize, path: PathBuf) {
         let bytes = match std::fs::read(&path) {
             Ok(bytes) => bytes,
@@ -745,10 +763,14 @@ impl GridApp {
         let package = path
             .extension()
             .is_some_and(|e| e.eq_ignore_ascii_case("fwsc"));
-        let label = path
-            .file_name()
-            .map(|name| name.to_string_lossy().into_owned())
-            .unwrap_or_else(|| path.display().to_string());
+        // The selector shows the library's firmware name, not the file's name.
+        let label = self
+            .source_label(&Source::File(path.clone()))
+            .unwrap_or_else(|| {
+                path.file_name()
+                    .map(|name| name.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| path.display().to_string())
+            });
         self.install(slot, label, bytes, package, Source::File(path));
     }
 
@@ -768,22 +790,30 @@ impl GridApp {
     fn load_blob(&mut self, slot: usize, key: &str) {
         let Some(store) = &self.store else { return };
         let pick = fm1_performer::firmware_picker::FirmwarePick::HubBlob(key.to_string());
-        match pick.bytes(Some(store)) {
-            Ok(bytes) => {
-                let label = key.rsplit('/').next().unwrap_or(key).to_string();
-                self.install(
-                    slot,
-                    label.clone(),
-                    bytes,
-                    true,
-                    Source::Blob {
-                        key: key.to_string(),
-                        label,
-                    },
-                );
+        let bytes = match pick.bytes(Some(store)) {
+            Ok(bytes) => bytes,
+            Err(e) => {
+                self.slots[slot].error = Some(e);
+                return;
             }
-            Err(e) => self.slots[slot].error = Some(e),
-        }
+        };
+        // The selector shows the library's firmware name, not the package file's.
+        let label = self
+            .source_label(&Source::Blob {
+                key: key.to_string(),
+                label: String::new(),
+            })
+            .unwrap_or_else(|| key.rsplit('/').next().unwrap_or(key).to_string());
+        self.install(
+            slot,
+            label.clone(),
+            bytes,
+            true,
+            Source::Blob {
+                key: key.to_string(),
+                label,
+            },
+        );
     }
 
     /// Rebuild every slot's firmware combobox from the library and re-select the

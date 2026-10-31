@@ -565,13 +565,14 @@ impl GridApp {
                     .into_any_element(),
             );
         }
-        for (kind, icon, url) in [
-            ("website", Lucide::Globe, &firmware.website),
-            ("source", Lucide::Github, &firmware.source_url),
+        for (kind, label, icon, url) in [
+            ("website", "Web site", Lucide::Globe, &firmware.website),
+            ("source", "Github", Lucide::Github, &firmware.source_url),
         ] {
             let url = url.clone();
             buttons.push(
                 Button::new(format!("lib-{kind}-{name}"))
+                    .label(label)
                     .icon(Icon::new(icon))
                     .small()
                     .ghost()

@@ -78,11 +78,19 @@ pub(crate) struct Slot {
     pub pinned: bool,
 }
 
-/// A pinned slot's record in the store, `slot-N`.
+/// A slot's record in the store, `slot-N`: the firmware selection and the pin. A
+/// pinned slot's device storage sits beside it as the `slot-N.flash` blob.
 #[derive(serde::Serialize, serde::Deserialize)]
-struct PinnedSlot {
+struct SlotRecord {
     firmware: String,
-    source: PinnedSource,
+    source: RecordSource,
+    /// Records written before every slot had one were pinned by definition.
+    #[serde(default = "default_pinned")]
+    pinned: bool,
+}
+
+fn default_pinned() -> bool {
+    true
 }
 
 /// An emulator's audio health, from its five-second dropout window: the colour of
@@ -155,7 +163,7 @@ impl Default for SlotHealth {
 
 #[derive(serde::Serialize, serde::Deserialize)]
 #[serde(tag = "kind", rename_all = "lowercase")]
-enum PinnedSource {
+enum RecordSource {
     Builtin { index: usize },
     File { path: PathBuf },
     Blob { key: String, label: String },
@@ -289,8 +297,8 @@ pub struct GridApp {
     pub(crate) tempo_input: Entity<InputState>,
     /// The tempo slider next to the field; the two mirror each other.
     pub(crate) tempo_slider: Entity<SliderState>,
-    /// On-disk state (pinned slots' firmware records and flash snapshots). None if the
-    /// platform has no data directory.
+    /// On-disk state (the slots' firmware/pin records and pinned slots' flash
+    /// snapshots). None if the platform has no data directory.
     pub(crate) store: Option<fm1_performer::store::Store>,
     /// The firmware library (the Library tab's data; pickers read it too).
     pub(crate) library: fm1_performer::library::Library,
@@ -634,15 +642,15 @@ impl GridApp {
                 app.load_file(slot, path.clone());
             }
         }
-        // Pinned slots come back: their firmware record is in the store. CLI firmware
-        // arguments win over a stored pin (the explicit now beats the remembered).
-        // Read every record first (the store borrows the app immutably; applying them
-        // mutates it).
-        let records: Vec<(usize, PinnedSlot)> = match &app.store {
+        // Slot records come back: each pane's firmware selection and pin. CLI
+        // firmware arguments win over a stored record (the explicit now beats the
+        // remembered). Read every record first (the store borrows the app
+        // immutably; applying them mutates it).
+        let records: Vec<(usize, SlotRecord)> = match &app.store {
             Some(store) => (initial.len()..MAX_SLOTS)
                 .filter_map(|slot| {
                     store
-                        .fetch_object::<PinnedSlot>(&format!("slot-{slot}"))
+                        .fetch_object::<SlotRecord>(&format!("slot-{slot}"))
                         .ok()
                         .map(|record| (slot, record))
                 })
@@ -650,16 +658,17 @@ impl GridApp {
             None => Vec::new(),
         };
         for (slot, record) in records {
+            let pinned = record.pinned;
             let restored = match &record.source {
-                PinnedSource::Builtin { index } if *index < BUILTINS.len() => {
+                RecordSource::Builtin { index } if *index < BUILTINS.len() => {
                     app.load_builtin(slot, *index);
                     true
                 }
-                PinnedSource::File { path } if path.is_file() => {
+                RecordSource::File { path } if path.is_file() => {
                     app.load_file(slot, path.clone());
                     true
                 }
-                PinnedSource::Blob { key, .. }
+                RecordSource::Blob { key, .. }
                     if app
                         .store
                         .as_ref()
@@ -671,7 +680,7 @@ impl GridApp {
                 _ => false,
             };
             if restored {
-                app.slots[slot].pinned = true;
+                app.slots[slot].pinned = pinned;
             }
         }
 
@@ -725,7 +734,7 @@ impl GridApp {
         self.install(slot, label, bytes, true, Source::Builtin(index));
     }
 
-    fn load_file(&mut self, slot: usize, path: PathBuf) {
+    pub(crate) fn load_file(&mut self, slot: usize, path: PathBuf) {
         let bytes = match std::fs::read(&path) {
             Ok(bytes) => bytes,
             Err(e) => {
@@ -919,12 +928,46 @@ impl GridApp {
     }
 
     /// The sidebar's pin toggle. It only moves while the pane's emulator runs — a
-    /// stopped pane keeps its state (and its pin) as is.
+    /// stopped pane keeps its state (and its pin) as is. Unpinning forgets the slot
+    /// at once: the saved flash blob goes and the record keeps only the firmware.
     pub(crate) fn set_pinned(&mut self, slot: usize, on: bool) {
         if self.slots[slot].handle.is_none() {
             return;
         }
         self.slots[slot].pinned = on;
+        if !on {
+            if let Some(store) = &self.store {
+                let _ = store.delete_blob(&format!("slot-{slot}.flash"));
+            }
+            self.save_slot_record(slot);
+        }
+    }
+
+    /// The slot's record for the store: its firmware selection and pin.
+    fn slot_record(&self, slot: usize) -> Option<SlotRecord> {
+        let source = match &self.slots[slot].source {
+            Some(Source::Builtin(index)) => RecordSource::Builtin { index: *index },
+            Some(Source::File(path)) => RecordSource::File { path: path.clone() },
+            Some(Source::Blob { key, label }) => RecordSource::Blob {
+                key: key.clone(),
+                label: label.clone(),
+            },
+            None => return None,
+        };
+        Some(SlotRecord {
+            firmware: self.slots[slot].label.clone().unwrap_or_default(),
+            source,
+            pinned: self.slots[slot].pinned,
+        })
+    }
+
+    /// Persist the slot's record, if it has a firmware to record.
+    fn save_slot_record(&self, slot: usize) {
+        if let (Some(store), Some(record)) = (&self.store, self.slot_record(slot)) {
+            if let Err(e) = store.store_object(&format!("slot-{slot}"), &record) {
+                eprintln!("fm1-grid: {e}");
+            }
+        }
     }
 
     /// Snapshot and store a pinned slot's running emulator (the power-off and quit
@@ -933,37 +976,69 @@ impl GridApp {
         let mut handle = self.slots[slot].handle.take();
         if let (Some(store), Some(handle)) = (&self.store, handle.as_mut()) {
             if let Some(flash) = handle.stop_with_snapshot() {
-                let source = match &self.slots[slot].source {
-                    Some(Source::Builtin(index)) => PinnedSource::Builtin { index: *index },
-                    Some(Source::File(path)) => PinnedSource::File { path: path.clone() },
-                    Some(Source::Blob { key, label }) => PinnedSource::Blob {
-                        key: key.clone(),
-                        label: label.clone(),
-                    },
-                    // A pinned slot always has a source; be quiet anyway.
-                    None => return,
-                };
-                let record = PinnedSlot {
-                    firmware: self.slots[slot].label.clone().unwrap_or_default(),
-                    source,
-                };
                 if let Err(e) = store.store_blob(&format!("slot-{slot}.flash"), &flash) {
                     eprintln!("fm1-grid: {e}");
                 }
-                if let Err(e) = store.store_object(&format!("slot-{slot}"), &record) {
-                    eprintln!("fm1-grid: {e}");
-                }
+                self.save_slot_record(slot);
             }
         }
     }
 
-    /// The app is going away (the quit hook in main.rs): snapshot and store every
-    /// pinned slot that still runs. Pinned slots already off saved at power-off.
-    pub fn save_pinned(&mut self) {
+    /// The app is going away (the quit hook in main.rs): every slot's firmware
+    /// selection and pin land in the store; a pinned slot still running also
+    /// snapshots its device storage (one already off saved at power-off).
+    pub fn save_slots(&mut self) {
         for slot in 0..MAX_SLOTS {
             if self.slots[slot].pinned && self.slots[slot].handle.is_some() {
                 self.save_pinned_slot(slot);
+            } else {
+                self.save_slot_record(slot);
             }
+        }
+    }
+
+    /// The Library tab's Remove: the library forgets the entry, then every slot set
+    /// to it — running ones power off first — picks a random firmware that's still
+    /// available (a stale selection would fail the slot's next boot).
+    pub(crate) fn remove_firmware(&mut self, name: &str) {
+        use fm1_performer::firmware_picker::{FirmwarePick, pick_of};
+        use std::hash::{BuildHasher as _, Hasher as _};
+        // What the entry installs, captured before the library forgets it; builtins
+        // can't be removed, so the pick is a file or a hub blob.
+        let gone = self
+            .library
+            .list_clone()
+            .into_iter()
+            .find(|firmware| firmware.name == name)
+            .and_then(|firmware| pick_of(&firmware));
+        self.library.remove(name);
+        let Some(gone) = gone else { return };
+        let available: Vec<FirmwarePick> = self
+            .library
+            .list_clone()
+            .iter()
+            .filter(|firmware| firmware.status == fm1_performer::library::Status::Available)
+            .filter_map(|firmware| pick_of(firmware))
+            .collect();
+        for slot in 0..MAX_SLOTS {
+            let uses_gone = match (&self.slots[slot].source, &gone) {
+                (Some(Source::File(path)), FirmwarePick::File(gone)) => path == gone,
+                (Some(Source::Blob { key, .. }), FirmwarePick::HubBlob(gone)) => key == gone,
+                _ => false,
+            };
+            if !uses_gone || available.is_empty() {
+                continue;
+            }
+            if self.powered[slot] {
+                self.set_power(slot, false);
+            }
+            // No rand dependency: a fresh RandomState's keys make an unwritten
+            // hasher's finish() unpredictable.
+            let roll = std::collections::hash_map::RandomState::new()
+                .build_hasher()
+                .finish() as usize;
+            self.install_pick(slot, available[roll % available.len()].clone());
+            self.save_slot_record(slot);
         }
     }
 

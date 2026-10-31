@@ -605,7 +605,7 @@ impl GridApp {
                         "Only a firmware that's here can be removed"
                     })
                     .on_click(cx.listener(move |this, _, window, cx| {
-                        this.library.remove(&name);
+                        this.remove_firmware(&name);
                         this.refresh_firmware_combos(window, cx);
                         cx.notify();
                     }))

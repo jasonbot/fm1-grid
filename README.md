@@ -30,7 +30,10 @@ button lights take the theme's warning color (success color for PLAY).
 A running pane can be **pinned** (the toggle beside its firmware selector): its flash
 contents — the device's settings and project data — are written to disk at power-off
 and when the app quits, and come back at the next boot. Pinned panes restore at
-startup (still powered off). The split position, selected tab (and Devices
+startup (still powered off); unpinning forgets the pane's saved flash. Every pane's
+firmware selection and pin restore the same way, and removing a firmware from the
+Library powers off the panes set to it and re-seats them with a random available
+one. The split position, selected tab (and Devices
 section), selected pane, metronome tempo, Download All toggle, theme and appearance
 override restore the same way. State lives in the com.fm1-grid
 data directory (`~/.local/share/fm1-grid` on Linux).
@@ -314,7 +317,7 @@ fm1-grid/themes/                the bundled gpui-kit theme sets (upstream themes
 fm1-grid/src/firmware_picker.rs the firmware dropdown's data (searchable, grouped by tag)
 fm1-grid/src/flash_dialog.rs    the modal flash progress + message terminal
 fm1-grid/src/session.rs         the saved UI state (split, tabs, pane, tempo, Download All)
-fm1-grid/src/main.rs            startup, CLI firmware arguments, the quit hook saving pins
+fm1-grid/src/main.rs            startup, CLI firmware arguments, the quit hook saving slot records
 fm1-grid/src/tests/             headless UI smoke tests
 fm1-tty/src/                    the terminal UI (ratatui): library + flashing, piano, metronome
 ```

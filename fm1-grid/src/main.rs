@@ -127,11 +127,12 @@ fn main() {
         })
         .detach();
 
-        // Going away: pinned slots snapshot their device storage to the store, and the
+        // Going away: every slot's firmware selection and pin land in the store (a
+        // pinned slot still running snapshots its device storage too), and the
         // session record keeps the layout, selection and tempo.
         cx.on_app_quit(move |cx| {
             app.update(cx, |app, cx| {
-                app.save_pinned();
+                app.save_slots();
                 app.save_session(cx);
             });
             async {}

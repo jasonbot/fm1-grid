@@ -531,6 +531,142 @@ fn pin_cycle(cx: &mut TestAppContext) {
     });
 }
 
+/// The quit save keeps every slot's firmware selection and pin: the next boot
+/// re-seats them. Unpinning forgets the slot's saved flash at once. The shared
+/// store goes back to factory-default records at the end.
+#[gpui_kit::test]
+fn slot_records_restore(cx: &mut TestAppContext) {
+    let _guard = ui_lock();
+    let (_window, app) = open_app(cx);
+
+    // Slot 0 runs pinned; slot 2 takes a non-default firmware (still off).
+    cx.update(|cx| {
+        app.update(cx, |app, _| {
+            app.set_power(0, true);
+            app.set_pinned(0, true);
+            app.load_builtin(2, 1);
+        })
+    });
+    cx.update(|cx| {
+        let app = app.read(cx);
+        assert!(app.slots[0].handle.is_some(), "slot 0 must run to pin");
+        assert!(app.slots[0].pinned);
+    });
+    cx.update(|cx| app.update(cx, |app, _| app.save_slots()));
+
+    // The "restart": a fresh app over the same store.
+    let (_window2, app2) = open_app(cx);
+    cx.update(|cx| {
+        let app = app2.read(cx);
+        assert!(app.slots[0].pinned, "the pin did not restore");
+        assert!(matches!(
+            app.slots[0].source,
+            Some(crate::app::Source::Builtin(0))
+        ));
+        assert!(
+            matches!(app.slots[2].source, Some(crate::app::Source::Builtin(1))),
+            "the firmware selection did not restore"
+        );
+        assert!(!app.slots[2].pinned, "an unpinned slot came back pinned");
+    });
+
+    // Unpinning slot 0 forgets it at once: the flash blob goes and the record says
+    // unpinned.
+    cx.update(|cx| {
+        app2.update(cx, |app, _| {
+            app.set_power(0, true);
+            app.set_pinned(0, false);
+        })
+    });
+    cx.update(|cx| {
+        let app = app2.read(cx);
+        let store = app.store.as_ref().expect("a store");
+        assert!(
+            !store.list_blobs(None).unwrap().iter().any(|p| p == "slot-0.flash"),
+            "unpin left the flash blob behind"
+        );
+        let record: serde_json::Value = store.fetch_object("slot-0").unwrap();
+        assert_eq!(
+            record["pinned"],
+            serde_json::json!(false),
+            "unpin left the record pinned"
+        );
+    });
+
+    // Leave the shared store at factory defaults for the other tests.
+    cx.update(|cx| {
+        app2.update(cx, |app, _| {
+            for slot in 0..fm1_performer::MAX_SLOTS {
+                app.load_builtin(slot, slot);
+            }
+            app.save_slots();
+        })
+    });
+}
+
+/// Removing a library firmware powers off the slots set to it and re-seats them
+/// with a firmware that's still available.
+#[gpui_kit::test]
+fn library_remove_reseats_slots(cx: &mut TestAppContext) {
+    let _guard = ui_lock();
+    let (_window, app) = open_app(cx);
+
+    // A throwaway file firmware, loaded into slot 1 and powered on (the bogus bytes
+    // fail the boot; the slot stays set to the file).
+    let dir = std::env::temp_dir().join(format!("fm1-grid-rmtest-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("zz-remove-me.fwsc");
+    std::fs::write(&path, b"not a real package").unwrap();
+    cx.update(|cx| {
+        app.update(cx, |app, _| {
+            app.library
+                .import_file(&path.to_string_lossy(), "ZZ Remove Me", "0.0", "");
+            app.load_file(1, path.clone());
+            app.set_power(1, true);
+        })
+    });
+    cx.update(|cx| {
+        let app = app.read(cx);
+        assert!(app.powered[1]);
+        assert!(matches!(
+            app.slots[1].source,
+            Some(crate::app::Source::File(_))
+        ));
+    });
+
+    cx.update(|cx| {
+        app.update(cx, |app, _| {
+            app.remove_firmware("ZZ Remove Me");
+            assert!(!app.powered[1], "the slot kept running a removed firmware");
+            match &app.slots[1].source {
+                Some(crate::app::Source::File(p)) => {
+                    assert!(p != &path, "the slot kept the removed firmware")
+                }
+                Some(_) => {}
+                None => panic!("the slot was not re-seated"),
+            }
+            assert!(
+                app.library
+                    .list_clone()
+                    .iter()
+                    .all(|f| f.name != "ZZ Remove Me"),
+                "the library kept the removed entry"
+            );
+        })
+    });
+
+    // Leave the shared store at factory defaults for the other tests.
+    cx.update(|cx| {
+        app.update(cx, |app, _| {
+            for slot in 0..fm1_performer::MAX_SLOTS {
+                app.load_builtin(slot, slot);
+            }
+            app.save_slots();
+        })
+    });
+    std::fs::remove_dir_all(&dir).ok();
+}
+
 /// The Library tab lists the builtins with flash targets (panes are off and unpinned
 /// at startup), and its add form gates Save on a chosen file. A short window, so the
 /// offline-length list (builtins only) overflows and the scroll asserts mean

@@ -64,7 +64,8 @@ firmware's name, version, tags, author or description — "f ll gro" finds Feluc
 Clicking a tag pill toggles that tag's words in the filter. Each row leads with a
 star button: favoriting is remembered across restarts, a favorite's pills gain the
 synthetic `★` tag and every other row the synthetic `☆`, and either pill filters
-the list like any tag. Items remove (not
+the list like any tag. Favorite rows float to the top of their section. The list
+draws only the rows on screen, so a big library stays smooth. Items remove (not
 builtins), download with progress, and **Flash To…** a live unit (modal progress +
 log) or a powered-off unpinned pane (boots it). The **Download All** toggle at the
 bottom of the list downloads every offer in turn, including upgrades of rows the
@@ -155,7 +156,8 @@ The Devices tab's second pill is the MIDI graph, connecting sources to sinks: sy
 MIDI ports, running panes and live FM-1 units. Every MIDI out gets its own section,
 always shown: the sinks it feeds are listed under its name, each on its own ruled row
 with an **X** button at the left that removes the connection, and the section's
-**Connect** dropdown routes another sink.
+**Connect** dropdown routes another sink. A new connection snaps in with a small
+spring; a removed one fades away.
 
 ```mermaid
 flowchart LR

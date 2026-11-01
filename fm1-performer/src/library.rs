@@ -115,6 +115,10 @@ pub struct Library {
     /// Set when the view's inputs change (import, remove, a download starting or
     /// folding in); the next `list()` rebuilds.
     view_dirty: bool,
+    /// Bumped whenever the returned view changes (a rebuild, or a status re-stat
+    /// that flipped an entry between Available and Missing). The Library tab caches
+    /// its flattened list against it.
+    view_generation: u64,
     /// Set by the hub refresh thread when it swaps the listing in.
     hub_swapped: Arc<AtomicBool>,
     /// The last on-disk existence sweep (file/blob stats), throttled so the per-frame
@@ -162,6 +166,7 @@ impl Library {
             swap_pending: false,
             view: Vec::new(),
             view_dirty: true,
+            view_generation: 0,
             hub_swapped: Arc::new(AtomicBool::new(false)),
             last_stat: Instant::now(),
             generation: 0,
@@ -214,14 +219,21 @@ impl Library {
         }
         self.view = view;
         self.view_dirty = false;
+        self.view_generation = self.view_generation.wrapping_add(1);
     }
 
     /// Re-check on-disk presence in place (a file or blob can vanish outside the
     /// app). Names and order don't move, so the view keeps its entries.
     fn refresh_statuses(&mut self) {
         self.last_stat = Instant::now();
+        let mut changed = false;
         for firmware in &mut self.view {
-            firmware.status = entry_status(firmware, &self.downloads, &self.store);
+            let status = entry_status(firmware, &self.downloads, &self.store);
+            changed |= status != firmware.status;
+            firmware.status = status;
+        }
+        if changed {
+            self.view_generation = self.view_generation.wrapping_add(1);
         }
     }
 
@@ -577,6 +589,12 @@ impl Library {
     /// The installed list's change counter (see the field).
     pub fn generation(&self) -> u64 {
         self.generation
+    }
+
+    /// The returned view's change counter (see the field): a cache key for UI that
+    /// derives rows from it.
+    pub fn view_generation(&self) -> u64 {
+        self.view_generation
     }
 }
 

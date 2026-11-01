@@ -154,7 +154,8 @@ enum Section {
 /// virtual list — only the visible slice is laid out each frame — so every item is
 /// a fixed, pinned height (the virtual list positions items from these sizes; a
 /// taller render would overlap the next item).
-enum LibItem {
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum LibItem {
     Header(&'static str),
     /// Index into `Library::list()`'s view.
     Row(usize),
@@ -202,10 +203,45 @@ pub(crate) fn is_installed(firmware: &Firmware) -> bool {
     matches!(section_of(firmware), Section::Installed)
 }
 
+/// Flatten the library view into the virtual list's stream: sections in order,
+/// filtered by the needle, with favorites first inside each section (stable, so the
+/// library's own order survives within the two groups).
+fn flatten_library(
+    view: &[Firmware],
+    needle: &str,
+    favorites: &std::collections::HashSet<String>,
+) -> Vec<LibItem> {
+    let favorite: Vec<bool> = view
+        .iter()
+        .map(|firmware| favorites.contains(&favorite_key(&firmware.name)))
+        .collect();
+    let mut items: Vec<LibItem> = Vec::new();
+    for (header, section) in SECTIONS {
+        let mut indices: Vec<usize> = (0..view.len())
+            .filter(|&ix| {
+                let firmware = &view[ix];
+                section_of(firmware) == section
+                    && matches_filter(firmware, needle, favorite[ix])
+            })
+            .collect();
+        indices.sort_by_key(|&ix| !favorite[ix]);
+        if !indices.is_empty() {
+            items.push(LibItem::Header(header));
+            items.extend(indices.into_iter().map(LibItem::Row));
+        }
+    }
+    if items.is_empty() {
+        items.push(LibItem::Empty);
+    }
+    // The hub's status sits at the very bottom of the list.
+    items.push(LibItem::HubStatus);
+    items
+}
+
 /// The snap-in curve: a slightly underdamped spring (200 ms response, damping
 /// 0.72 — a hint of overshoot), settled well inside the 400 ms the app keeps the
 /// entry. `t` in seconds.
-fn snap_in(t: f32) -> f32 {
+pub(crate) fn snap_in(t: f32) -> f32 {
     const W: f32 = 2.0 * std::f32::consts::PI / 0.2;
     const Z: f32 = 0.72;
     let wd = W * (1.0 - Z * Z).sqrt();
@@ -220,30 +256,14 @@ impl GridApp {
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let needle = self.lib_form.filter.read(cx).value().trim().to_string();
-        let view = self.library.list();
-
-        // Flatten the sections into one fixed-height item stream. Rows are view
-        // indices, not clones — the render closure clones only the visible ones.
-        let mut items: Vec<LibItem> = Vec::new();
-        for (header, section) in SECTIONS {
-            let mut headed = false;
-            for (ix, firmware) in view.iter().enumerate() {
-                let favorite = self.favorites.contains(&favorite_key(&firmware.name));
-                if section_of(firmware) != section || !matches_filter(firmware, &needle, favorite) {
-                    continue;
-                }
-                if !headed {
-                    items.push(LibItem::Header(header));
-                    headed = true;
-                }
-                items.push(LibItem::Row(ix));
-            }
-        }
-        if items.is_empty() {
-            items.push(LibItem::Empty);
-        }
-        // The hub's status sits at the very bottom of the list.
-        items.push(LibItem::HubStatus);
+        // `list()` folds finished downloads in and re-stats missing files (throttled);
+        // calling it here keeps those side effects, then the cached stream below only
+        // rebuilds when its view, the filter or the favorites moved.
+        self.library.list();
+        self.ensure_lib_stream(&needle);
+        let view = Rc::clone(&self.lib_view);
+        let items = Rc::clone(&self.lib_items);
+        let sizes = Rc::clone(&self.lib_sizes);
 
         // A freshly downloaded firmware jumps into the Installed section; bring it
         // into view. Set by the Download button; clears when hit. (A filter hiding
@@ -261,10 +281,6 @@ impl GridApp {
                 self.lib_scroll_to = None;
             }
         }
-
-        let sizes: Rc<Vec<Size<Pixels>>> =
-            Rc::new(items.iter().map(|item| size(px(0.0), item.height())).collect());
-        let items = Rc::new(items);
 
         v_flex()
             .size_full()
@@ -297,8 +313,11 @@ impl GridApp {
                     .child(
                         v_virtual_list(cx.entity().clone(), "library-items", sizes, {
                             let items = Rc::clone(&items);
+                            let view = Rc::clone(&view);
                             move |this, range, _window, cx| {
-                                range.map(|ix| this.lib_item(&items[ix], cx)).collect()
+                                range
+                                    .map(|ix| this.lib_item(&items[ix], &view, cx))
+                                    .collect()
                             }
                         })
                         .track_scroll(&self.lib_scroll)
@@ -311,8 +330,38 @@ impl GridApp {
             .child(self.library_add_form(window, cx))
     }
 
+    /// Rebuild the flattened row stream and its size table when an input moves.
+    /// Favorites sort first within each section.
+    fn ensure_lib_stream(&mut self, needle: &str) {
+        let key = (
+            self.library.view_generation(),
+            self.library.generation(),
+            needle.to_string(),
+            self.favorites_rev,
+        );
+        if self.lib_stream_key.as_ref() == Some(&key) {
+            return;
+        }
+        let view: Vec<Firmware> = self.library.list().to_vec();
+        let items = flatten_library(&view, needle, &self.favorites);
+        let sizes: Vec<Size<Pixels>> = items
+            .iter()
+            .map(|item| size(px(0.0), item.height()))
+            .collect();
+
+        self.lib_view = Rc::new(view);
+        self.lib_sizes = Rc::new(sizes);
+        self.lib_items = Rc::new(items);
+        self.lib_stream_key = Some(key);
+    }
+
     /// One item of the flattened stream, rendered at its pinned height.
-    fn lib_item(&mut self, item: &LibItem, cx: &mut Context<Self>) -> AnyElement {
+    fn lib_item(
+        &mut self,
+        item: &LibItem,
+        view: &[Firmware],
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         match item {
             LibItem::Header(header) => {
                 let (dim, border) = {
@@ -336,10 +385,10 @@ impl GridApp {
                     )
                     .into_any_element()
             }
-            LibItem::Row(view_ix) => match self.library.list().get(*view_ix).cloned() {
+            LibItem::Row(view_ix) => match view.get(*view_ix).cloned() {
                 Some(firmware) => self.library_item(&firmware, cx),
-                // The view shifted under the stream (a download folded in between
-                // frames); one blank row for a frame beats a panic.
+                // The view is fixed while the cached stream is valid; a missing row
+                // costs one blank item rather than a panic.
                 None => div().w_full().h(LIB_ROW_H).into_any_element(),
             },
             LibItem::Empty => {
@@ -557,6 +606,7 @@ impl GridApp {
                         if !this.favorites.insert(key.clone()) {
                             this.favorites.remove(&key);
                         }
+                        this.favorites_rev = this.favorites_rev.wrapping_add(1);
                         // Like the theme pick, persist at once — a crash shouldn't
                         // lose the toggle.
                         this.save_session(cx);
@@ -931,7 +981,10 @@ impl GridApp {
 mod tests {
     // No `use super::*` — the parent's gpui glob import would drag in GPUI's `test`
     // attribute macro, which re-expands the built-in #[test] (see tests/mod.rs).
-    use super::{favorite_key, is_installed, matches_filter, snap_in, toggle_tag};
+    use super::{
+        favorite_key, flatten_library, is_installed, matches_filter, snap_in, toggle_tag, LibItem,
+    };
+    use std::collections::HashSet;
     use fm1_performer::library::{Firmware, FirmwareDevice, FirmwareSource, Status};
 
     fn firmware(name: &str, tags: &[&str]) -> Firmware {
@@ -1012,6 +1065,40 @@ mod tests {
     fn favorite_key_normalizes() {
         assert_eq!(favorite_key("Felucca"), favorite_key(" felucca "));
         assert_ne!(favorite_key("Felucca"), favorite_key("Beep"));
+    }
+
+    /// Favorites float to the top of their own section, in a stable order, and a
+    /// favorite hub offer does not jump above the installed rows.
+    #[test]
+    fn favorites_float_to_the_top() {
+        let mut view = vec![
+            firmware("Alpha", &[]),
+            firmware("Beta", &[]),
+            firmware("Gamma", &[]),
+        ];
+        let mut offer = firmware("Delta", &[]);
+        offer.source = FirmwareSource::Hub {
+            path: "fw/delta.fwsc".to_string(),
+            blob: None,
+        };
+        view.push(offer);
+        let favorites: HashSet<String> = ["gamma".to_string(), "delta".to_string()]
+            .into_iter()
+            .collect();
+        let items = flatten_library(&view, "", &favorites);
+        assert_eq!(items[0], LibItem::Header("INSTALLED"));
+        assert_eq!(
+            items[1..4].to_vec(),
+            vec![LibItem::Row(2), LibItem::Row(0), LibItem::Row(1)]
+        );
+        let hub = items
+            .iter()
+            .position(|item| *item == LibItem::Header("AVAILABLE ON THE HUB"))
+            .expect("the hub section");
+        assert_eq!(items[hub + 1], LibItem::Row(3));
+        // The filter still applies after the sort.
+        let filtered = flatten_library(&view, "bet", &favorites);
+        assert_eq!(filtered[1..2].to_vec(), vec![LibItem::Row(1)]);
     }
 
     /// A pill click toggles the tag's words: appended when any is missing as a token

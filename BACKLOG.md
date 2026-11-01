@@ -14,5 +14,3 @@ Always use web search and read source. Do not trust any understanding of code
 and APIS you have not sourced online/in the filesystem first.
 
 # Issues
-
-(nothing outstanding)

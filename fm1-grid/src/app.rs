@@ -26,7 +26,8 @@ use fm1_performer::emulator::{EmulatorHandle, LCD_H, LCD_W};
 use fm1_performer::hardware::Hardware;
 use fm1_performer::keys::{BUTTONS, PIANO};
 use fm1_performer::midi_keys::MidiKeys;
-use fm1_performer::routing::Routing;
+use fm1_performer::library::Firmware;
+use fm1_performer::routing::{Port, Routing};
 use fm1_soc::Action;
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::base::{ElementExt, VirtualListScrollHandle, resizable_panel};
@@ -39,8 +40,13 @@ use gpui_kit::component::{ActiveTheme, Icon, Theme, ThemeMode, ThemeRegistry, Ti
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{TestSupportExt as _, *};
 use std::path::PathBuf;
+use std::rc::Rc;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+
+/// How long a graph row's snap-in or fade-out plays; the library rows use the same
+/// 400 ms window.
+pub(crate) const GRAPH_ANIM: Duration = Duration::from_millis(400);
 
 #[derive(Clone)]
 pub(crate) enum Source {
@@ -320,6 +326,21 @@ pub struct GridApp {
     /// Newly installed rows and when they appeared; the row plays a 200 ms snap-in
     /// spring and the entries drop once settled.
     pub(crate) lib_added: std::collections::HashMap<String, Instant>,
+    /// The Library tab's cached view and flattened row stream. The virtual list's
+    /// render closure runs on every scroll frame, so the stream is rebuilt only
+    /// when [`LibStreamKey`] moves, never per frame.
+    pub(crate) lib_view: Rc<Vec<Firmware>>,
+    pub(crate) lib_items: Rc<Vec<crate::library_tab::LibItem>>,
+    pub(crate) lib_sizes: Rc<Vec<Size<Pixels>>>,
+    pub(crate) lib_stream_key: Option<(u64, u64, String, u64)>,
+    /// Bumped when a favorite flips, so the cached stream re-sorts favorites first.
+    pub(crate) favorites_rev: u64,
+    /// MIDI graph rows the sections animate: links that just appeared (snap in) or
+    /// vanished (fade out). The tick diffs the routing graph, so a pane powering off
+    /// and pruning its links animates like an (X) click.
+    pub(crate) graph_added: std::collections::HashMap<(Port, Port), Instant>,
+    pub(crate) graph_removed: std::collections::HashMap<(Port, Port), Instant>,
+    graph_known: std::collections::HashSet<(Port, Port)>,
     /// Favorited firmwares, as normalized name keys (see `favorite_key`; persisted
     /// in the session). A favorite's library row carries the synthetic ★ tag, every
     /// other row the synthetic ☆.
@@ -623,6 +644,14 @@ impl GridApp {
             lib_scroll_to: None,
             lib_known,
             lib_added: Default::default(),
+            lib_view: Rc::new(Vec::new()),
+            lib_items: Rc::new(Vec::new()),
+            lib_sizes: Rc::new(Vec::new()),
+            lib_stream_key: None,
+            favorites_rev: 0,
+            graph_added: Default::default(),
+            graph_removed: Default::default(),
+            graph_known: Default::default(),
             download_all: session.download_all,
             theme_id: session.theme.clone(),
             appearance: session.appearance,
@@ -1241,6 +1270,25 @@ impl GridApp {
             .update(cx, |slider, cx| slider.set_value(bpm as f32, window, cx));
     }
 
+    /// Fold the routing graph's current links into the animation maps: a new link
+    /// snaps in, a vanished one ghosts out. True while rows are still animating.
+    pub(crate) fn sync_graph_anim(&mut self, links: Vec<(Port, Port)>) -> bool {
+        let links: std::collections::HashSet<(Port, Port)> = links.into_iter().collect();
+        for link in links.difference(&self.graph_known) {
+            self.graph_removed.remove(link);
+            self.graph_added.insert(link.clone(), Instant::now());
+        }
+        for link in self.graph_known.difference(&links) {
+            self.graph_added.remove(link);
+            self.graph_removed.insert(link.clone(), Instant::now());
+        }
+        self.graph_known = links;
+        self.graph_added.retain(|_, at| at.elapsed() < GRAPH_ANIM);
+        self.graph_removed.retain(|_, at| at.elapsed() < GRAPH_ANIM);
+        // A link added and then dropped within the window is gone from both maps.
+        !self.graph_added.is_empty() || !self.graph_removed.is_empty()
+    }
+
     /// The 16 ms pump: merge inputs, upload LCD frames, refresh the ghost, decay the
     /// LEDs and ease the grid background. Replaces egui's per-frame `update()` work —
     /// with one retained-mode difference: nothing repaints unless something changed
@@ -1270,6 +1318,12 @@ impl GridApp {
         if !self.lib_added.is_empty() {
             self.lib_added
                 .retain(|_, at| at.elapsed() < Duration::from_millis(400));
+            cx.notify();
+        }
+        // The graph's connection rows animate in and out. The routing graph lives on
+        // its poller thread and pane power-offs prune links there too, so this diff
+        // catches every change, not just the (X)/Connect clicks.
+        if self.sync_graph_anim(self.routing.links()) {
             cx.notify();
         }
         // Download All advances on events only — a download finishing, a hub swap,

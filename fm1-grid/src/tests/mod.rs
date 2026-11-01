@@ -1121,6 +1121,41 @@ fn devices_tab_offers_midi_rescue(cx: &mut TestAppContext) {
     .unwrap();
 }
 
+/// The graph's animation map follows the routing diff: a new link snaps in, a
+/// removed one ghosts out, and both settle after the window.
+#[gpui_kit::test]
+fn graph_rows_animate_on_link_changes(cx: &mut TestAppContext) {
+    use fm1_performer::routing::Port;
+    let _guard = ui_lock();
+    let (_window, app) = open_app(cx);
+    let link = (Port::Pane(0), Port::Pane(1));
+    let gone = (Port::Device("unit".to_string()), Port::Pane(0));
+
+    cx.update(|cx| {
+        app.update(cx, |app, _| {
+            assert!(app.sync_graph_anim(vec![link.clone(), gone.clone()]));
+            assert!(app.graph_added.contains_key(&link));
+            assert!(!app.graph_removed.contains_key(&link));
+
+            // Both vanish: the rows ghost out instead of popping.
+            assert!(app.sync_graph_anim(Vec::new()));
+            assert!(app.graph_added.is_empty());
+            assert!(app.graph_removed.contains_key(&link));
+            assert!(app.graph_removed.contains_key(&gone));
+
+            // A link that comes back drops its ghost and snaps in again.
+            assert!(app.sync_graph_anim(vec![link.clone()]));
+            assert!(app.graph_added.contains_key(&link));
+            assert!(!app.graph_removed.contains_key(&link));
+
+            // Settled entries drop; nothing left to repaint.
+            std::thread::sleep(crate::app::GRAPH_ANIM + Duration::from_millis(10));
+            assert!(!app.sync_graph_anim(vec![link.clone()]));
+            assert!(app.graph_added.is_empty() && app.graph_removed.is_empty());
+        })
+    });
+}
+
 /// The Devices tab's pill sections: Devices and MIDI Graph swap the display area
 /// under the centered pill tab bar.
 #[gpui_kit::test]

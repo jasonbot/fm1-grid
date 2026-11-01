@@ -15,15 +15,16 @@ use gpui_kit::component::scroll::ScrollableElement;
 use gpui_kit::component::{ActiveTheme, Icon, Sizable};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{TestSupportExt as _, *};
+use std::time::Instant;
 
 impl GridApp {
     /// The MIDI Graph section: every source endpoint gets a section, linked or not.
     /// The sections scroll (wheel, scrollbar, PgUp/PgDn); the heading lines stay
     /// pinned.
     pub(crate) fn graph_section(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
-        let (ink, dim, border) = {
+        let (ink, dim) = {
             let theme = cx.theme();
-            (theme.foreground, theme.muted_foreground, theme.border)
+            (theme.foreground, theme.muted_foreground)
         };
         let endpoints = self.routing.endpoints();
         let links = self.routing.links();
@@ -55,57 +56,54 @@ impl GridApp {
                         .child(label(&source)),
                 );
 
-            // The sinks this source feeds, each with its (X) unroute pill.
+            // The sinks this source feeds, each with its (X) unroute pill. A row
+            // that just appeared snaps in on the library's spring; rows that just
+            // vanished linger as ghosts and fade out.
             for (sink_ix, (_, sink)) in
                 links.iter().filter(|(s, _)| *s == source).enumerate()
             {
                 let sink = sink.clone();
                 let sink_label = label(&sink);
-                // A pane whose firmware advertises USB-MIDI has MIDI out on real
-                // hardware; in the emulator only its MIDI IN jack exists.
-                let tip = match &sink {
-                    Port::Pane(slot) if self.slots[*slot].usb_midi => {
-                        format!(
-                            "Remove this connection. {} advertises USB-MIDI in/out on real \
-                             hardware; the emulator bridges its MIDI IN only, so its MIDI \
-                             out stays silent.",
-                            sink_label
-                        )
-                    }
-                    _ => "Remove this connection".to_string(),
-                };
-                let src = source.clone();
-                // The unroute X sits first, beside the sink it removes; the rule
-                // above each row separates connections and gives them height.
-                section = section.child(
-                    h_flex()
-                        .w_full()
-                        .items_center()
-                        .gap_3()
-                        .px_2()
-                        .py_2()
-                        .border_t_1()
-                        .border_color(border)
-                        .child(
-                            Button::new(("sink-x", row_ix * 1024 + sink_ix))
-                                .icon(Icon::new(Lucide::X))
-                                .accessibility_label("unroute")
-                                .tooltip(tip)
-                                .small()
-                                .rounded(px(999.0))
-                                .on_click(cx.listener(move |this, _, window, cx| {
-                                    this.routing.disconnect(src.clone(), sink.clone());
-                                    this.refocus(window, cx);
-                                    cx.notify();
-                                })),
-                        )
-                        .child(
-                            div()
-                                .text_size(px(13.0))
-                                .text_color(ink)
-                                .child(sink_label),
-                        ),
-                );
+                let (nudge, fade) =
+                    match self.graph_added.get(&(source.clone(), sink.clone())) {
+                        Some(at) => {
+                            let t = at.elapsed().as_secs_f32();
+                            ((1.0 - crate::library_tab::snap_in(t)) * 6.0, (t / 0.12).min(1.0))
+                        }
+                        None => (0.0, 1.0),
+                    };
+                section = section.child(self.graph_sink_row(
+                    source.clone(),
+                    sink,
+                    sink_label,
+                    row_ix,
+                    sink_ix,
+                    nudge,
+                    fade,
+                    cx,
+                ));
+            }
+            let mut ghosts: Vec<(Port, Instant)> = self
+                .graph_removed
+                .iter()
+                .filter(|((src, _), _)| *src == source)
+                .map(|((_, sink), at)| (sink.clone(), *at))
+                .collect();
+            ghosts.sort_by_key(|(_, at)| *at);
+            for (ghost_ix, (sink, at)) in ghosts.into_iter().enumerate() {
+                let t = at.elapsed().as_secs_f32();
+                let fade = (1.0 - t / crate::app::GRAPH_ANIM.as_secs_f32()).max(0.0);
+                let sink_label = label(&sink);
+                section = section.child(self.graph_sink_row(
+                    source.clone(),
+                    sink,
+                    sink_label,
+                    row_ix,
+                    4096 + ghost_ix,
+                    0.0,
+                    fade,
+                    cx,
+                ));
             }
 
             // The always-there router dropdown: every sink this source is not
@@ -229,5 +227,72 @@ impl GridApp {
                         ),
                     ),
             )
+    }
+
+    /// One connection row: the unroute pill, then the sink's label. `nudge` lifts
+    /// the row on the snap-in spring; `fade` is its opacity (a removed row ghosts
+    /// out before the tick drops it).
+    #[allow(clippy::too_many_arguments)]
+    fn graph_sink_row(
+        &mut self,
+        source: Port,
+        sink: Port,
+        sink_label: String,
+        row_ix: usize,
+        id: usize,
+        nudge: f32,
+        fade: f32,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let (ink, border) = {
+            let theme = cx.theme();
+            (theme.foreground, theme.border)
+        };
+        // A pane whose firmware advertises USB-MIDI has MIDI out on real hardware;
+        // in the emulator only its MIDI IN jack exists.
+        let tip = match &sink {
+            Port::Pane(slot) if self.slots[*slot].usb_midi => {
+                format!(
+                    "Remove this connection. {} advertises USB-MIDI in/out on real \
+                     hardware; the emulator bridges its MIDI IN only, so its MIDI \
+                     out stays silent.",
+                    sink_label
+                )
+            }
+            _ => "Remove this connection".to_string(),
+        };
+        let src = source;
+        // The unroute X sits first, beside the sink it removes; the rule above each
+        // row separates connections and gives them height.
+        h_flex()
+            .w_full()
+            .items_center()
+            .gap_3()
+            .px_2()
+            .py_2()
+            .border_t_1()
+            .border_color(border)
+            .pt(px(8.0 + nudge))
+            .opacity(fade)
+            .child(
+                Button::new(("sink-x", row_ix * 1024 + id))
+                    .icon(Icon::new(Lucide::X))
+                    .accessibility_label("unroute")
+                    .tooltip(tip)
+                    .small()
+                    .rounded(px(999.0))
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.routing.disconnect(src.clone(), sink.clone());
+                        this.refocus(window, cx);
+                        cx.notify();
+                    })),
+            )
+            .child(
+                div()
+                    .text_size(px(13.0))
+                    .text_color(ink)
+                    .child(sink_label),
+            )
+            .into_any_element()
     }
 }

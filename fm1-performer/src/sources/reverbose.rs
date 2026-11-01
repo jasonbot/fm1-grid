@@ -51,7 +51,7 @@ pub(crate) fn fetch_listing(page_one_url: &str) -> Result<Vec<Firmware>, String>
 /// `@author`, a two-line description and a kind badge. Tools (they never flash) are
 /// skipped; mods get a `mod` tag. The cards carry no website/source links — those
 /// live on the detail pages, which a listing fetch doesn't chase.
-pub(crate) fn parse_page(html: &str) -> Result<Vec<Firmware>, String> {
+fn parse_page(html: &str) -> Result<Vec<Firmware>, String> {
     let mut entries = Vec::new();
     let mut rest = html;
     while let Some(start) = rest.find("<article class=\"group ") {
@@ -61,7 +61,7 @@ pub(crate) fn parse_page(html: &str) -> Result<Vec<Firmware>, String> {
         rest = &rest[end..];
 
         // Tools run on a computer, not the hardware: nothing to flash or offer.
-        if chunk.contains("title=\"Runs on your computer; nothing is flashed to the hardware.\"") {
+        if is_tool(chunk) {
             continue;
         }
         // The name anchor is the card's second `/f/<slug>` link — the image's has
@@ -133,6 +133,26 @@ pub(crate) fn parse_page(html: &str) -> Result<Vec<Firmware>, String> {
         return Err("no firmware cards found on the reverbose page".to_string());
     }
     Ok(entries)
+}
+
+/// Whether the card is a computer-side tool. The kind badge is the card's first
+/// `<span title=…>Label</span>`; the tooltip copy has changed before, so the visible
+/// `Tool` label and the "nothing is flashed" wording both count.
+fn is_tool(chunk: &str) -> bool {
+    let Some(start) = chunk.find("<span title=\"") else {
+        return false;
+    };
+    let rest = &chunk[start + "<span title=\"".len()..];
+    let Some((title, after)) = rest.split_once('"') else {
+        return false;
+    };
+    let label = after
+        .find('>')
+        .map(|close| &after[close + 1..])
+        .and_then(|text| text.split("</span").next())
+        .unwrap_or("")
+        .trim();
+    label.eq_ignore_ascii_case("tool") || title.contains("nothing is flashed")
 }
 
 /// A detail page names no package itself: it links the project's pages. The install
@@ -237,6 +257,16 @@ mod tests {
         );
         let html = format!("<html><body>{tool}</body></html>");
         assert!(parse_page(&html).is_err(), "a tools-only page yields nothing");
+
+        // The badge's visible label alone identifies a tool if the tooltip changes.
+        let tool = CARD
+            .replace(
+                "title=\"Replaces the factory firmware.\"",
+                "title=\"Some new wording.\"",
+            )
+            .replace(">Firmware</span>", ">Tool</span>");
+        let html = format!("<html><body>{tool}</body></html>");
+        assert!(parse_page(&html).is_err(), "a tool label is enough to skip");
 
         let r#mod = CARD.replace(
             "title=\"Replaces the factory firmware.\"",

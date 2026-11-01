@@ -45,15 +45,19 @@ data directory (`~/.local/share/fm1-grid` on Linux).
 The **Library** tab lists every firmware the app knows — the bundled set, files you
 import, and (online) everything the
 [FM-1 Firmware Hub](https://thefirmwarehub.com/) offers, downloadable in place. The
-listing also folds in [fm1-editor.com's firmware page](https://fm1-editor.com/firmware/)
-and [Reverbose's FM-1 list](https://reverbose.com/h/m-vave/fm-1):
+listing also folds in [fm1-editor.com's firmware page](https://fm1-editor.com/firmware/),
+[Reverbose's FM-1 list](https://reverbose.com/h/m-vave/fm-1) and
+[mutant.cloud](https://mutant.cloud/):
 entries the hub lacks appear with their own links, and entries several sites carry get
-the combined tags and the newer side's version and download. Each row has a
-`source:` tag saying where its download comes from — `builtin`, `hub`, `fm1-editor`,
-`reverbose` or `file` — and when a site with a newer version takes over a row's
-download, the tag switches to that site. Rows that know their project's pages get two
-labelled buttons — **Web site** and **Github** — that open the project's pages in
-your browser; a row without those links shows the buttons greyed out. New rows in the
+the combined tags and the newer side's version and download. Computer-side tools
+(programs that run on your computer instead of flashing the hardware) are left out
+where a listing labels them: Reverbose's tool cards and mutant.cloud's tools. Each
+row has a `source:` tag saying where its download comes from — `builtin`, `hub`,
+`fm1-editor`, `reverbose`, `mutant` or `file` — and when a site with a newer version
+takes over a row's download, the tag switches to that site. Rows that know their
+project's pages get two labelled buttons — **Web site** and **Github** — that open
+the project's pages in your browser; a row without those links shows the buttons
+greyed out. New rows in the
 Installed section pop in with a quick spring animation. The filter box at the
 top matches space-separated words, each a case-insensitive substring anywhere in a
 firmware's name, version, tags, author or description — "f ll gro" finds Felucca.
@@ -65,7 +69,7 @@ builtins), download with progress, and **Flash To…** a live unit (modal progre
 log) or a powered-off unpinned pane (boots it). The **Download All** toggle at the
 bottom of the list downloads every offer in turn, including upgrades of rows the
 hub has a newer version of (bundled or downloaded); **Reload** beside it re-fetches
-all three listings. Download All walks the
+all four listings. Download All walks the
 list from the top and moves past an item that fails (the item gets one retry when
 you flip the toggle off and on, or reload). It is not a poll loop: a sweep runs when
 you turn it on, when the online listing refreshes, and when a download finishes,
@@ -81,20 +85,10 @@ firmware file with a name, version and description.
 cargo run --release -p fm1-grid
 ```
 
-With no arguments the panes load the embedded firmwares in list order. Any pane can
+At startup the panes load the embedded firmwares in list order. Any pane can
 run any firmware the library has — pick it from the selector in the sidebar. On Linux
 each running emulator is pinned to its own physical core while cores last. Four
 emulators at once want four cores; power on only what you play.
-
-Pass up to four firmware files to choose what loads where (left to right, top to
-bottom):
-
-```sh
-cargo run --release -p fm1-grid -- sloop.fwsc felucca.fwsc
-```
-
-A `.fwsc` file is an update package; a `.bin` or `.xip` file is a raw app image.
-`--help` lists all options.
 
 ### Firmware selector
 
@@ -212,8 +206,8 @@ The screen has four parts:
   unit too broken to answer to its name. If no FM-1 is found but some MIDI device
   is, the block's title warns `R: RESCUE?`.
 * **Library** — the firmware list, same as the GUI's Library tab: what came with the
-  app, what you imported, and (online) what the Firmware Hub, fm1-editor.com and
-  Reverbose offer.
+  app, what you imported, and (online) what the Firmware Hub, fm1-editor.com,
+  Reverbose and mutant.cloud offer.
   * `r` re-fetches the online listings.
   * `d` downloads the selected firmware. If the hub has a newer version of the
     selected row (marked with `↑`, bundled and downloaded rows alike), `d` upgrades
@@ -320,7 +314,7 @@ fm1-grid/themes/                the bundled gpui-kit theme sets (upstream themes
 fm1-grid/src/firmware_picker.rs the firmware dropdown's data (searchable, grouped by tag)
 fm1-grid/src/flash_dialog.rs    the modal flash progress + message terminal
 fm1-grid/src/session.rs         the saved UI state (split, tabs, pane, tempo, Download All)
-fm1-grid/src/main.rs            startup, CLI firmware arguments, the quit hook saving slot records
+fm1-grid/src/main.rs            startup and the quit hook saving slot records
 fm1-grid/src/tests/             headless UI smoke tests
 fm1-tty/src/                    the terminal UI (ratatui): library + flashing, piano, metronome
 ```

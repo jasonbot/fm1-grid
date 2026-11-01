@@ -1,11 +1,12 @@
-//! One module per firmware-listing source: the Firmware Hub's JSON catalog (the
-//! source of truth) and the two scraped pages — fm1-editor and Reverbose — that
-//! fold additively into it in [`crate::library`]. Each module owns its URL
-//! constant and an offline-testable `parse` for its response body; the shared
-//! HTML scraping helpers live here.
+//! One module per firmware feed: the Firmware Hub's JSON catalog (the source of
+//! truth) and the additive listings — fm1-editor, Reverbose and mutant.cloud — that
+//! fold into it in [`crate::library`]. Each module owns its URL constants, a
+//! `fetch_listing(url)` that does the network work, and an offline-testable `parse`
+//! for the body; the shared HTML scraping helpers live here.
 
 pub(crate) mod editor;
 pub(crate) mod hub;
+pub(crate) mod mutant;
 pub(crate) mod reverbose;
 
 use crate::library::FirmwareDevice;

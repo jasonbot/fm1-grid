@@ -63,7 +63,7 @@ fn open_app_at(cx: &mut TestAppContext, w: f32, h: f32) -> (WindowHandle<Root>, 
                 ..Default::default()
             },
             cx,
-            |window, cx| cx.new(|cx| GridApp::new(window, cx, &[])),
+            |window, cx| cx.new(|cx| GridApp::new(window, cx)),
         )
         .expect("open test window");
         (window.downcast::<Root>().expect("Base Root"), content)

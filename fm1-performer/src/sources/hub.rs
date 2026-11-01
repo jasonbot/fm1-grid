@@ -4,7 +4,7 @@
 use serde::Deserialize;
 
 use super::parse_device;
-use crate::library::{Firmware, FirmwareSource, Status};
+use crate::library::{Firmware, FirmwareDevice, FirmwareSource, Status};
 
 /// The hub's host; package paths in the catalog are relative to it.
 pub(crate) const BASE: &str = "https://thefirmwarehub.com";
@@ -29,6 +29,10 @@ struct CatalogEntry {
     vintage: bool,
     #[serde(default, rename = "product")]
     device: String,
+    /// mutant.cloud's catalog names devices explicitly ("fm1", "smk37"); the hub's
+    /// entries omit it and fall back to `product`.
+    #[serde(default)]
+    devices: Vec<String>,
     /// The package path on the hub ("fw/<file>", M-VAVE's under "fw/mvave/").
     pkg: String,
     #[serde(default)]
@@ -55,9 +59,22 @@ impl Default for Kind {
     }
 }
 
+/// Fetch the catalog and parse it. The hub is the one feed whose failure is fatal
+/// (the library keeps its previous listing).
+pub(crate) fn fetch_listing(url: &str) -> Result<Vec<Firmware>, String> {
+    let body = crate::download_heuristics::fetch_text(url)?;
+    parse_catalog(&body)
+}
+
 /// Parse the hub catalog into hub-source entries. Accepts either a bare array or an
 /// object with a `firmwares` array. Separated from the fetch so tests stay offline.
-pub(crate) fn parse_catalog(json: &str) -> Result<Vec<Firmware>, String> {
+fn parse_catalog(json: &str) -> Result<Vec<Firmware>, String> {
+    parse_catalog_with(json, "source:hub")
+}
+
+/// [`parse_catalog`] for a mirror that publishes the same format: `origin` is the
+/// `source:` tag its entries carry, so a newer mirror version can take over a row.
+pub(crate) fn parse_catalog_with(json: &str, origin: &str) -> Result<Vec<Firmware>, String> {
     #[derive(Deserialize)]
     struct Catalog {
         firmwares: Vec<CatalogEntry>,
@@ -76,14 +93,18 @@ pub(crate) fn parse_catalog(json: &str) -> Result<Vec<Firmware>, String> {
             if entry.vintage {
                 tags.push("vintage".to_string());
             }
-            tags.push("source:hub".to_string());
+            tags.push(origin.to_string());
             Firmware {
                 name: entry.name,
                 byline: entry.byline,
                 version: entry.version,
                 description: entry.description,
                 tags,
-                device: parse_device(&entry.device),
+                device: if entry.devices.iter().any(|d| d.eq_ignore_ascii_case("smk37")) {
+                    FirmwareDevice::Smk37Pro
+                } else {
+                    parse_device(&entry.device)
+                },
                 website: entry.website,
                 source_url: entry.source_url,
                 upgradable: false,

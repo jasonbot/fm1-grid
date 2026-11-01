@@ -1,12 +1,12 @@
 //! The firmware library's data layer: what's installed (builtins, imported files,
 //! downloaded hub packages) and what the online listing offers. The listing merges
-//! three sources fetched together: the Firmware Hub catalog (the source of truth),
+//! four sources fetched together: the Firmware Hub catalog (the source of truth),
 //! the fm1-editor site's firmware page and Reverbose's FM-1 list, both scraped
-//! (neither publishes a feed) and additive only. The store object `library` is the
-//! list of non-builtin entries; hub packages live in the blob store under
-//! `hub/<file>`, packages from absolute URLs under `ext/<file>-<hash>`. Network
-//! work (catalog refresh, downloads) runs on background threads; `list()` picks up
-//! finished downloads.
+//! (neither publishes a feed), and mutant.cloud's catalog, all additive only. The
+//! store object `library` is the list of non-builtin entries; hub packages live in
+//! the blob store under `hub/<file>`, packages from absolute URLs under
+//! `ext/<file>-<hash>`. Network work (catalog refresh, downloads) runs on
+//! background threads; `list()` picks up finished downloads.
 
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -15,8 +15,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use crate::builtin::BUILTINS;
-use crate::download_heuristics::{fetch_package, fetch_text, looks_like_web_page};
-use crate::sources::{editor, hub, reverbose};
+use crate::download_heuristics::{fetch_package, looks_like_web_page};
+use crate::sources::{editor, hub, mutant, reverbose};
 use crate::store::Store;
 
 /// The store object holding every non-builtin entry.
@@ -367,6 +367,7 @@ impl Library {
         self.refresh_hub_from(
             format!("{}?{day}", hub::CATALOG),
             format!("{}?{day}", editor::PAGE),
+            format!("{}?{day}", mutant::CATALOG),
             format!("{}?{day}", reverbose::PAGE),
         );
     }
@@ -374,27 +375,40 @@ impl Library {
     /// The workhorse, with the URLs injectable so tests stay offline (a port that's
     /// closed is a deterministic failure). All sources are fetched at the same
     /// time. The hub decides the outcome: its failure keeps the old listing, while
-    /// a scraped page's failure only costs its additive entries (and shows in the
+    /// an additive source's failure only costs its entries (and shows in the
     /// status). Every fetch — cadence or forced — counts for the cadence, so the
     /// timestamp is set here, the single funnel.
-    fn refresh_hub_from(&mut self, url: String, editor_url: String, reverbose_url: String) {
+    fn refresh_hub_from(
+        &mut self,
+        url: String,
+        editor_url: String,
+        mutant_url: String,
+        reverbose_url: String,
+    ) {
         *self.last_refresh.lock().unwrap() = Some(Instant::now());
         *self.hub_status.lock().unwrap() = HubStatus::Loading;
         let hub = Arc::clone(&self.hub);
         let status = Arc::clone(&self.hub_status);
         let swapped = Arc::clone(&self.hub_swapped);
         std::thread::spawn(move || {
-            let (listing, editor_page, reverbose_page) = std::thread::scope(|scope| {
-                let editor_page = scope
-                    .spawn(|| fetch_text(&editor_url).and_then(|body| editor::parse_page(&body)));
-                let reverbose_page =
-                    scope.spawn(|| reverbose::fetch_listing(&reverbose_url));
-                let listing = fetch_text(&url).and_then(|body| hub::parse_catalog(&body));
-                (listing, editor_page.join(), reverbose_page.join())
-            });
+            let (listing, editor_page, mutant_page, reverbose_page) =
+                std::thread::scope(|scope| {
+                    let editor_page = scope.spawn(|| editor::fetch_listing(&editor_url));
+                    let mutant_page = scope.spawn(|| mutant::fetch_listing(&mutant_url));
+                    let reverbose_page = scope.spawn(|| reverbose::fetch_listing(&reverbose_url));
+                    let listing = hub::fetch_listing(&url);
+                    (
+                        listing,
+                        editor_page.join(),
+                        mutant_page.join(),
+                        reverbose_page.join(),
+                    )
+                });
             // A panicked scrape thread reads as that source's failure.
             let editor_page =
                 editor_page.unwrap_or_else(|_| Err("editor page thread panicked".to_string()));
+            let mutant_page =
+                mutant_page.unwrap_or_else(|_| Err("mutant catalog thread panicked".to_string()));
             let reverbose_page = reverbose_page
                 .unwrap_or_else(|_| Err("reverbose page thread panicked".to_string()));
             let next = match listing {
@@ -404,7 +418,7 @@ impl Library {
                     // failure is the one the status reports.
                     let mut outcome = HubStatus::Idle;
                     let mut listing = listing;
-                    for extra in [editor_page, reverbose_page] {
+                    for extra in [editor_page, mutant_page, reverbose_page] {
                         match extra {
                             Ok(extra) => listing = merge_listings(listing, extra),
                             Err(e) if matches!(outcome, HubStatus::Idle) => {
@@ -1396,6 +1410,7 @@ mod tests {
         library.refresh_hub_from(
             "http://127.0.0.1:1/catalog.json".to_string(),
             "http://127.0.0.1:1/firmware/".to_string(),
+            "http://127.0.0.1:1/mutant.json".to_string(),
             "http://127.0.0.1:1/h/m-vave/fm-1".to_string(),
         );
         for _ in 0..50 {
@@ -1423,6 +1438,7 @@ mod tests {
         library.refresh_hub_from(
             "http://127.0.0.1:1/catalog.json".to_string(),
             "http://127.0.0.1:1/firmware/".to_string(),
+            "http://127.0.0.1:1/mutant.json".to_string(),
             "http://127.0.0.1:1/h/m-vave/fm-1".to_string(),
         );
         assert!(matches!(library.hub_status(), HubStatus::Loading));

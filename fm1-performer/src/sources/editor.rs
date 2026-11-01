@@ -17,12 +17,18 @@ fn status_version(status: &str) -> String {
         .unwrap_or_default()
 }
 
+/// Fetch the firmware page and parse it.
+pub(crate) fn fetch_listing(url: &str) -> Result<Vec<Firmware>, String> {
+    let body = crate::download_heuristics::fetch_text(url)?;
+    parse_page(&body)
+}
+
 /// Parse the fm1-editor firmware page into hub-style offers. One `<article>` per
 /// entry: the kicker is the author, `data-categories` the tags, the status line the
 /// version, the blurb paragraphs the description, and the labelled outbound links
 /// ("Source ↗", "Website ↗") the code and web pages. Entries without a name or any
 /// external link are skipped. Separated from the fetch so tests stay offline.
-pub(crate) fn parse_page(html: &str) -> Result<Vec<Firmware>, String> {
+fn parse_page(html: &str) -> Result<Vec<Firmware>, String> {
     let mut entries = Vec::new();
     let mut rest = html;
     while let Some(start) = rest.find("<article") {

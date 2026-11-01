@@ -343,7 +343,7 @@ pub struct GridApp {
 }
 
 impl GridApp {
-    pub fn new(window: &mut Window, cx: &mut Context<Self>, initial: &[PathBuf]) -> Self {
+    pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let core_cpus = fm1_performer::affinity::core_cpus();
 
         let rings: [Arc<AudioRing>; MAX_SLOTS] =
@@ -632,22 +632,14 @@ impl GridApp {
             _subscriptions: subscriptions,
         };
 
-        if initial.is_empty() {
-            // Load the embedded firmwares into the first panes (powered off, like all).
-            for slot in 0..BUILTINS.len().min(MAX_SLOTS) {
-                app.load_builtin(slot, slot);
-            }
-        } else {
-            for (slot, path) in initial.iter().take(MAX_SLOTS).enumerate() {
-                app.load_file(slot, path.clone());
-            }
+        // Load the embedded firmwares into the first panes (powered off, like all).
+        for slot in 0..BUILTINS.len().min(MAX_SLOTS) {
+            app.load_builtin(slot, slot);
         }
-        // Slot records come back: each pane's firmware selection and pin. CLI
-        // firmware arguments win over a stored record (the explicit now beats the
-        // remembered). Read every record first (the store borrows the app
-        // immutably; applying them mutates it).
+        // Slot records come back: each pane's firmware selection and pin. Read every
+        // record first (the store borrows the app immutably; applying them mutates it).
         let records: Vec<(usize, SlotRecord)> = match &app.store {
-            Some(store) => (initial.len()..MAX_SLOTS)
+            Some(store) => (0..MAX_SLOTS)
                 .filter_map(|slot| {
                     store
                         .fetch_object::<SlotRecord>(&format!("slot-{slot}"))

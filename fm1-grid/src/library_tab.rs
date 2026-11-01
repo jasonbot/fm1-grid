@@ -453,7 +453,7 @@ impl GridApp {
                         .selected(loading)
                         .toggled(loading)
                         .disabled(loading)
-                        .tooltip("Fetch the hub's catalog again")
+                        .tooltip("Fetch every online listing again")
                         .on_click(cx.listener(|this, _, _, cx| {
                             this.library.reload_hub();
                             cx.notify();

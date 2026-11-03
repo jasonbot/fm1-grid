@@ -340,11 +340,11 @@ impl GridApp {
                         ),
                     )
                     .child(
+                        // Medium, like the filter input beside it.
                         Button::new("library-devices")
                             .label(device_label)
                             .icon(Icon::new(Lucide::ListFilter))
-                            .small()
-                            .ghost()
+                            .outline()
                             .tooltip("Which device families the library lists")
                             .dropdown_menu({
                                 let app = device_app.clone();

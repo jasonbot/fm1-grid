@@ -1,5 +1,9 @@
 //! Window bootstrap; the app itself lives in the `fm1_grid` library.
 
+// A GUI needs the GUI subsystem: without this the binary links as a console app and
+// Windows opens a console window behind the main window.
+#![cfg_attr(windows, windows_subsystem = "windows")]
+
 use fm1_grid::app::GridApp;
 use gpui_kit::assets::{icon_assets, Assets as ComponentAssets};
 use gpui_kit::component::TitleBar;

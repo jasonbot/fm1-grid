@@ -70,6 +70,32 @@ pub(crate) enum Appearance {
     Dark,
 }
 
+/// The Library tab's device checkboxes: FM-1 on, SMK-37 off until asked for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+pub(crate) struct DeviceFilter {
+    pub fm1: bool,
+    pub smk37: bool,
+}
+
+impl Default for DeviceFilter {
+    fn default() -> Self {
+        Self {
+            fm1: true,
+            smk37: false,
+        }
+    }
+}
+
+impl DeviceFilter {
+    pub(crate) fn shows(&self, device: fm1_performer::library::FirmwareDevice) -> bool {
+        match device {
+            fm1_performer::library::FirmwareDevice::Fm1 => self.fm1,
+            fm1_performer::library::FirmwareDevice::Smk37 => self.smk37,
+        }
+    }
+}
+
 #[derive(Default)]
 pub(crate) struct Slot {
     pub handle: Option<EmulatorHandle>,
@@ -332,7 +358,7 @@ pub struct GridApp {
     pub(crate) lib_view: Rc<Vec<Firmware>>,
     pub(crate) lib_items: Rc<Vec<crate::library_tab::LibItem>>,
     pub(crate) lib_sizes: Rc<Vec<Size<Pixels>>>,
-    pub(crate) lib_stream_key: Option<(u64, u64, String, u64)>,
+    pub(crate) lib_stream_key: Option<(u64, u64, String, u64, bool, bool)>,
     /// Bumped when a favorite flips, so the cached stream re-sorts favorites first.
     pub(crate) favorites_rev: u64,
     /// MIDI graph rows the sections animate: links that just appeared (snap in) or
@@ -342,9 +368,13 @@ pub struct GridApp {
     pub(crate) graph_removed: std::collections::HashMap<(Port, Port), Instant>,
     graph_known: std::collections::HashSet<(Port, Port)>,
     /// Favorited firmwares, as normalized name keys (see `favorite_key`; persisted
-    /// in the session). A favorite's library row carries the synthetic ★ tag, every
+    /// in the session). A favorite's library row carries its glyph tag, every
     /// other row the synthetic ☆.
     pub(crate) favorites: std::collections::HashSet<String>,
+    /// The glyph a favorite shows (keyed like `favorites`); a missing entry is ★.
+    pub(crate) favorite_glyphs: std::collections::HashMap<String, String>,
+    /// Which device families the Library tab lists (persisted in the session).
+    pub(crate) device_filter: DeviceFilter,
     /// The Library tab's Download All toggle (persisted in the session): while on,
     /// event-driven sweeps keep one hub download going until nothing downloadable
     /// or upgradable remains.
@@ -562,6 +592,8 @@ impl GridApp {
         if hub_online() {
             library.refresh_hub();
         }
+        // Download All only walks the device families the Library tab shows.
+        library.set_device_filter(Some((session.device_filter.fm1, session.device_filter.smk37)));
         // An armed Download All sweeps when the first catalog lands (the pump's
         // hub-swap trigger), not on a poll.
         library.set_download_all(session.download_all);
@@ -641,6 +673,12 @@ impl GridApp {
                 .iter()
                 .map(|name| crate::library_tab::favorite_key(name))
                 .collect(),
+            favorite_glyphs: session
+                .favorite_glyphs
+                .iter()
+                .map(|(name, glyph)| (crate::library_tab::favorite_key(name), glyph.clone()))
+                .collect(),
+            device_filter: session.device_filter,
             lib_scroll_to: None,
             lib_known,
             lib_added: Default::default(),

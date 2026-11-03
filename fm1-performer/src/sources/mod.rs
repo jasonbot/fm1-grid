@@ -47,8 +47,46 @@ pub(crate) fn text_of(html: &str) -> String {
 /// to Fm1.
 pub(crate) fn parse_device(product: &str) -> FirmwareDevice {
     if product.to_ascii_uppercase().starts_with("SMK") {
-        FirmwareDevice::Smk37Pro
+        FirmwareDevice::Smk37
     } else {
         FirmwareDevice::Fm1
+    }
+}
+
+/// The SMK-37 model a catalog's `product` names, as a display tag: "SMK-37 Elite",
+/// "SMK-37 Pro" or "MKE-P37". None for FM-1 and unknown products.
+pub(crate) fn parse_variant(product: &str) -> Option<&'static str> {
+    let product = product.to_ascii_uppercase();
+    if product.starts_with("MKE-P37") {
+        Some("MKE-P37")
+    } else if product.starts_with("SMK-37 ELITE") {
+        Some("SMK-37 Elite")
+    } else if product.starts_with("SMK") {
+        Some("SMK-37 Pro")
+    } else {
+        None
+    }
+}
+
+/// A name made distinct per SMK-37 model: the same firmware ships one package for
+/// each, and the listing often gives them one name. A name that already says the
+/// model ("… (smk37-elite)") is kept. Identity keys, downloads and favorites key on
+/// the name, so the suffix is what keeps the variants apart.
+pub(crate) fn named_for_variant(name: String, variant: Option<&str>) -> String {
+    let Some(variant) = variant else {
+        return name;
+    };
+    let token = match variant {
+        "SMK-37 Elite" => "elite",
+        "SMK-37 Pro" => "pro",
+        _ => "mke",
+    };
+    let mentions = name
+        .split(|c: char| !c.is_ascii_alphanumeric())
+        .any(|part| part.eq_ignore_ascii_case(token));
+    if mentions {
+        name
+    } else {
+        format!("{name} — {variant}")
     }
 }

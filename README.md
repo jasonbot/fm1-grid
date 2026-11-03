@@ -46,10 +46,16 @@ The **Library** tab lists every firmware the app knows — the bundled set, file
 import, and (online) everything the
 [FM-1 Firmware Hub](https://thefirmwarehub.com/) offers, downloadable in place. The
 listing also folds in [fm1-editor.com's firmware page](https://fm1-editor.com/firmware/),
-[Reverbose's FM-1 list](https://reverbose.com/h/m-vave/fm-1) and
+[Reverbose's FM-1 list](https://reverbose.com/h/m-vave/fm-1),
+[Reverbose's SMK-37 list](https://reverbose.com/h/m-vave/smk-37) and
 [mutant.cloud](https://mutant.cloud/):
 entries the hub lacks appear with their own links, and entries several sites carry get
-the combined tags and the newer side's version and download. Computer-side tools
+the combined tags and the newer side's version and download. SMK-37 firmware comes
+from mutant.cloud and Reverbose's SMK-37 list. The hub's own SMK-37 page only links
+to each maker's installer, so the app has no package to download there. Each SMK-37
+row carries a tag naming the model it is built for — `SMK-37 Pro`, `SMK-37 Elite` or
+`MKE-P37` — and when one firmware ships one package per model, the model is added to
+the row's name so the builds stay apart. Computer-side tools
 (programs that run on your computer instead of flashing the hardware) are left out
 where a listing labels them: Reverbose's tool cards and mutant.cloud's tools. Each
 row has a `source:` tag saying where its download comes from — `builtin`, `hub`,
@@ -61,16 +67,25 @@ greyed out. New rows in the
 Installed section pop in with a quick spring animation. The filter box at the
 top matches space-separated words, each a case-insensitive substring anywhere in a
 firmware's name, version, tags, author or description — "f ll gro" finds Felucca.
-Clicking a tag pill toggles that tag's words in the filter. Each row leads with a
-star button: favoriting is remembered across restarts, a favorite's pills gain the
-synthetic `★` tag and every other row the synthetic `☆`, and either pill filters
-the list like any tag. Favorite rows float to the top of their section. The list
+Clicking a tag pill toggles that tag's words in the filter. Next to the filter box is
+a **Devices** button with a tick for FM-1 and one for SMK-37. FM-1 is on and SMK-37
+is off when you start, so the list only shows what the panes can run; tick SMK-37 to
+see those builds too. The app remembers both ticks. The emulator cannot run SMK-37
+firmware, so those rows cannot be flashed from here — their makers' installers do
+that. Each row leads with a favorite button: favoriting is remembered across
+restarts, a favorite's pills gain a glyph (`★` by default) and every other row the
+hollow `☆`, and the pill filters the list like any tag. The small arrow beside the
+favorite button opens a menu that gives the favorite another glyph: `★`, `⮾` (known
+as NoThanks), `𓅓` (owl), `𓅃` (falcon) or `𓃱` (giraffe). A favorite with the
+NoThanks glyph sorts to the bottom of its section and its row is greyed out, so you can
+push a firmware out of the way without forgetting it. Favorite rows float to the top
+of their section. The list
 draws only the rows on screen, so a big library stays smooth. Items remove (not
 builtins), download with progress, and **Flash To…** a live unit (modal progress +
 log) or a powered-off unpinned pane (boots it). The **Download All** toggle at the
-bottom of the list downloads every offer in turn, including upgrades of rows the
-hub has a newer version of (bundled or downloaded); **Reload** beside it re-fetches
-all four listings. Download All walks the
+bottom of the list downloads every offer the device filter shows, including upgrades
+of rows the hub has a newer version of (bundled or downloaded); **Reload** beside it re-fetches
+all five listings. Download All walks the
 list from the top and moves past an item that fails (the item gets one retry when
 you flip the toggle off and on, or reload). It is not a poll loop: a sweep runs when
 you turn it on, when the online listing refreshes, and when a download finishes,

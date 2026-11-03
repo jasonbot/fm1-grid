@@ -33,6 +33,11 @@ pub(crate) struct Session {
     /// Favorited firmwares, as normalized name keys; sorted so the record on disk
     /// stays diff-stable.
     pub favorites: std::collections::BTreeSet<String>,
+    /// The glyph each favorite shows (normalized name key -> glyph); ★ is implied
+    /// when a favorite has no entry.
+    pub favorite_glyphs: std::collections::BTreeMap<String, String>,
+    /// The Library tab's device checkboxes (FM-1 on, SMK-37 off by default).
+    pub device_filter: crate::app::DeviceFilter,
     /// The theme family (the Settings tab's picker; "default" is gpui-kit's pair).
     pub theme: String,
     /// The appearance override (auto/light/dark).
@@ -49,6 +54,8 @@ impl Default for Session {
             bpm: DEFAULT_BPM,
             download_all: false,
             favorites: Default::default(),
+            favorite_glyphs: Default::default(),
+            device_filter: Default::default(),
             theme: crate::theme::DEFAULT_FAMILY.to_string(),
             appearance: crate::app::Appearance::default(),
         }
@@ -72,7 +79,14 @@ impl Session {
         // over (favorites key on the normalized name, so a rename orphans them).
         if session.favorites.remove("fm-1+va") {
             session.favorites.insert("baud girl (fm-1+va)".to_string());
+            if let Some(glyph) = session.favorite_glyphs.remove("fm-1+va") {
+                session.favorite_glyphs.insert("baud girl (fm-1+va)".to_string(), glyph);
+            }
         }
+        // Glyphs only make sense for a favorite.
+        session
+            .favorite_glyphs
+            .retain(|key, _| session.favorites.contains(key));
         session
     }
 }
@@ -97,6 +111,13 @@ impl GridApp {
             bpm: self.clock.bpm(),
             download_all: self.download_all,
             favorites: self.favorites.iter().cloned().collect(),
+            favorite_glyphs: self
+                .favorite_glyphs
+                .iter()
+                .filter(|(key, _)| self.favorites.contains(*key))
+                .map(|(key, glyph)| (key.clone(), glyph.clone()))
+                .collect(),
+            device_filter: self.device_filter,
             theme: self.theme_id.clone(),
             appearance: self.appearance,
         };
@@ -126,6 +147,13 @@ mod tests {
             favorites: ["felucca".to_string(), "fm-1+va".to_string()]
                 .into_iter()
                 .collect(),
+            favorite_glyphs: [("fm-1+va".to_string(), "𓅓".to_string())]
+                .into_iter()
+                .collect(),
+            device_filter: crate::app::DeviceFilter {
+                fm1: true,
+                smk37: true,
+            },
             theme: "ayu".to_string(),
             appearance: crate::app::Appearance::Dark,
         };
@@ -144,15 +172,24 @@ mod tests {
         assert!(loaded.favorites.contains("baud girl (fm-1+va)"));
         assert!(!loaded.favorites.contains("fm-1+va"));
         assert_eq!(loaded.favorites.len(), 2);
+        // The glyph followed the renamed favorite.
+        assert_eq!(
+            loaded.favorite_glyphs.get("baud girl (fm-1+va)").map(String::as_str),
+            Some("𓅓")
+        );
+        assert!(!loaded.favorite_glyphs.contains_key("fm-1+va"));
+        assert!(loaded.device_filter.fm1 && loaded.device_filter.smk37);
 
         // No record: the defaults; a corrupt record: the defaults too.
         std::fs::remove_dir_all(&dir).ok();
         let store = Store::in_dir(&dir);
         let defaults = Session::load(Some(&store));
         assert_eq!(defaults.sidebar_width, SIDEBAR_INITIAL);
+        assert!(defaults.device_filter.fm1 && !defaults.device_filter.smk37);
         std::fs::write(dir.join("objects").join(format!("{SESSION_OBJECT}.json")), b"{").unwrap();
         let defaults = Session::load(Some(&store));
         assert_eq!(defaults.sidebar_width, SIDEBAR_INITIAL);
+        assert!(defaults.device_filter.fm1 && !defaults.device_filter.smk37);
         std::fs::remove_dir_all(&dir).ok();
     }
 }

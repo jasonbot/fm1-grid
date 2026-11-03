@@ -206,7 +206,7 @@ fn library_row(app: &TuiApp, firmware: &Firmware, width: usize) -> Line<'static>
     if firmware.upgradable {
         pill = format!("↑ {pill}");
     }
-    if firmware.device == FirmwareDevice::Smk37Pro {
+    if firmware.device == FirmwareDevice::Smk37 {
         pill = format!("{pill} · smk37");
     }
     let pill_color = match firmware.status {

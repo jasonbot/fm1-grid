@@ -1,13 +1,16 @@
-//! Reverbose's FM-1 page (reverbose.com/h/m-vave/fm-1): a server-rendered card list
-//! with no feed and no API, scraped and additive only. A card names no package URL,
-//! so an entry's download URL is its detail page; `package_link` follows that page
-//! to the install page or release when a download actually starts.
+//! Reverbose's device pages (reverbose.com/h/m-vave/fm-1 and …/smk-37): server-rendered
+//! card lists with no feed and no API, scraped and additive only. A card names no
+//! package URL, so an entry's download URL is its detail page; `package_link` follows
+//! that page to the install page or release when a download actually starts.
 
 use super::{between, text_of};
 use crate::library::{Firmware, FirmwareDevice, FirmwareSource, Status};
 
 /// The FM-1 listing page.
 pub(crate) const PAGE: &str = "https://reverbose.com/h/m-vave/fm-1";
+
+/// The SMK-37 listing page (same card markup).
+pub(crate) const SMK37_PAGE: &str = "https://reverbose.com/h/m-vave/smk-37";
 
 /// The host prefix detail-page URLs share.
 pub(crate) const HOST: &str = "https://reverbose.com";
@@ -18,8 +21,12 @@ const PAGE_SIZE: usize = 48;
 /// Fetch the whole listing: the server renders `?page=N` (1-based), so walk pages
 /// until a short one. Fullness counts the page's cards, not the parsed entries —
 /// skipped tools would fake a short page. The first page's failure is fatal; a
-/// later page's just ends the walk with what's collected.
-pub(crate) fn fetch_listing(page_one_url: &str) -> Result<Vec<Firmware>, String> {
+/// later page's just ends the walk with what's collected. `device` names the page's
+/// family (the FM-1 and SMK-37 pages share their markup).
+pub(crate) fn fetch_listing(
+    page_one_url: &str,
+    device: FirmwareDevice,
+) -> Result<Vec<Firmware>, String> {
     let mut all = Vec::new();
     for page in 1..=50 {
         let url = if page == 1 {
@@ -34,7 +41,7 @@ pub(crate) fn fetch_listing(page_one_url: &str) -> Result<Vec<Firmware>, String>
             Err(_) => break,
         };
         let cards = body.matches("<article class=\"group ").count();
-        match parse_page(&body) {
+        match parse_page(&body, device) {
             Ok(entries) => all.extend(entries),
             Err(e) if page == 1 => return Err(e),
             Err(_) => break,
@@ -51,7 +58,7 @@ pub(crate) fn fetch_listing(page_one_url: &str) -> Result<Vec<Firmware>, String>
 /// `@author`, a two-line description and a kind badge. Tools (they never flash) are
 /// skipped; mods get a `mod` tag. The cards carry no website/source links — those
 /// live on the detail pages, which a listing fetch doesn't chase.
-fn parse_page(html: &str) -> Result<Vec<Firmware>, String> {
+fn parse_page(html: &str, device: FirmwareDevice) -> Result<Vec<Firmware>, String> {
     let mut entries = Vec::new();
     let mut rest = html;
     while let Some(start) = rest.find("<article class=\"group ") {
@@ -118,7 +125,7 @@ fn parse_page(html: &str) -> Result<Vec<Firmware>, String> {
             version,
             description,
             tags,
-            device: FirmwareDevice::Fm1,
+            device,
             website: None,
             source_url: None,
             upgradable: false,
@@ -226,7 +233,7 @@ mod tests {
     #[test]
     fn reverbose_page_parses() {
         let html = format!("<html><body>{CARD}{CARD}</body></html>");
-        let entries = parse_page(&html).unwrap();
+        let entries = parse_page(&html, FirmwareDevice::Fm1).unwrap();
         assert_eq!(entries.len(), 2);
         let entry = &entries[0];
         assert_eq!(entry.name, "NACHTFAHRT");
@@ -246,7 +253,11 @@ mod tests {
             }
             _ => panic!("hub source expected"),
         }
-        assert!(parse_page("<p>nothing here</p>").is_err());
+        assert!(parse_page("<p>nothing here</p>", FirmwareDevice::Fm1).is_err());
+
+        // The SMK-37 page uses the same markup; its device comes from the caller.
+        let entries = parse_page(&html, FirmwareDevice::Smk37).unwrap();
+        assert_eq!(entries[0].device, FirmwareDevice::Smk37);
     }
 
     #[test]
@@ -256,7 +267,7 @@ mod tests {
             "title=\"Runs on your computer; nothing is flashed to the hardware.\"",
         );
         let html = format!("<html><body>{tool}</body></html>");
-        assert!(parse_page(&html).is_err(), "a tools-only page yields nothing");
+        assert!(parse_page(&html, FirmwareDevice::Fm1).is_err(), "a tools-only page yields nothing");
 
         // The badge's visible label alone identifies a tool if the tooltip changes.
         let tool = CARD
@@ -266,14 +277,14 @@ mod tests {
             )
             .replace(">Firmware</span>", ">Tool</span>");
         let html = format!("<html><body>{tool}</body></html>");
-        assert!(parse_page(&html).is_err(), "a tool label is enough to skip");
+        assert!(parse_page(&html, FirmwareDevice::Fm1).is_err(), "a tool label is enough to skip");
 
         let r#mod = CARD.replace(
             "title=\"Replaces the factory firmware.\"",
             "title=\"Runs on top of the factory firmware.\"",
         );
         let html = format!("<html><body>{mod}</body></html>");
-        let entries = parse_page(&html).unwrap();
+        let entries = parse_page(&html, FirmwareDevice::Fm1).unwrap();
         assert_eq!(entries[0].tags, vec!["mod", "source:reverbose"]);
     }
 
@@ -306,4 +317,3 @@ mod tests {
         assert_eq!(package_link("<p>no links</p>"), None);
     }
 }
-

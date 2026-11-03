@@ -1,12 +1,13 @@
 //! The firmware library's data layer: what's installed (builtins, imported files,
 //! downloaded hub packages) and what the online listing offers. The listing merges
-//! four sources fetched together: the Firmware Hub catalog (the source of truth),
-//! the fm1-editor site's firmware page and Reverbose's FM-1 list, both scraped
-//! (neither publishes a feed), and mutant.cloud's catalog, all additive only. The
-//! store object `library` is the list of non-builtin entries; hub packages live in
-//! the blob store under `hub/<file>`, packages from absolute URLs under
-//! `ext/<file>-<hash>`. Network work (catalog refresh, downloads) runs on
-//! background threads; `list()` picks up finished downloads.
+//! five sources fetched together: the Firmware Hub catalog (the source of truth),
+//! the fm1-editor site's firmware page and Reverbose's FM-1 and SMK-37 lists, all
+//! scraped (none publishes a feed), and mutant.cloud's catalog, all additive only.
+//! Only mutant.cloud publishes SMK-37 packages; the hub's SMK-37 page links to the
+//! makers' own installers. The store object `library` is the list of non-builtin
+//! entries; hub packages live in the blob store under `hub/<file>`, packages from
+//! absolute URLs under `ext/<file>-<hash>`. Network work (catalog refresh,
+//! downloads) runs on background threads; `list()` picks up finished downloads.
 
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -37,7 +38,10 @@ pub enum FirmwareSource {
 #[serde(rename_all = "lowercase")]
 pub enum FirmwareDevice {
     Fm1,
-    Smk37Pro,
+    /// Any SMK-37 model (Pro, Elite, MKE-P37); the row's variant tag names which.
+    /// The stored key stays "smk37pro" for old library records.
+    #[serde(rename = "smk37pro")]
+    Smk37,
 }
 
 #[derive(Clone, Copy, PartialEq, Default, Debug)]
@@ -107,6 +111,9 @@ pub struct Library {
     download_failed: HashSet<String>,
     /// The Download All toggle, mirrored from the app (session state lives there).
     download_all: bool,
+    /// The Library tab's device filter, mirrored from the app: (FM-1, SMK-37).
+    /// None allows everything (the TUI, which has no filter).
+    devices: Option<(bool, bool)>,
     /// A hub swap was observed by `list()` but no sweep has run since.
     swap_pending: bool,
     /// What the last `list()` returned. Rebuilt only when its inputs move — the UI
@@ -163,6 +170,7 @@ impl Library {
             downloads: HashMap::new(),
             download_failed: HashSet::new(),
             download_all: false,
+            devices: None,
             swap_pending: false,
             view: Vec::new(),
             view_dirty: true,
@@ -257,10 +265,10 @@ impl Library {
         self.hub.lock().unwrap().len()
     }
 
-    /// Fetch today's hub catalog and the fm1-editor page on a background thread and
-    /// swap the merged listing in, at most once an hour (app load and tab opens call
-    /// this; within the hour it's a no-op). A hub failure keeps the old (or empty)
-    /// list and shows in the status item.
+    /// Fetch today's hub catalog and every additive listing on a background thread
+    /// and swap the merged listing in, at most once an hour (app load and tab opens
+    /// call this; within the hour it's a no-op). A hub failure keeps the old (or
+    /// empty) list and shows in the status item.
     pub fn refresh_hub(&mut self) {
         self.refresh_hub_inner(false);
     }
@@ -270,6 +278,16 @@ impl Library {
     pub fn reload_hub(&mut self) {
         self.download_failed.clear();
         self.refresh_hub_inner(true);
+    }
+
+    /// Mirror the Library tab's device filter: Download All only walks the device
+    /// families shown. `None` allows everything. A filter change while Download All
+    /// runs starts the next allowed offer at once.
+    pub fn set_device_filter(&mut self, devices: Option<(bool, bool)>) {
+        self.devices = devices;
+        if self.download_all && self.downloads.is_empty() {
+            self.sweep_downloads();
+        }
     }
 
     /// The Download All toggle. Turning it on sweeps at once; after that a sweep
@@ -332,8 +350,16 @@ impl Library {
         let hub = self.hub.lock().unwrap().clone();
         let view = &self.view;
         let failed = &self.download_failed;
+        let devices = self.devices;
         view.iter().find_map(|firmware| {
             if failed.contains(&firmware.name) {
+                return None;
+            }
+            let shown = devices.is_none_or(|(fm1, smk37)| match firmware.device {
+                FirmwareDevice::Fm1 => fm1,
+                FirmwareDevice::Smk37 => smk37,
+            });
+            if !shown {
                 return None;
             }
             match &firmware.source {
@@ -381,6 +407,7 @@ impl Library {
             format!("{}?{day}", editor::PAGE),
             format!("{}?{day}", mutant::CATALOG),
             format!("{}?{day}", reverbose::PAGE),
+            format!("{}?{day}", reverbose::SMK37_PAGE),
         );
     }
 
@@ -396,6 +423,7 @@ impl Library {
         editor_url: String,
         mutant_url: String,
         reverbose_url: String,
+        reverbose_smk_url: String,
     ) {
         *self.last_refresh.lock().unwrap() = Some(Instant::now());
         *self.hub_status.lock().unwrap() = HubStatus::Loading;
@@ -403,17 +431,23 @@ impl Library {
         let status = Arc::clone(&self.hub_status);
         let swapped = Arc::clone(&self.hub_swapped);
         std::thread::spawn(move || {
-            let (listing, editor_page, mutant_page, reverbose_page) =
+            let (listing, editor_page, mutant_page, reverbose_page, reverbose_smk_page) =
                 std::thread::scope(|scope| {
                     let editor_page = scope.spawn(|| editor::fetch_listing(&editor_url));
                     let mutant_page = scope.spawn(|| mutant::fetch_listing(&mutant_url));
-                    let reverbose_page = scope.spawn(|| reverbose::fetch_listing(&reverbose_url));
+                    let reverbose_page = scope.spawn(|| {
+                        reverbose::fetch_listing(&reverbose_url, FirmwareDevice::Fm1)
+                    });
+                    let reverbose_smk_page = scope.spawn(|| {
+                        reverbose::fetch_listing(&reverbose_smk_url, FirmwareDevice::Smk37)
+                    });
                     let listing = hub::fetch_listing(&url);
                     (
                         listing,
                         editor_page.join(),
                         mutant_page.join(),
                         reverbose_page.join(),
+                        reverbose_smk_page.join(),
                     )
                 });
             // A panicked scrape thread reads as that source's failure.
@@ -423,6 +457,8 @@ impl Library {
                 mutant_page.unwrap_or_else(|_| Err("mutant catalog thread panicked".to_string()));
             let reverbose_page = reverbose_page
                 .unwrap_or_else(|_| Err("reverbose page thread panicked".to_string()));
+            let reverbose_smk_page = reverbose_smk_page
+                .unwrap_or_else(|_| Err("reverbose SMK-37 page thread panicked".to_string()));
             let next = match listing {
                 Err(e) => HubStatus::Failed(e),
                 Ok(listing) => {
@@ -430,7 +466,7 @@ impl Library {
                     // failure is the one the status reports.
                     let mut outcome = HubStatus::Idle;
                     let mut listing = listing;
-                    for extra in [editor_page, mutant_page, reverbose_page] {
+                    for extra in [editor_page, mutant_page, reverbose_page, reverbose_smk_page] {
                         match extra {
                             Ok(extra) => listing = merge_listings(listing, extra),
                             Err(e) if matches!(outcome, HubStatus::Idle) => {
@@ -764,10 +800,16 @@ fn without_device(key: &str) -> &str {
     key
 }
 
-/// Whether two entries name the same firmware. Equal name keys always match.
-/// Keys differing only by a trailing device token match only when the authors
-/// agree — "OPX Solo" is not "OPX", and two projects can share a stem.
+/// Whether two entries name the same firmware. Equal name keys always match — but
+/// only for the same device: most projects ship an FM-1 and an SMK-37 build under
+/// one name, and merging those would lose one build and risk handing the other's
+/// row the wrong package. Keys differing only by a trailing device token match only
+/// when the authors agree — "OPX Solo" is not "OPX", and two projects can share a
+/// stem.
 fn same_firmware(a: &Firmware, b: &Firmware) -> bool {
+    if a.device != b.device {
+        return false;
+    }
     let (ka, kb) = (name_key(&a.name), name_key(&b.name));
     if ka == kb {
         return true;
@@ -957,6 +999,27 @@ mod tests {
         let view = library.list();
         assert!(!view.iter().find(|f| f.name == "pkg").unwrap().upgradable);
         assert_eq!(library.next_download(), None);
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn download_all_follows_the_device_filter() {
+        let (store, dir) = temp_store("device-filter");
+        let mut library = Library::load(&store);
+        let mut smk = hub_offer("smk-thing", "1.0", "smk.fwsc");
+        smk.device = FirmwareDevice::Smk37;
+        *library.hub.lock().unwrap() = vec![smk, hub_offer("fm1-thing", "1.0", "fm1.fwsc")];
+        library.view_dirty = true;
+
+        library.set_device_filter(Some((true, false)));
+        assert_eq!(library.next_download().as_deref(), Some("fm1-thing"));
+        library.set_device_filter(Some((true, true)));
+        assert_eq!(library.next_download().as_deref(), Some("smk-thing"));
+        library.set_device_filter(Some((false, true)));
+        assert_eq!(library.next_download().as_deref(), Some("smk-thing"));
+        // None means no UI filter: everything is offered.
+        library.set_device_filter(None);
+        assert_eq!(library.next_download().as_deref(), Some("smk-thing"));
         std::fs::remove_dir_all(dir).ok();
     }
 
@@ -1282,6 +1345,33 @@ mod tests {
     }
 
     #[test]
+    fn same_name_on_two_devices_stays_two_rows() {
+        // OberVave ships an FM-1 and an SMK-37 package under one name; merging them
+        // would lose the SMK-37 build (and a newer one could hand the FM-1 row the
+        // SMK package).
+        let hub = vec![hub_offer("OberVave", "3.3.2", "obervave.fwsc")];
+        let mut smk = hub_offer("OberVave", "9.0", "obervave-9-smk37.fwsc");
+        smk.device = FirmwareDevice::Smk37;
+        smk.tags = vec!["synth".to_string(), "source:mutant".to_string()];
+        let merged = merge_listings(hub, vec![smk]);
+        assert_eq!(merged.len(), 2);
+        let fm1 = merged
+            .iter()
+            .find(|f| f.device == FirmwareDevice::Fm1)
+            .unwrap();
+        assert_eq!(fm1.version, "3.3.2");
+        match &fm1.source {
+            FirmwareSource::Hub { path, .. } => assert_eq!(path, "fw/obervave.fwsc"),
+            _ => panic!("hub source expected"),
+        }
+        let smk = merged
+            .iter()
+            .find(|f| f.device == FirmwareDevice::Smk37)
+            .unwrap();
+        assert_eq!(smk.version, "9.0");
+    }
+
+    #[test]
     fn installed_variant_spelling_shadows_the_offer() {
         let (store, dir) = temp_store("shadow");
         let mut library = Library::load(&store);
@@ -1430,6 +1520,7 @@ mod tests {
             "http://127.0.0.1:1/firmware/".to_string(),
             "http://127.0.0.1:1/mutant.json".to_string(),
             "http://127.0.0.1:1/h/m-vave/fm-1".to_string(),
+            "http://127.0.0.1:1/h/m-vave/smk-37".to_string(),
         );
         for _ in 0..50 {
             std::thread::sleep(Duration::from_millis(50));
@@ -1458,6 +1549,7 @@ mod tests {
             "http://127.0.0.1:1/firmware/".to_string(),
             "http://127.0.0.1:1/mutant.json".to_string(),
             "http://127.0.0.1:1/h/m-vave/fm-1".to_string(),
+            "http://127.0.0.1:1/h/m-vave/smk-37".to_string(),
         );
         assert!(matches!(library.hub_status(), HubStatus::Loading));
         for _ in 0..50 {
@@ -1481,4 +1573,3 @@ mod tests {
         }
     }
 }
-

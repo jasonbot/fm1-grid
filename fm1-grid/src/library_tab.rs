@@ -4,7 +4,7 @@
 //! dialog in [`crate::flash_dialog`], or a powered-off unpinned grid slot, which then
 //! powers on). At the bottom, the add-a-file form.
 
-use crate::app::GridApp;
+use crate::app::{DeviceFilter, GridApp};
 use fm1_performer::firmware_picker::{FirmwarePick, pick_of};
 use gpui_kit::assets::IconName as Lucide;
 use fm1_performer::library::{Firmware, FirmwareDevice, FirmwareSource, Status};
@@ -42,10 +42,14 @@ fn tag_color(tag: &str) -> u32 {
     TAG_COLORS[(hash % TAG_COLORS.len() as u32) as usize]
 }
 
-/// The synthetic tags every row carries: ★ when the firmware is a favorite, ☆ when
-/// not. They render and filter like real tags but come from the app's favorite set,
-/// not the listing.
+/// The glyphs a favorite can show, in menu order.
+pub(crate) const GLYPHS: [&str; 5] = ["★", "⮾", "𓅓", "𓅃", "𓃱"];
+
+/// The default favorite glyph.
 pub(crate) const FAV_TAG: &str = "★";
+/// NoThanks (⮾): such a favorite sorts last and its row greys out.
+pub(crate) const NO_THANKS_GLYPH: &str = "⮾";
+/// The synthetic tag every non-favorite row carries.
 pub(crate) const UNFAV_TAG: &str = "☆";
 
 /// A firmware's favorite key: the name normalized so case and stray whitespace
@@ -54,9 +58,21 @@ pub(crate) fn favorite_key(name: &str) -> String {
     name.trim().to_lowercase()
 }
 
-/// The synthetic tag for a favorite state.
-fn fav_tag(favorite: bool) -> &'static str {
-    if favorite { FAV_TAG } else { UNFAV_TAG }
+/// The glyph a row shows: its favorite's glyph, or the hollow star when it isn't a
+/// favorite.
+fn fav_glyph<'a>(
+    glyphs: &'a std::collections::HashMap<String, String>,
+    name: &str,
+    favorite: bool,
+) -> &'a str {
+    if favorite {
+        glyphs
+            .get(&favorite_key(name))
+            .map(String::as_str)
+            .unwrap_or(FAV_TAG)
+    } else {
+        UNFAV_TAG
+    }
 }
 
 /// A tag pill's element id component: FNV-1a over name+tag, stable across frames.
@@ -90,16 +106,16 @@ fn action_group(items: Vec<AnyElement>, border: Hsla) -> AnyElement {
 }
 
 /// The filter box's match: every space-separated token of the needle must appear as
-/// a case-insensitive substring of name, version, tags (including the synthetic ★/☆),
+/// a case-insensitive substring of name, version, tags (including the row's glyph),
 /// byline or description. "f ll gro" finds "Felucca (Groovebox)".
-fn matches_filter(firmware: &Firmware, needle: &str, favorite: bool) -> bool {
+fn matches_filter(firmware: &Firmware, needle: &str, glyph: &str) -> bool {
     let needle = needle.to_lowercase();
     let haystack = format!(
         "{} {} {} {} {} {}",
         firmware.name,
         firmware.version,
         firmware.tags.join(" "),
-        fav_tag(favorite),
+        glyph,
         firmware.byline,
         firmware.description
     )
@@ -204,16 +220,33 @@ pub(crate) fn is_installed(firmware: &Firmware) -> bool {
 }
 
 /// Flatten the library view into the virtual list's stream: sections in order,
-/// filtered by the needle, with favorites first inside each section (stable, so the
-/// library's own order survives within the two groups).
+/// filtered by the needle and the device checkboxes, with favorites first inside
+/// each section and NoThanks favorites last (stable, so the library's own order
+/// survives within the groups).
 fn flatten_library(
     view: &[Firmware],
     needle: &str,
     favorites: &std::collections::HashSet<String>,
+    glyphs: &std::collections::HashMap<String, String>,
+    devices: DeviceFilter,
 ) -> Vec<LibItem> {
     let favorite: Vec<bool> = view
         .iter()
         .map(|firmware| favorites.contains(&favorite_key(&firmware.name)))
+        .collect();
+    // 0: favorite, 1: plain, 2: NoThanks (sorts to the bottom).
+    let rank: Vec<u8> = view
+        .iter()
+        .enumerate()
+        .map(|(ix, firmware)| {
+            if !favorite[ix] {
+                1
+            } else if fav_glyph(glyphs, &firmware.name, true) == NO_THANKS_GLYPH {
+                2
+            } else {
+                0
+            }
+        })
         .collect();
     let mut items: Vec<LibItem> = Vec::new();
     for (header, section) in SECTIONS {
@@ -221,10 +254,15 @@ fn flatten_library(
             .filter(|&ix| {
                 let firmware = &view[ix];
                 section_of(firmware) == section
-                    && matches_filter(firmware, needle, favorite[ix])
+                    && devices.shows(firmware.device)
+                    && matches_filter(
+                        firmware,
+                        needle,
+                        fav_glyph(glyphs, &firmware.name, favorite[ix]),
+                    )
             })
             .collect();
-        indices.sort_by_key(|&ix| !favorite[ix]);
+        indices.sort_by_key(|&ix| rank[ix]);
         if !indices.is_empty() {
             items.push(LibItem::Header(header));
             items.extend(indices.into_iter().map(LibItem::Row));
@@ -282,14 +320,65 @@ impl GridApp {
             }
         }
 
+        let devices = self.device_filter;
+        let device_label = match (devices.fm1, devices.smk37) {
+            (true, true) => "FM-1 + SMK-37",
+            (true, false) => "FM-1",
+            (false, true) => "SMK-37",
+            (false, false) => "No devices",
+        };
+        let device_app = cx.entity().clone();
         v_flex()
             .size_full()
             .child(
-                div().w_full().px_2().pt_2().child(
-                    Input::new(&self.lib_form.filter)
-                        .id("library-filter")
-                        .prefix(Icon::new(IconName::Search).xsmall()),
-                ),
+                h_flex().w_full().px_2().pt_2().gap_2().items_center()
+                    .child(
+                        div().flex_1().min_w_0().child(
+                            Input::new(&self.lib_form.filter)
+                                .id("library-filter")
+                                .prefix(Icon::new(IconName::Search).xsmall()),
+                        ),
+                    )
+                    .child(
+                        Button::new("library-devices")
+                            .label(device_label)
+                            .icon(Icon::new(Lucide::ListFilter))
+                            .small()
+                            .ghost()
+                            .tooltip("Which device families the library lists")
+                            .dropdown_menu({
+                                let app = device_app.clone();
+                                move |menu, _, _| {
+                                    let mut menu = menu;
+                                    for (on, label, fm1) in [
+                                        (devices.fm1, "FM-1", true),
+                                        (devices.smk37, "SMK-37", false),
+                                    ] {
+                                        let app = app.clone();
+                                        menu = menu.item(PopupMenuItem::new(label).checked(on).on_click(
+                                            move |_, _, cx| {
+                                                app.update(cx, |this, cx| {
+                                                    if fm1 {
+                                                        this.device_filter.fm1 =
+                                                            !this.device_filter.fm1;
+                                                    } else {
+                                                        this.device_filter.smk37 =
+                                                            !this.device_filter.smk37;
+                                                    }
+                                                    this.library.set_device_filter(Some((
+                                                        this.device_filter.fm1,
+                                                        this.device_filter.smk37,
+                                                    )));
+                                                    this.save_session(cx);
+                                                    cx.notify();
+                                                });
+                                            },
+                                        ));
+                                    }
+                                    menu
+                                }
+                            }),
+                    ),
             )
             .child(
                 // The scrollbar pins to this outer element; the scrolling virtual
@@ -338,12 +427,20 @@ impl GridApp {
             self.library.generation(),
             needle.to_string(),
             self.favorites_rev,
+            self.device_filter.fm1,
+            self.device_filter.smk37,
         );
         if self.lib_stream_key.as_ref() == Some(&key) {
             return;
         }
         let view: Vec<Firmware> = self.library.list().to_vec();
-        let items = flatten_library(&view, needle, &self.favorites);
+        let items = flatten_library(
+            &view,
+            needle,
+            &self.favorites,
+            &self.favorite_glyphs,
+            self.device_filter,
+        );
         let sizes: Vec<Size<Pixels>> = items
             .iter()
             .map(|item| size(px(0.0), item.height()))
@@ -514,6 +611,32 @@ impl GridApp {
             .into_any_element()
     }
 
+    /// Toggle a firmware's favorite. Dropping it forgets its glyph too; the session
+    /// is saved at once, like the theme pick — a crash shouldn't lose the toggle.
+    pub(crate) fn toggle_favorite(&mut self, name: &str, cx: &App) {
+        let key = favorite_key(name);
+        if !self.favorites.insert(key.clone()) {
+            self.favorites.remove(&key);
+            self.favorite_glyphs.remove(&key);
+        }
+        self.favorites_rev = self.favorites_rev.wrapping_add(1);
+        self.save_session(cx);
+    }
+
+    /// Give a firmware a favorite glyph, which also favorites it. ★ is the default
+    /// and stores no override.
+    pub(crate) fn set_favorite_glyph(&mut self, name: &str, glyph: &str, cx: &App) {
+        let key = favorite_key(name);
+        self.favorites.insert(key.clone());
+        if glyph == FAV_TAG {
+            self.favorite_glyphs.remove(&key);
+        } else {
+            self.favorite_glyphs.insert(key, glyph.to_string());
+        }
+        self.favorites_rev = self.favorites_rev.wrapping_add(1);
+        self.save_session(cx);
+    }
+
     /// One firmware row: name + pills over byline + description, then the actions.
     fn library_item(&mut self, firmware: &Firmware, cx: &mut Context<Self>) -> AnyElement {
         let (ink, dim, border) = {
@@ -523,16 +646,20 @@ impl GridApp {
         let firmware = firmware.clone();
         let name = firmware.name.clone();
         let pick = pick_of(&firmware);
-        let flashable = pick.is_some() && firmware.status == Status::Available;
+        let smk37 = firmware.device == FirmwareDevice::Smk37;
+        let flashable = pick.is_some() && firmware.status == Status::Available && !smk37;
         let downloading = firmware.status == Status::Downloading;
         let percent = self.library.download_percent(&firmware.name);
 
-        // The pills: the synthetic ★/☆ favorite tag first, then one per tag, then the
-        // device. A tag pill click toggles the tag's words in the filter box. One row
-        // only — a taller wrap would break the row's fixed height; extras clip instead.
+        // The pills: the favorite glyph (★ by default, ☆ when not a favorite) first,
+        // then one per tag, then the device. A tag pill click toggles the tag's words
+        // in the filter box. One row only — a taller wrap would break the row's fixed
+        // height; extras clip instead.
         let favorite = self.favorites.contains(&favorite_key(&firmware.name));
-        let tags = std::iter::once(fav_tag(favorite).to_string())
-            .chain(firmware.tags.iter().cloned());
+        let glyph = fav_glyph(&self.favorite_glyphs, &firmware.name, favorite).to_string();
+        // A NoThanks favorite greys its row out.
+        let no_thanks = favorite && glyph == NO_THANKS_GLYPH;
+        let tags = std::iter::once(glyph.clone()).chain(firmware.tags.iter().cloned());
         let mut pills = h_flex().gap_1().flex_nowrap().min_w_0().overflow_hidden();
         for tag in tags {
             let color: Hsla = rgb(tag_color(&tag)).into();
@@ -566,7 +693,8 @@ impl GridApp {
         }
         let device = match firmware.device {
             FirmwareDevice::Fm1 => "FM-1",
-            FirmwareDevice::Smk37Pro => "SMK-37 Pro",
+            // The model (Pro, Elite, MKE-P37) is the variant tag.
+            FirmwareDevice::Smk37 => "SMK-37",
         };
         pills = pills.child(
             div()
@@ -579,39 +707,71 @@ impl GridApp {
                 .child(device),
         );
 
-        // The actions as one fused group: the favorite toggle first (the row's ★/☆
-        // pill is its readout), then the website/source link pair (disabled when the
-        // listing carries no such link), Remove (never builtins, and only when the
-        // package is at hand), Download (hub offers; its percent while in flight),
-        // Flash To…
+        // The actions as one fused group: the favorite toggle first (the row's glyph
+        // pill is its readout), its glyph menu, then the website/source link pair
+        // (disabled when the listing carries no such link), Remove (never builtins,
+        // and only when the package is at hand), Download (hub offers; its percent
+        // while in flight), Flash To…
         let locally = pick.is_some() && firmware.status == Status::Available;
         let mut buttons: Vec<AnyElement> = Vec::new();
         {
             let name = name.clone();
+            let glyph = glyph.clone();
+            let star_name = name.clone();
+            let star = Button::new(format!("lib-fav-{star_name}"))
+                .label(glyph.clone())
+                .small()
+                .ghost()
+                .rounded_none()
+                .selected(favorite)
+                .toggled(favorite)
+                .tooltip(if favorite {
+                    "Drop the favorite"
+                } else {
+                    "Mark as a favorite (its glyph pill filters the list)"
+                })
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.toggle_favorite(&star_name, cx);
+                    cx.notify();
+                }))
+                .into_any_element();
+
+            let current = glyph.clone();
+            let app = cx.entity().clone();
+            let caret = Button::new(format!("lib-fav-glyph-{name}"))
+                .icon(Icon::new(Lucide::ChevronDown))
+                .xsmall()
+                .ghost()
+                .rounded_none()
+                .tooltip("Choose the favorite's glyph")
+                .dropdown_menu(move |menu, _, _| {
+                    let mut menu = menu;
+                    for glyph in GLYPHS {
+                        let app = app.clone();
+                        let name = name.clone();
+                        let shown = glyph.to_string();
+                        menu = menu.item(
+                            PopupMenuItem::new(glyph)
+                                .checked(current == shown)
+                                .on_click(move |_, _, cx| {
+                                    app.update(cx, |this, cx| {
+                                        this.set_favorite_glyph(&name, &shown, cx);
+                                        cx.notify();
+                                    });
+                                }),
+                        );
+                    }
+                    menu
+                })
+                .into_any_element();
+
+            // One combo, two hit areas: the glyph toggles the favorite, the small caret
+            // opens its glyph menu without toggling.
             buttons.push(
-                Button::new(format!("lib-fav-{name}"))
-                    .icon(Icon::new(Lucide::Star))
-                    .small()
-                    .ghost()
-                    .rounded_none()
-                    .selected(favorite)
-                    .toggled(favorite)
-                    .tooltip(if favorite {
-                        "Drop the favorite"
-                    } else {
-                        "Mark as a favorite (its ★ pill filters the list)"
-                    })
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        let key = favorite_key(&name);
-                        if !this.favorites.insert(key.clone()) {
-                            this.favorites.remove(&key);
-                        }
-                        this.favorites_rev = this.favorites_rev.wrapping_add(1);
-                        // Like the theme pick, persist at once — a crash shouldn't
-                        // lose the toggle.
-                        this.save_session(cx);
-                        cx.notify();
-                    }))
+                h_flex()
+                    .items_center()
+                    .child(star)
+                    .child(caret)
                     .into_any_element(),
             );
         }
@@ -731,7 +891,7 @@ impl GridApp {
             .gap_1()
             .py_1()
             .pt(px(4.0 + nudge))
-            .opacity(fade)
+            .opacity(fade * if no_thanks { 0.5 } else { 1.0 })
             .child(
                 h_flex()
                     .w_full()
@@ -789,6 +949,7 @@ impl GridApp {
             .filter(|&slot| !self.powered[slot] && !self.slots[slot].pinned)
             .collect();
         let has_targets = !units.is_empty() || !slots.is_empty();
+        let smk37 = firmware.device == FirmwareDevice::Smk37;
         let app = cx.entity().clone();
         // The dropdown closure is 'static; the firmware name moves in owned.
         let flash_name = firmware.name.clone();
@@ -798,8 +959,14 @@ impl GridApp {
             .small()
             .ghost()
             .rounded_none()
-            .disabled(!flashable || !has_targets)
-            .when(!(flashable && has_targets), |button| {
+            .disabled(smk37 || !flashable || !has_targets)
+            .when(smk37, |button| {
+                button.tooltip(
+                    "SMK-37 firmware installs from its maker's installer; \
+                     this app only flashes FM-1 units",
+                )
+            })
+            .when(!smk37 && !(flashable && has_targets), |button| {
                 button.tooltip(
                     "Flashable needs the package at hand (builtin, on disk, or downloaded) \
                      and a target (a live FM-1 on USB, or a powered-off unpinned pane)",
@@ -984,8 +1151,13 @@ mod tests {
     use super::{
         favorite_key, flatten_library, is_installed, matches_filter, snap_in, toggle_tag, LibItem,
     };
-    use std::collections::HashSet;
+    use super::{DeviceFilter, NO_THANKS_GLYPH};
+    use std::collections::{HashMap, HashSet};
     use fm1_performer::library::{Firmware, FirmwareDevice, FirmwareSource, Status};
+
+    fn no_glyphs() -> HashMap<String, String> {
+        HashMap::new()
+    }
 
     fn firmware(name: &str, tags: &[&str]) -> Firmware {
         Firmware {
@@ -1039,11 +1211,11 @@ mod tests {
     #[test]
     fn filter_matches_all_tokens_as_substrings() {
         let felucca = firmware("Felucca", &["groove", "dev"]);
-        assert!(matches_filter(&felucca, "", false));
-        assert!(matches_filter(&felucca, "fel gro", false));
-        assert!(matches_filter(&felucca, "GROOVE Dev", false));
-        assert!(matches_filter(&felucca, "author", false));
-        assert!(!matches_filter(&felucca, "fel zzz", false));
+        assert!(matches_filter(&felucca, "", "☆"));
+        assert!(matches_filter(&felucca, "fel gro", "☆"));
+        assert!(matches_filter(&felucca, "GROOVE Dev", "☆"));
+        assert!(matches_filter(&felucca, "author", "☆"));
+        assert!(!matches_filter(&felucca, "fel zzz", "☆"));
     }
 
     /// The synthetic ★/☆ tag is searchable: ★ hits only favorites, ☆ only the rest,
@@ -1051,12 +1223,14 @@ mod tests {
     #[test]
     fn filter_matches_the_synthetic_favorite_tag() {
         let felucca = firmware("Felucca", &["groove"]);
-        assert!(matches_filter(&felucca, "★", true));
-        assert!(!matches_filter(&felucca, "★", false));
-        assert!(matches_filter(&felucca, "☆", false));
-        assert!(!matches_filter(&felucca, "☆", true));
-        assert!(matches_filter(&felucca, "★ groove", true));
-        assert!(!matches_filter(&felucca, "★ groove", false));
+        assert!(matches_filter(&felucca, "★", "★"));
+        assert!(!matches_filter(&felucca, "★", "☆"));
+        assert!(matches_filter(&felucca, "☆", "☆"));
+        assert!(!matches_filter(&felucca, "☆", "★"));
+        assert!(matches_filter(&felucca, "★ groove", "★"));
+        assert!(!matches_filter(&felucca, "★ groove", "☆"));
+        // A favorite's custom glyph is searchable too.
+        assert!(matches_filter(&felucca, "𓅓", "𓅓"));
     }
 
     /// The favorite key ignores case and surrounding whitespace, so differently
@@ -1085,7 +1259,7 @@ mod tests {
         let favorites: HashSet<String> = ["gamma".to_string(), "delta".to_string()]
             .into_iter()
             .collect();
-        let items = flatten_library(&view, "", &favorites);
+        let items = flatten_library(&view, "", &favorites, &no_glyphs(), DeviceFilter::default());
         assert_eq!(items[0], LibItem::Header("INSTALLED"));
         assert_eq!(
             items[1..4].to_vec(),
@@ -1097,7 +1271,8 @@ mod tests {
             .expect("the hub section");
         assert_eq!(items[hub + 1], LibItem::Row(3));
         // The filter still applies after the sort.
-        let filtered = flatten_library(&view, "bet", &favorites);
+        let filtered =
+            flatten_library(&view, "bet", &favorites, &no_glyphs(), DeviceFilter::default());
         assert_eq!(filtered[1..2].to_vec(), vec![LibItem::Row(1)]);
     }
 
@@ -1115,5 +1290,75 @@ mod tests {
         assert_eq!(toggle_tag("groove dev", "dev tools"), "groove dev tools");
         // Presence is exact tokens: a bare substring does not count.
         assert_eq!(toggle_tag("groo", "groove"), "groo groove");
+    }
+
+    /// A NoThanks favorite sorts to the bottom of its section, below plain rows,
+    /// and its custom glyph still matches the filter.
+    #[test]
+    fn no_thanks_favorite_sinks_to_the_bottom() {
+        let view = vec![
+            firmware("Alpha", &[]),
+            firmware("Beta", &[]),
+            firmware("Gamma", &[]),
+        ];
+        let favorites: HashSet<String> = ["alpha".to_string(), "gamma".to_string()]
+            .into_iter()
+            .collect();
+        let glyphs: HashMap<String, String> =
+            [("gamma".to_string(), NO_THANKS_GLYPH.to_string())].into();
+        let items = flatten_library(&view, "", &favorites, &glyphs, DeviceFilter::default());
+        // Alpha (favorite) leads, Beta (plain) follows, Gamma (NoThanks) last.
+        assert_eq!(
+            items[1..4].to_vec(),
+            vec![LibItem::Row(0), LibItem::Row(1), LibItem::Row(2)]
+        );
+        let filtered = flatten_library(
+            &view,
+            NO_THANKS_GLYPH,
+            &favorites,
+            &glyphs,
+            DeviceFilter::default(),
+        );
+        assert_eq!(filtered[1..2].to_vec(), vec![LibItem::Row(2)]);
+    }
+
+    /// The device checkboxes are a hard filter: FM-1 only by default, SMK-37 when
+    /// asked for.
+    #[test]
+    fn device_checkboxes_filter_the_list() {
+        let mut smk = firmware("Smk Thing", &[]);
+        smk.device = FirmwareDevice::Smk37;
+        let view = vec![firmware("Fm One", &[]), smk];
+        let favorites = HashSet::new();
+        let fm1_only = flatten_library(
+            &view,
+            "",
+            &favorites,
+            &no_glyphs(),
+            DeviceFilter::default(),
+        );
+        assert_eq!(fm1_only[1..2].to_vec(), vec![LibItem::Row(0)]);
+        let both = flatten_library(
+            &view,
+            "",
+            &favorites,
+            &no_glyphs(),
+            DeviceFilter {
+                fm1: true,
+                smk37: true,
+            },
+        );
+        assert_eq!(both[1..3].to_vec(), vec![LibItem::Row(0), LibItem::Row(1)]);
+        let smk_only = flatten_library(
+            &view,
+            "",
+            &favorites,
+            &no_glyphs(),
+            DeviceFilter {
+                fm1: false,
+                smk37: true,
+            },
+        );
+        assert_eq!(smk_only[1..2].to_vec(), vec![LibItem::Row(1)]);
     }
 }

@@ -50,7 +50,10 @@ mod tests {
             }
             _ => panic!("hub source expected"),
         }
-        // The explicit device list beats the product string.
-        assert_eq!(listing[1].device, FirmwareDevice::Smk37Pro);
+        // The explicit device list beats the product string; the product names the
+        // model, which becomes a tag and a name suffix so the model rows stay apart.
+        assert_eq!(listing[1].device, FirmwareDevice::Smk37);
+        assert_eq!(listing[1].name, "SMK Mod — MKE-P37");
+        assert_eq!(listing[1].tags, vec!["other", "MKE-P37", "source:mutant"]);
     }
 }

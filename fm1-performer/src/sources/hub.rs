@@ -3,7 +3,7 @@
 
 use serde::Deserialize;
 
-use super::parse_device;
+use super::{named_for_variant, parse_device, parse_variant};
 use crate::library::{Firmware, FirmwareDevice, FirmwareSource, Status};
 
 /// The hub's host; package paths in the catalog are relative to it.
@@ -93,15 +93,19 @@ pub(crate) fn parse_catalog_with(json: &str, origin: &str) -> Result<Vec<Firmwar
             if entry.vintage {
                 tags.push("vintage".to_string());
             }
+            let variant = parse_variant(&entry.device);
+            if let Some(variant) = variant {
+                tags.push(variant.to_string());
+            }
             tags.push(origin.to_string());
             Firmware {
-                name: entry.name,
+                name: named_for_variant(entry.name, variant),
                 byline: entry.byline,
                 version: entry.version,
                 description: entry.description,
                 tags,
                 device: if entry.devices.iter().any(|d| d.eq_ignore_ascii_case("smk37")) {
-                    FirmwareDevice::Smk37Pro
+                    FirmwareDevice::Smk37
                 } else {
                     parse_device(&entry.device)
                 },
@@ -160,8 +164,13 @@ mod tests {
         // Links are optional: absent ones stay None.
         assert_eq!(listing[1].website, None);
         assert_eq!(listing[1].source_url, None);
-        assert_eq!(listing[1].device, FirmwareDevice::Smk37Pro);
-        assert_eq!(listing[1].tags, vec!["synth", "vintage", "source:hub"]);
+        assert_eq!(listing[1].device, FirmwareDevice::Smk37);
+        // The model becomes a tag, and a name that doesn't say it gets the suffix.
+        assert_eq!(listing[1].name, "smk-os — SMK-37 Pro");
+        assert_eq!(
+            listing[1].tags,
+            vec!["synth", "vintage", "SMK-37 Pro", "source:hub"]
+        );
         // A bare array works too.
         let listing = parse_catalog(r#"[{"name": "x", "pkg": "fw/x.fwsc"}]"#).unwrap();
         assert_eq!(listing.len(), 1);

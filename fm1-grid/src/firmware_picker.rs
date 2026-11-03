@@ -8,7 +8,7 @@
 use crate::app::GridApp;
 use fm1_performer::builtin::BUILTINS;
 use fm1_performer::firmware_picker::{FirmwarePick, pick_of};
-use fm1_performer::library::Status;
+use fm1_performer::library::{FirmwareDevice, Status};
 use gpui_kit::component::searchable_list::{SearchableListDelegate, SearchableListItem};
 use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::{ActiveTheme, IndexPath};
@@ -63,6 +63,11 @@ impl FirmwareDelegate {
         let mut items = Vec::new();
         for firmware in app.library.list_clone() {
             if firmware.status != Status::Available {
+                continue;
+            }
+            // The emulator runs FM-1 firmware only; SMK-37 packages belong to the
+            // Library listing (their installers are the makers' own).
+            if firmware.device == FirmwareDevice::Smk37 {
                 continue;
             }
             let Some(pick) = pick_of(&firmware) else {

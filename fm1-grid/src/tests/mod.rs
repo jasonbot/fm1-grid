@@ -1244,3 +1244,69 @@ fn panel_resizes_with_window(cx: &mut TestAppContext) {
     })
     .unwrap();
 }
+
+/// The Library tab's device combo and glyph favorite render and take effect: FM-1
+/// off empties the list, and a favorite's custom glyph replaces the ★ pill.
+#[gpui_kit::test]
+fn library_device_filter_and_favorite_glyph(cx: &mut TestAppContext) {
+    use crate::library_tab::{favorite_key, pill_id, NO_THANKS_GLYPH};
+    let _guard = ui_lock();
+    let (window, app) = open_app_at(cx, 1180.0, 700.0);
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        window.click(("tab", 2usize), cx); // the Library tab
+        window.render_frame(cx);
+        assert!(window.find("library-devices").visible());
+        assert!(window.find("lib-fav-glyph-Felucca").visible());
+        assert!(window.find(("lib-tag", pill_id("Felucca", "☆"))).visible());
+    })
+    .unwrap();
+
+    // FM-1 off: no FM-1 row matches, so the library shows its empty notice.
+    cx.update(|cx| {
+        app.update(cx, |app, _| {
+            app.device_filter.fm1 = false;
+        });
+    });
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        assert!(window.try_find("lib-flash-Felucca").is_none());
+        assert!(window.try_find(("lib-tag", pill_id("Felucca", "☆"))).is_none());
+    })
+    .unwrap();
+
+    // FM-1 back on, Felucca favorited with NoThanks: the row carries it and
+    // the session records it.
+    cx.update(|cx| {
+        app.update(cx, |app, cx| {
+            app.device_filter.fm1 = true;
+            app.set_favorite_glyph("Felucca", NO_THANKS_GLYPH, cx);
+        });
+    });
+    cx.update(|cx| {
+        let app = app.read(cx);
+        assert!(app.favorites.contains(&favorite_key("Felucca")));
+        let session = app
+            .store
+            .as_ref()
+            .expect("a store")
+            .fetch_object::<crate::session::Session>("session")
+            .expect("the glyph pick should have saved the session");
+        assert_eq!(
+            session
+                .favorite_glyphs
+                .get(&favorite_key("Felucca"))
+                .map(String::as_str),
+            Some(NO_THANKS_GLYPH)
+        );
+    });
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        assert!(window
+            .find(("lib-tag", pill_id("Felucca", NO_THANKS_GLYPH)))
+            .visible());
+        assert!(window.try_find(("lib-tag", pill_id("Felucca", "★"))).is_none());
+        assert!(window.find("lib-fav-glyph-Felucca").visible());
+    })
+    .unwrap();
+}

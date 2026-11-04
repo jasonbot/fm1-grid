@@ -1,6 +1,6 @@
 //! The Settings tab: gpui-kit's Settings component — one General page with an
 //! Appearance group (the theme family, the auto/light/dark override and the accent
-//! swatches the two computed families use). Every pick applies at once and lands in
+//! swatches the computed families use). Every pick applies at once and lands in
 //! the session record on change.
 
 use crate::app::{Appearance, GridApp};
@@ -76,7 +76,7 @@ impl GridApp {
         // the picked family actually consumes an accent.
         let accent_active = matches!(
             self.theme_id.as_str(),
-            crate::theme::INFLUENZA | crate::theme::MELTYSAND
+            crate::theme::INFLUENZA | crate::theme::MELTYSAND | crate::theme::VISUALIA
         );
         let accent_field = SettingField::render({
             let app = app.clone();
@@ -84,7 +84,7 @@ impl GridApp {
                 let current = app.read(cx).accent.clone();
                 let enabled = !options.is_disabled();
                 let mut row = h_flex().items_center().gap_1();
-                for accent in crate::influenza::ACCENTS {
+                for accent in crate::themes::ACCENTS {
                     let selected = accent.id == current;
                     let app = app.clone();
                     let id = accent.id;
@@ -108,7 +108,7 @@ impl GridApp {
                                 div()
                                     .size_full()
                                     .rounded_full()
-                                    .bg(crate::influenza::color(accent))
+                                    .bg(crate::themes::color(accent))
                                     .border_1()
                                     .border_color(cx.theme().border),
                             )

@@ -1,10 +1,10 @@
 {
   "$schema": "https://github.com/longbridge/gpui-kit/raw/refs/heads/main/.theme-schema.json",
   "name": "Mac Platinum",
-  "author": "Large Chungus",
+  "author": "King Chungus, Large Man",
   "themes": [
     {
-      "name": "FM-1 (Mac Platinum) Light",
+      "name": "Mac Platinum Light",
       "mode": "light",
       "font.family": "Chicago, Charcoal, Geneva, Helvetica Neue, Helvetica, Arial, sans-serif",
       "mono_font.family": "Monaco, Menlo, Courier New, DejaVu Sans Mono, monospace",
@@ -190,7 +190,7 @@
       }
     },
     {
-      "name": "FM-1 (Mac Platinum) Dark",
+      "name": "Mac Platinum Dark",
       "mode": "dark",
       "font.family": "Chicago, Charcoal, Geneva, Helvetica Neue, Helvetica, Arial, sans-serif",
       "mono_font.family": "Monaco, Menlo, Courier New, DejaVu Sans Mono, monospace",

@@ -191,15 +191,17 @@ cannot enumerate. The graph says so while such a pane runs.
 The gear icon at the bottom of the rail opens the Settings tab. It is a searchable
 settings page with its own sidebar, like the Settings app on a Mac or iPhone. Under
 **General → Appearance** there are three fields: **Theme** — the color scheme:
-gpui-kit's Default pair, the bundled sets (BeOS, Cream, Ember, Frost, Lavender,
-Mint, Shadow and Mac Platinum), plus two computed families: **Influenza**, close to
-Windows 11's Fluent UI, and **Meltysand**, close to macOS Tahoe's Liquid Glass. Both
-are built at runtime from the **Accent color** row of circles (the merged Windows 11
-and macOS palette; the macOS value wins where they overlap) and the **Mode**: Auto
-(follows the OS), Light or Dark. Every theme also names an ordered font list: Comic
-Sans/Chalkboard for Hot Dog Stand, Segoe UI for Influenza, SF Pro for Meltysand, and
-so on; the app resolves it to the first family the machine has. The accent row is
-enabled only while Influenza or Meltysand is the theme. Picks apply at once and are
+gpui-kit's Default pair, the bundled sets (BeOS, Hot Dog Stand, Japanese
+Stationery and Mac Platinum), plus three computed families: **Influenza**, close to
+Windows 11's Fluent UI; **Meltysand**, close to macOS Tahoe's Liquid Glass; and
+**Visualia**, a cream (light) / near-black accent (dark) scheme whose front panel is
+built from the accent too. All three are built at runtime from the **Accent color**
+row of circles (the merged Windows 11 and macOS palette; the macOS value wins where
+they overlap) and the **Mode**: Auto (follows the OS), Light or Dark. Every theme also
+names an ordered font list: Comic Sans/Chalkboard for Hot Dog Stand, Segoe UI for
+Influenza, SF Pro for Meltysand, and so on; the app resolves it to the first family
+the machine has. The accent row is enabled only while Influenza, Meltysand or Visualia
+is the theme. Picks apply at once and are
 saved with the rest of the app state. The page's Reset button puts the theme and mode
 back to their defaults. The search box at the top of the sidebar finds settings by
 name or keyword ("dark" finds Mode). A dark-only theme keeps the default light side,
@@ -354,8 +356,10 @@ fm1-grid/src/panel.rs           the clickable FM-1 front panel (bottom of the Em
 fm1-grid/src/transport.rs       the bottom bar: the metronome row, global across tabs
 fm1-grid/src/lcd.rs             RGB565 decode, colours, ghost/hqx/nearest image filters
 fm1-grid/src/theme.rs           the FM-1 hardware colours, the bundled theme catalog; chrome follows gpui-kit
-fm1-grid/src/influenza.rs       the computed Fluent-UI family (accent colour + light/dark)
-fm1-grid/src/meltysand.rs       the computed macOS Tahoe family (accent colour + light/dark)
+fm1-grid/src/themes/            the computed accent families and the shared palette
+fm1-grid/src/themes/influenza.rs   Fluent-UI family (accent + light/dark)
+fm1-grid/src/themes/meltysand.rs   macOS Tahoe family (accent + light/dark)
+fm1-grid/src/themes/visualia.rs    cream/near-black family with an accent-built panel
 fm1-grid/src/library_tab.rs     the Library tab's list, pills, actions and add-file form
 fm1-grid/src/settings.rs        the Settings tab (gpui-kit's Settings component): theme, mode and accent swatches
 fm1-grid/themes/                the bundled gpui-kit theme sets (upstream themes/ at the pinned tag)

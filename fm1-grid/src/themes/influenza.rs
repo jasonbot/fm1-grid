@@ -1,75 +1,17 @@
-//! The runtime "Influenza" theme: a Fluent-UI-flavoured light/dark pair computed
-//! from the chosen accent colour. Nothing here is JSON-backed; `apply_theme`
-//! builds both `ThemeConfig`s and swaps them into the registry slots.
-//!
-//! The palette merges the accent choices of Windows 11 and macOS. Windows 11
-//! ships the 48-swatch user palette (see the Windows 11 25H2 list), macOS ships
-//! blue/purple/pink/red/orange/yellow/green/graphite. Where the two sets overlap
-//! the macOS value is canonical (macOS Big Sur's `controlAccentColor` values:
-//! #007AFF, #A550A7, #F74F9E, #FF5257, #F7821B, #FFC600, #62BA46, #8C8C8C); the
-//! remaining Windows hues stay as distinct entries. Earthy and dark Windows
-//! variants that sit within a hue/lightness step of a kept colour are folded
-//! away rather than offered twice.
+//! Influenza: a Fluent-UI-flavoured light/dark pair computed from the chosen
+//! accent colour. `GridApp::apply_theme` builds both `ThemeConfig`s at runtime.
 //!
 //! Token values follow the Windows 11 / WinUI 3 resources: SolidBackgroundFill-
 //! ColorBase for surfaces, TextFillColorPrimary/Secondary, DividerStrokeColor,
-//! CardBackgroundFillColor and the SystemFillColor status pair (see the WinUI
-//! light/dark tables used while building this). Corner radii are Fluent's 4 px
-//! controls and 8 px surfaces.
+//! CardBackgroundFillColor and the SystemFillColor status pair. Corner radii are
+//! Fluent's 4 px controls and 8 px surfaces.
 
+use super::colors;
+use super::{opt, Accent, Rgb};
 use gpui_kit::component::{ThemeConfig, ThemeConfigColors, ThemeMode};
-use gpui_kit::SharedString;
 
 /// The picker id of the computed family (mirrors `theme::INFLUENZA`).
 pub(crate) const FAMILY: &str = "influenza";
-
-/// One selectable accent. `hex` is the canonical value named in the module docs.
-pub(crate) struct Accent {
-    pub id: &'static str,
-    pub label: &'static str,
-    pub hex: &'static str,
-}
-
-/// The merged accent palette. macOS entries first (they win the overlaps), then
-/// the Windows-only hues that survive de-duplication, brightest to darkest where
-/// a family has more than one survivor.
-pub(crate) const ACCENTS: &[Accent] = &[
-    // macOS accent colours (System Settings ▸ Appearance).
-    Accent { id: "blue", label: "Blue", hex: "#007AFF" },
-    Accent { id: "purple", label: "Purple", hex: "#A550A7" },
-    Accent { id: "pink", label: "Pink", hex: "#F74F9E" },
-    Accent { id: "red", label: "Red", hex: "#FF5257" },
-    Accent { id: "orange", label: "Orange", hex: "#F7821B" },
-    Accent { id: "yellow", label: "Yellow", hex: "#FFC600" },
-    Accent { id: "green", label: "Green", hex: "#62BA46" },
-    Accent { id: "graphite", label: "Graphite", hex: "#8C8C8C" },
-    // Windows 11 hues with no macOS counterpart (or a clearly different value).
-    Accent { id: "teal", label: "Teal", hex: "#00B7C3" },     // Seafoam
-    Accent { id: "indigo", label: "Indigo", hex: "#6B69D6" }, // Purple Shadow Dark
-    Accent { id: "violet", label: "Violet", hex: "#B146C2" }, // Violet Red Light
-    Accent { id: "magenta", label: "Magenta", hex: "#9A0089" }, // Orchid
-    Accent { id: "rose", label: "Rose", hex: "#EA005E" },     // Rose Bright
-    Accent { id: "rust", label: "Rust", hex: "#DA3B01" },     // Rust
-    Accent { id: "forest", label: "Forest", hex: "#107C10" }, // Green
-    Accent { id: "olive", label: "Olive", hex: "#498205" },   // Meadow Green
-    Accent { id: "turf", label: "Turf", hex: "#00CC6A" },     // Turf Green
-    Accent { id: "steel", label: "Steel", hex: "#2D7D9A" },   // Cool Blue
-    Accent { id: "khaki", label: "Khaki", hex: "#7E735F" },   // Camouflage
-    Accent { id: "moss", label: "Moss", hex: "#486860" },     // Moss
-];
-
-/// An accent by picker id; an unknown or stale session value falls back to Blue.
-pub(crate) fn accent(id: &str) -> &'static Accent {
-    ACCENTS
-        .iter()
-        .find(|accent| accent.id == id)
-        .unwrap_or(&ACCENTS[0])
-}
-
-/// The parsed accent colour, for swatches outside the theme.
-pub(crate) fn color(accent: &Accent) -> gpui_kit::Hsla {
-    gpui_kit::component::try_parse_color(accent.hex).unwrap_or_default()
-}
 
 /// The theme pair's light or dark side.
 pub(crate) fn theme(mode: ThemeMode, accent: &Accent) -> ThemeConfig {
@@ -102,21 +44,6 @@ pub(crate) fn theme(mode: ThemeMode, accent: &Accent) -> ThemeConfig {
         colors: if dark { dark_tokens(base) } else { light_tokens(base) },
         ..Default::default()
     }
-}
-
-pub(crate) fn opt(value: impl Into<SharedString>) -> Option<SharedString> {
-    Some(value.into())
-}
-
-/// Build a `ThemeConfigColors` from public fields, leaving the crate-private
-/// base-colour slots at their defaults. (The struct has private fields, so a
-/// struct literal cannot use `..Default::default()` from this crate.)
-macro_rules! colors {
-    ($($field:ident: $value:expr),* $(,)?) => {{
-        let mut colors = ThemeConfigColors::default();
-        $( colors.$field = $value; )*
-        colors
-    }};
 }
 
 /// The light Fluent table.
@@ -355,84 +282,10 @@ fn dark_tokens(a: Rgb) -> ThemeConfigColors {
     }
 }
 
-/// An sRGB triple with the few operations the theme needs.
-#[derive(Clone, Copy)]
-pub(crate) struct Rgb {
-    r: u8,
-    g: u8,
-    b: u8,
-}
-
-impl Rgb {
-    pub(crate) fn parse(hex: &str) -> Self {
-        let hex = hex.trim_start_matches('#');
-        let channel = |at: usize| u8::from_str_radix(&hex[at..at + 2], 16).unwrap_or(0);
-        Self { r: channel(0), g: channel(2), b: channel(4) }
-    }
-
-    pub(crate) fn hex(self) -> String {
-        format!("#{:02x}{:02x}{:02x}", self.r, self.g, self.b)
-    }
-
-    /// `#rrggbbaa` for translucent washes over the surface.
-    pub(crate) fn alpha(self, a: u8) -> String {
-        format!("#{:02x}{:02x}{:02x}{:02x}", self.r, self.g, self.b, a)
-    }
-
-    pub(crate) fn blend(self, other: Self, t: f32) -> Self {
-        let mix = |a: u8, b: u8| (f32::from(a) + (f32::from(b) - f32::from(a)) * t).round() as u8;
-        Self {
-            r: mix(self.r, other.r),
-            g: mix(self.g, other.g),
-            b: mix(self.b, other.b),
-        }
-    }
-
-    pub(crate) fn lighten(self, t: f32) -> Self {
-        self.blend(Self { r: 255, g: 255, b: 255 }, t)
-    }
-
-    pub(crate) fn darken(self, t: f32) -> Self {
-        self.blend(Self { r: 0, g: 0, b: 0 }, t)
-    }
-
-    /// WCAG relative luminance, for picking readable text on the accent.
-    pub(crate) fn luminance(self) -> f32 {
-        let channel = |c: u8| {
-            let c = f32::from(c) / 255.0;
-            if c <= 0.04045 {
-                c / 12.92
-            } else {
-                ((c + 0.055) / 1.055).powf(2.4)
-            }
-        };
-        0.2126 * channel(self.r) + 0.7152 * channel(self.g) + 0.0722 * channel(self.b)
-    }
-
-    /// Black or white, whichever has more contrast on this fill. The threshold sits
-    /// at the point Fluent flips: blues/reds/purples get white text, oranges,
-    /// greens and yellows get black.
-    pub(crate) fn contrast(self) -> &'static str {
-        if self.luminance() > 0.30 {
-            "#000000"
-        } else {
-            "#ffffff"
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn accents_are_unique_and_parse() {
-        let mut ids = std::collections::HashSet::new();
-        for accent in ACCENTS {
-            assert!(ids.insert(accent.id), "duplicate accent id {}", accent.id);
-            assert_eq!(Rgb::parse(accent.hex).hex(), accent.hex.to_lowercase());
-        }
-    }
+    use crate::themes::{accent, Rgb};
 
     #[test]
     fn theme_names_the_accent_and_mode() {
@@ -464,10 +317,5 @@ mod tests {
         assert_eq!(Rgb::parse("#FFC600").contrast(), "#000000");
         assert_eq!(Rgb::parse("#007AFF").contrast(), "#ffffff");
         assert_eq!(Rgb::parse("#A550A7").contrast(), "#ffffff");
-    }
-
-    #[test]
-    fn unknown_accent_falls_back_to_blue() {
-        assert_eq!(accent("nope").id, "blue");
     }
 }

@@ -1,5 +1,4 @@
-//! The runtime "Meltysand" theme: macOS Tahoe (26) styling computed from the
-//! chosen accent colour. Like Influenza it is not JSON-backed.
+//! Meltysand: macOS Tahoe (26) styling computed from the chosen accent colour.
 //!
 //! Apple's current desktop look is Liquid Glass: translucent, lightly tinted
 //! chrome over content, capsule/very-round controls, layered surfaces and a
@@ -15,23 +14,14 @@
 //! * Tahoe's window corner radius (26 px) for large surfaces, a rounded 12 px
 //!   for controls (macOS renders many as capsules)
 //!
-//! The accent palette is shared with Influenza (`influenza::ACCENTS`).
+//! The accent palette is shared with the other computed families.
 
-use crate::influenza::{opt, Accent, Rgb};
+use super::colors;
+use super::{opt, Accent, Rgb};
 use gpui_kit::component::{ThemeConfig, ThemeConfigColors, ThemeMode};
 
 /// The picker id of the computed family (mirrors `theme::MELTYSAND`).
 pub(crate) const FAMILY: &str = "meltysand";
-
-/// Build a `ThemeConfigColors` from public fields; the base-colour slots are
-/// crate-private and stay at their defaults.
-macro_rules! colors {
-    ($($field:ident: $value:expr),* $(,)?) => {{
-        let mut colors = ThemeConfigColors::default();
-        $( colors.$field = $value; )*
-        colors
-    }};
-}
 
 /// The theme pair's light or dark side.
 pub(crate) fn theme(mode: ThemeMode, accent: &Accent) -> ThemeConfig {
@@ -59,11 +49,7 @@ pub(crate) fn theme(mode: ThemeMode, accent: &Accent) -> ThemeConfig {
         radius: Some(12),
         radius_lg: Some(26),
         shadow: Some(true),
-        colors: if dark {
-            dark_tokens(base)
-        } else {
-            light_tokens(base)
-        },
+        colors: if dark { dark_tokens(base) } else { light_tokens(base) },
         ..Default::default()
     }
 }
@@ -304,7 +290,7 @@ fn dark_tokens(a: Rgb) -> ThemeConfigColors {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::influenza::accent;
+    use crate::themes::accent;
 
     #[test]
     fn names_the_theme_and_uses_tahoe_rounding() {

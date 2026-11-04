@@ -383,7 +383,7 @@ pub struct GridApp {
     /// appearance override and the accent colour Influenza is computed from.
     pub(crate) theme_id: String,
     pub(crate) appearance: Appearance,
-    /// The accent colour id (`influenza::ACCENTS`); ignored by JSON-backed families.
+    /// The accent colour id (`themes::ACCENTS`); ignored by JSON-backed families.
     pub(crate) accent: String,
     /// The tab rail's rendered height, recorded during prepaint — the sliding chip
     /// aims the gear's bottom slot with it (one frame of lag, like the sidebar's).
@@ -1609,15 +1609,19 @@ impl GridApp {
     /// Influenza has no registry entry: both sides are computed from the accent.
     pub(crate) fn apply_theme(&self, cx: &mut Context<Self>) {
         let family = crate::theme::family(&self.theme_id);
-        let accent = crate::influenza::accent(&self.accent);
+        let accent = crate::themes::accent(&self.accent);
         let (light, dark) = match family.id {
             crate::theme::INFLUENZA => (
-                Rc::new(crate::influenza::theme(ThemeMode::Light, accent)),
-                Rc::new(crate::influenza::theme(ThemeMode::Dark, accent)),
+                Rc::new(crate::themes::influenza::theme(ThemeMode::Light, accent)),
+                Rc::new(crate::themes::influenza::theme(ThemeMode::Dark, accent)),
             ),
             crate::theme::MELTYSAND => (
-                Rc::new(crate::meltysand::theme(ThemeMode::Light, accent)),
-                Rc::new(crate::meltysand::theme(ThemeMode::Dark, accent)),
+                Rc::new(crate::themes::meltysand::theme(ThemeMode::Light, accent)),
+                Rc::new(crate::themes::meltysand::theme(ThemeMode::Dark, accent)),
+            ),
+            crate::theme::VISUALIA => (
+                Rc::new(crate::themes::visualia::theme(ThemeMode::Light, accent)),
+                Rc::new(crate::themes::visualia::theme(ThemeMode::Dark, accent)),
             ),
             _ => {
                 let registry = ThemeRegistry::global(cx);
@@ -1663,7 +1667,7 @@ impl GridApp {
     /// The Settings tab's accent pick: only Influenza consumes it, but the choice
     /// is stored for every family.
     pub(crate) fn set_accent(&mut self, id: &str, cx: &mut Context<Self>) {
-        self.accent = crate::influenza::accent(id).id.to_string();
+        self.accent = crate::themes::accent(id).id.to_string();
         self.apply_theme(cx);
         self.save_session(cx);
         cx.notify();

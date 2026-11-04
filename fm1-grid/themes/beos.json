@@ -1,10 +1,10 @@
 {
   "$schema": "https://github.com/longbridge/gpui-kit/raw/refs/heads/main/.theme-schema.json",
   "name": "BeOS",
-  "author": "Chungus King",
+  "author": "King Chungus, Large Man",
   "themes": [
     {
-      "name": "FM-1 (BeOS) Light",
+      "name": "BeOS Light",
       "mode": "light",
       "font.family": "Swiss 721, Helvetica Neue, Helvetica, Arial, Liberation Sans, sans-serif",
       "mono_font.family": "Courier New, Nimbus Mono PS, Liberation Mono, DejaVu Sans Mono, monospace",
@@ -190,7 +190,7 @@
       }
     },
     {
-      "name": "FM-1 (BeOS) Dark",
+      "name": "BeOS Dark",
       "mode": "dark",
       "font.family": "Swiss 721, Helvetica Neue, Helvetica, Arial, Liberation Sans, sans-serif",
       "mono_font.family": "Courier New, Nimbus Mono PS, Liberation Mono, DejaVu Sans Mono, monospace",

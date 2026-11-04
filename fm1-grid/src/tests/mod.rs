@@ -1052,12 +1052,12 @@ fn settings_theme_and_appearance(cx: &mut TestAppContext) {
 
     // A bundled family applies at once (its dark side — the override still pins it).
     cx.update_window(window.into(), |_, _window, cx| {
-        app.update(cx, |app, cx| app.set_theme_family("fm1-cream", cx));
+        app.update(cx, |app, cx| app.set_theme_family("beos", cx));
     })
     .unwrap();
     cx.update(|cx| {
         let theme = Theme::global(cx);
-        assert_eq!(theme.theme_name().as_ref(), "FM-1 (Cream) Dark");
+        assert_eq!(theme.theme_name().as_ref(), "BeOS Dark");
     });
 
     // Back to Auto: the mode follows the test platform's (light) appearance again,
@@ -1068,7 +1068,7 @@ fn settings_theme_and_appearance(cx: &mut TestAppContext) {
     .unwrap();
     cx.update(|cx| {
         let theme = Theme::global(cx);
-        assert_eq!(theme.theme_name().as_ref(), "FM-1 (Cream) Light");
+        assert_eq!(theme.theme_name().as_ref(), "BeOS Light");
         assert!(!theme.is_dark());
         let record: crate::session::Session = app
             .read(cx)
@@ -1077,7 +1077,7 @@ fn settings_theme_and_appearance(cx: &mut TestAppContext) {
             .expect("a store")
             .fetch_object("session")
             .expect("the settings change should have saved the session");
-        assert_eq!(record.theme, "fm1-cream");
+        assert_eq!(record.theme, "beos");
         assert_eq!(record.appearance, Appearance::Auto);
     });
 
@@ -1141,6 +1141,20 @@ fn settings_theme_and_appearance(cx: &mut TestAppContext) {
         assert_eq!(theme.radius_lg, px(26.0));
     });
 
+    // Visualia uses the same accent, with its cream light canvas.
+    cx.update_window(window.into(), |_, _window, cx| {
+        app.update(cx, |app, cx| app.set_theme_family(crate::theme::VISUALIA, cx));
+    })
+    .unwrap();
+    cx.update(|cx| {
+        let theme = Theme::global(cx);
+        assert_eq!(theme.theme_name().as_ref(), "Visualia Light (Red)");
+        assert_eq!(
+            theme.colors.background,
+            gpui_kit::component::try_parse_color("#fbf9f7").unwrap()
+        );
+    });
+
     cx.update_window(window.into(), |_, window, cx| {
         window.click(("tab", 0usize), cx);
         app.update(cx, |app, cx| {
@@ -1162,13 +1176,17 @@ fn bundled_themes_load(cx: &mut TestAppContext) {
         gpui_kit::init(cx);
         crate::theme::load_bundled_themes(cx);
         let registry = ThemeRegistry::global(cx);
-        // Default, Influenza, Meltysand, plus every bundled themes/*.json (listed
-        // by build.rs).
+        // Default, Influenza, Meltysand, Visualia, plus every bundled
+        // themes/*.json (listed by build.rs).
         assert_eq!(
             crate::theme::theme_families().len(),
-            crate::theme::THEME_FILES.len() + 3
+            crate::theme::THEME_FILES.len() + 4
         );
-        for id in [crate::theme::INFLUENZA, crate::theme::MELTYSAND] {
+        for id in [
+            crate::theme::INFLUENZA,
+            crate::theme::MELTYSAND,
+            crate::theme::VISUALIA,
+        ] {
             assert!(crate::theme::theme_families()
                 .iter()
                 .any(|family| family.id == id));
@@ -1183,8 +1201,8 @@ fn bundled_themes_load(cx: &mut TestAppContext) {
             }
         }
         // The workhorse pair the UI test applies.
-        assert!(registry.themes().contains_key("FM-1 (Cream) Light"));
-        assert!(registry.themes().contains_key("FM-1 (Cream) Dark"));
+        assert!(registry.themes().contains_key("BeOS Light"));
+        assert!(registry.themes().contains_key("BeOS Dark"));
     });
 }
 

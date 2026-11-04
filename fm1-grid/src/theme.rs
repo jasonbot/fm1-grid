@@ -120,10 +120,13 @@ fn first_installed(
 }
 
 /// The computed Fluent-UI family; `apply_theme` builds it from the accent colour.
-pub(crate) const INFLUENZA: &str = crate::influenza::FAMILY;
+pub(crate) const INFLUENZA: &str = crate::themes::influenza::FAMILY;
 
 /// The computed macOS Tahoe family; `apply_theme` builds it from the accent too.
-pub(crate) const MELTYSAND: &str = crate::meltysand::FAMILY;
+pub(crate) const MELTYSAND: &str = crate::themes::meltysand::FAMILY;
+
+/// The creme/near-black accent family; computed from the accent as well.
+pub(crate) const VISUALIA: &str = crate::themes::visualia::FAMILY;
 
 /// One picker family: the registered config names that fill the light and dark
 /// slots (the family's first of each mode; a missing side keeps the default theme).
@@ -165,7 +168,13 @@ static FAMILIES: std::sync::LazyLock<Vec<ThemeFamily>> = std::sync::LazyLock::ne
         },
         ThemeFamily {
             id: MELTYSAND,
-            label: "Meltysand",
+            label: "Meltysand (macOS)",
+            light: None,
+            dark: None,
+        },
+        ThemeFamily {
+            id: VISUALIA,
+            label: "Visualia (accent)",
             light: None,
             dark: None,
         },

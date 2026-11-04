@@ -11,15 +11,14 @@ mod firmware_picker;
 mod flash_dialog;
 mod graph;
 mod grid;
-mod influenza;
 mod lcd;
 mod library_tab;
-mod meltysand;
 mod panel;
 mod session;
 mod settings;
 mod sidebar;
 mod theme;
+mod themes;
 mod transport;
 
 #[cfg(test)]

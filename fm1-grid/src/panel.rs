@@ -64,9 +64,12 @@ fn relight(color: Hsla, l: f32, s_scale: f32) -> Hsla {
     }
 }
 
-fn panel_colors(theme: &gpui_kit::component::Theme) -> PanelColors {
+fn panel_colors(
+    theme: &gpui_kit::component::Theme,
+    visualia: Option<crate::themes::visualia::PanelPalette>,
+) -> PanelColors {
     let bg = theme.background;
-    PanelColors {
+    let mut colors = PanelColors {
         bed: Hsla {
             l: bg.l.min(0.16),
             s: (bg.s * 0.85).clamp(0.0, 1.0),
@@ -91,7 +94,14 @@ fn panel_colors(theme: &gpui_kit::component::Theme) -> PanelColors {
         black: relight(bg, 0.24, 0.7),
         black_edge: relight(bg, 0.10, 0.7),
         black_ink: relight(bg, 0.80, 0.4),
+    };
+    if let Some(visualia) = visualia {
+        colors.bed = visualia.bed;
+        colors.button = visualia.button;
+        colors.button_hover = visualia.button_hover;
+        colors.button_edge = visualia.border;
     }
+    colors
 }
 
 /// What a three-part rotary group turns: the MASTER pot or one of the FM-1's encoders.
@@ -124,7 +134,13 @@ impl GridApp {
         let group_gap = 6.0f32;
         let row_gap = 4.0f32;
         let mono = cx.theme().mono_font_family.clone();
-        let colors = panel_colors(cx.theme());
+        let visualia = (self.theme_id == crate::theme::VISUALIA).then(|| {
+            crate::themes::visualia::panel(
+                crate::themes::accent(&self.accent),
+                cx.theme().is_dark(),
+            )
+        });
+        let colors = panel_colors(cx.theme(), visualia);
 
         // The right-hand groups (the four knobs and the function buttons) span one
         // common width, so the knobs sit directly above the button grid. Cap it to
@@ -589,7 +605,7 @@ mod tests {
 
         // A light background: the bed must stay dark, the keys light.
         theme.background = gpui_kit::hsla(0.08, 0.4, 0.96, 1.0);
-        let colors = panel_colors(&theme);
+        let colors = panel_colors(&theme, None);
         assert!(colors.bed.l <= 0.16, "light theme: bed stays dark");
         assert!(colors.white.l >= 0.9, "white keys read light");
         assert!(colors.black.l > colors.bed.l && colors.black.l < colors.white.l);
@@ -598,9 +614,25 @@ mod tests {
 
         // A dark, saturated background: same invariants, hue carries over.
         theme.background = gpui_kit::hsla(0.6, 0.3, 0.08, 1.0);
-        let colors = panel_colors(&theme);
+        let colors = panel_colors(&theme, None);
         assert!(colors.bed.l <= 0.16);
         assert!((colors.bed.h - 0.6).abs() < 1e-6, "the bed keeps the theme's hue");
         assert!((colors.white.h - 0.6).abs() < 1e-6, "the keys keep the theme's hue");
+    }
+
+    /// Visualia swaps the bed, buttons and their edges for the accent-derived
+    /// palette while the white keys keep the shared background derivation.
+    #[test]
+    fn visualia_panel_uses_the_accent_palette() {
+        let theme = Theme::default();
+        for dark in [false, true] {
+            let palette = crate::themes::visualia::panel(crate::themes::accent("red"), dark);
+            let colors = panel_colors(&theme, Some(palette));
+            assert_eq!(colors.bed.h, palette.bed.h);
+            assert_eq!(colors.bed.l, palette.bed.l);
+            assert_eq!(colors.button.l, palette.button.l);
+            assert_eq!(colors.button_edge.l, palette.border.l);
+            assert!(colors.white.l >= 0.9, "white keys keep their derivation");
+        }
     }
 }

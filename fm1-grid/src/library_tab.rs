@@ -669,9 +669,9 @@ impl GridApp {
         // the primary otherwise. Same tag, same slice of the wheel.
         let base = if matches!(
             self.theme_id.as_str(),
-            crate::theme::INFLUENZA | crate::theme::MELTYSAND
+            crate::theme::INFLUENZA | crate::theme::MELTYSAND | crate::theme::VISUALIA
         ) {
-            crate::influenza::color(crate::influenza::accent(&self.accent))
+            crate::themes::color(crate::themes::accent(&self.accent))
         } else {
             cx.theme().primary
         };

@@ -60,7 +60,7 @@ impl Default for Session {
             device_filter: Default::default(),
             theme: crate::theme::DEFAULT_FAMILY.to_string(),
             appearance: crate::app::Appearance::default(),
-            accent: crate::influenza::accent("blue").id.to_string(),
+            accent: crate::themes::accent("blue").id.to_string(),
         }
     }
 }
@@ -79,7 +79,7 @@ impl Session {
         session.slot = session.slot.min(fm1_performer::MAX_SLOTS - 1);
         session.bpm = session.bpm.clamp(MIN_BPM, MAX_BPM);
         // A stale or hand-edited accent id falls back to Blue.
-        session.accent = crate::influenza::accent(&session.accent).id.to_string();
+        session.accent = crate::themes::accent(&session.accent).id.to_string();
         // The builtin "FM-1+VA" was renamed "Baud Girl (FM-1+VA)"; carry its star
         // over (favorites key on the normalized name, so a rename orphans them).
         if session.favorites.remove("fm-1+va") {

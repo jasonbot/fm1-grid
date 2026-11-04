@@ -41,6 +41,84 @@ include!(concat!(env!("OUT_DIR"), "/theme_files.rs"));
 /// The picker's first entry: gpui-kit's own Default Light/Dark pair.
 pub(crate) const DEFAULT_FAMILY: &str = "default";
 
+/// Enumerate the machine's fonts once: macOS spends ~100 ms on it, and the
+/// answer only changes with the system font set.
+pub(crate) fn installed_fonts(cx: &gpui_kit::App) -> &'static [String] {
+    static NAMES: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
+    NAMES.get_or_init(|| cx.text_system().all_font_names())
+}
+
+/// The UI fallbacks when a theme's list names nothing installed.
+const UI_FALLBACKS: &[&str] = &[
+    "Segoe UI",
+    "SF Pro Text",
+    "Helvetica Neue",
+    "Arial",
+    "Noto Sans",
+    "DejaVu Sans",
+    "Liberation Sans",
+];
+/// The monospace fallbacks when a theme's list names nothing installed.
+const MONO_FALLBACKS: &[&str] = &[
+    "Menlo",
+    "Monaco",
+    "Cascadia Mono",
+    "Consolas",
+    "DejaVu Sans Mono",
+    "Noto Sans Mono",
+    "Liberation Mono",
+    "Courier New",
+];
+
+/// Resolve a theme's comma-separated `font.family` / `mono_font.family` list to
+/// the first installed family, falling back to the platform's usual suspects.
+/// Themes may keep the CSS-style generic tails (`sans-serif`, `monospace`).
+pub(crate) fn resolve_theme_fonts(
+    config: &gpui_kit::component::ThemeConfig,
+    installed: &[String],
+) -> gpui_kit::component::ThemeConfig {
+    let mut config = config.clone();
+    config.font_family = Some(first_installed(
+        config.font_family.as_deref().unwrap_or_default(),
+        installed,
+        UI_FALLBACKS,
+        ".SystemUIFont",
+    ));
+    config.mono_font_family = Some(first_installed(
+        config.mono_font_family.as_deref().unwrap_or_default(),
+        installed,
+        MONO_FALLBACKS,
+        ".SystemUIFont",
+    ));
+    config
+}
+
+/// First concrete family in `list` that is installed, else the first installed
+/// fallback, else `last`.
+fn first_installed(
+    list: &str,
+    installed: &[String],
+    fallbacks: &[&str],
+    last: &str,
+) -> gpui_kit::SharedString {
+    let generic = |name: &&str| {
+        matches!(
+            *name,
+            "sans-serif" | "serif" | "monospace" | "system-ui" | "cursive" | "fantasy"
+        )
+    };
+    list.split(',')
+        .map(str::trim)
+        .filter(|name| !name.is_empty() && !generic(&name))
+        .chain(fallbacks.iter().copied())
+        .find(|name| {
+            *name == ".SystemUIFont" || installed.iter().any(|family| family == name)
+        })
+        .unwrap_or(last)
+        .to_string()
+        .into()
+}
+
 /// The computed Fluent-UI family; `apply_theme` builds it from the accent colour.
 pub(crate) const INFLUENZA: &str = crate::influenza::FAMILY;
 
@@ -133,5 +211,57 @@ pub(crate) fn load_bundled_themes(cx: &mut gpui_kit::App) {
         if let Err(e) = registry.load_themes_from_str(json) {
             eprintln!("fm1-grid: bundled theme {id} failed to load: {e}");
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gpui_kit::component::ThemeConfig;
+
+    fn installed(names: &[&str]) -> Vec<String> {
+        names.iter().map(|name| name.to_string()).collect()
+    }
+
+    #[test]
+    fn font_lists_pick_the_first_installed_family() {
+        let config = ThemeConfig {
+            font_family: Some("Chalkboard SE, Comic Sans MS, sans-serif".into()),
+            mono_font_family: Some("Comic Mono, Courier New, monospace".into()),
+            ..Default::default()
+        };
+        let resolved = resolve_theme_fonts(
+            &config,
+            &installed(&["Comic Sans MS", "Helvetica Neue"]),
+        );
+        assert_eq!(resolved.font_family.as_deref(), Some("Comic Sans MS"));
+        // Neither mono entry is installed, so the platform fallback wins.
+        assert_eq!(resolved.mono_font_family.as_deref(), Some(".SystemUIFont"));
+    }
+
+    #[test]
+    fn generic_families_use_the_platform_fallbacks() {
+        let config = ThemeConfig {
+            font_family: Some("sans-serif".into()),
+            mono_font_family: Some("monospace".into()),
+            ..Default::default()
+        };
+        let resolved = resolve_theme_fonts(
+            &config,
+            &installed(&["Arial", "DejaVu Sans Mono"]),
+        );
+        assert_eq!(resolved.font_family.as_deref(), Some("Arial"));
+        assert_eq!(
+            resolved.mono_font_family.as_deref(),
+            Some("DejaVu Sans Mono")
+        );
+    }
+
+    #[test]
+    fn missing_fields_fall_back_instead_of_panicking() {
+        let resolved = resolve_theme_fonts(&ThemeConfig::default(), &installed(&["Arial"]));
+        assert_eq!(resolved.font_family.as_deref(), Some("Arial"));
+        // No mono family on this pretend machine: the virtual system font.
+        assert_eq!(resolved.mono_font_family.as_deref(), Some(".SystemUIFont"));
     }
 }

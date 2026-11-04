@@ -1102,6 +1102,16 @@ fn settings_theme_and_appearance(cx: &mut TestAppContext) {
             gpui_kit::component::try_parse_color("#ff5257").unwrap()
         );
         assert_eq!(app.read(cx).accent, "red");
+        assert!(
+            !theme.font_family.contains(','),
+            "the theme font list resolves to one installed family: {}",
+            theme.font_family
+        );
+        assert!(
+            !theme.mono_font_family.contains(','),
+            "the mono list resolves to one installed family: {}",
+            theme.mono_font_family
+        );
         let record: crate::session::Session = app
             .read(cx)
             .store

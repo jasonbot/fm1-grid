@@ -196,11 +196,14 @@ Mint, Shadow and Mac Platinum), plus two computed families: **Influenza**, close
 Windows 11's Fluent UI, and **Meltysand**, close to macOS Tahoe's Liquid Glass. Both
 are built at runtime from the **Accent color** row of circles (the merged Windows 11
 and macOS palette; the macOS value wins where they overlap) and the **Mode**: Auto
-(follows the OS), Light or Dark. The accent row is enabled only while Influenza or
-Meltysand is the theme. Picks apply at once and are saved with the rest of the app
-state. The page's Reset button puts the theme and mode back to their
-defaults. The search box at the top of the sidebar finds settings by name or keyword
-("dark" finds Mode). A dark-only theme keeps the default light side, and vice versa.
+(follows the OS), Light or Dark. Every theme also names an ordered font list: Comic
+Sans/Chalkboard for Hot Dog Stand, Segoe UI for Influenza, SF Pro for Meltysand, and
+so on; the app resolves it to the first family the machine has. The accent row is
+enabled only while Influenza or Meltysand is the theme. Picks apply at once and are
+saved with the rest of the app state. The page's Reset button puts the theme and mode
+back to their defaults. The search box at the top of the sidebar finds settings by
+name or keyword ("dark" finds Mode). A dark-only theme keeps the default light side,
+and vice versa.
 
 ## fm1-tty
 

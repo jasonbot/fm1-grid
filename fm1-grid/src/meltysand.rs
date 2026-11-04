@@ -45,11 +45,25 @@ pub(crate) fn theme(mode: ThemeMode, accent: &Accent) -> ThemeConfig {
         )
         .into(),
         mode,
+        // San Francisco first, then the usual macOS/desktop fallbacks; the
+        // resolver in theme.rs names the first installed one.
+        font_family: Some(
+            "SF Pro Text, SF Pro Display, .SystemUIFont, Helvetica Neue, Helvetica, \
+             Arial, Noto Sans, DejaVu Sans, sans-serif"
+                .into(),
+        ),
+        mono_font_family: Some(
+            "SF Mono, Menlo, Monaco, Courier New, DejaVu Sans Mono, monospace".into(),
+        ),
         // Tahoe's window rounding (26 px) with a rounded control scale.
         radius: Some(12),
         radius_lg: Some(26),
         shadow: Some(true),
-        colors: if dark { dark_tokens(base) } else { light_tokens(base) },
+        colors: if dark {
+            dark_tokens(base)
+        } else {
+            light_tokens(base)
+        },
         ..Default::default()
     }
 }
@@ -301,6 +315,14 @@ mod tests {
         assert_eq!(dark.name.as_ref(), "Meltysand Dark (Blue)");
         assert_eq!(light.radius, Some(12));
         assert_eq!(light.radius_lg, Some(26));
+        assert!(light
+            .font_family
+            .as_deref()
+            .is_some_and(|list| list.starts_with("SF Pro Text")));
+        assert!(light
+            .mono_font_family
+            .as_deref()
+            .is_some_and(|list| list.starts_with("SF Mono")));
         // Accent reaches the primary slot unchanged in light, lifted in dark.
         assert_eq!(light.colors.primary.as_deref(), Some("#007aff"));
         assert_eq!(dark.colors.primary.as_deref(), Some("#1f8aff"));

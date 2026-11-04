@@ -6,6 +6,8 @@
     {
       "name": "FM-1 (Ember)",
       "mode": "dark",
+      "font.family": "Iowan Old Style, Charter, Georgia, Palatino, Noto Serif, DejaVu Serif, serif",
+      "mono_font.family": "Menlo, Consolas, DejaVu Sans Mono, monospace",
       "colors": {
         "accent.background": "#d7807540",
         "accent.foreground": "#e6dddb",

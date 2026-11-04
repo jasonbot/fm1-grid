@@ -1633,6 +1633,11 @@ impl GridApp {
                 )
             }
         };
+        // A theme's font fields are ordered lists; name the first family this
+        // machine actually has (the registry configs are single-name strings).
+        let installed = crate::theme::installed_fonts(cx);
+        let light = Rc::new(crate::theme::resolve_theme_fonts(&light, installed));
+        let dark = Rc::new(crate::theme::resolve_theme_fonts(&dark, installed));
         let mode = match self.appearance {
             Appearance::Light => ThemeMode::Light,
             Appearance::Dark => ThemeMode::Dark,

@@ -83,6 +83,18 @@ pub(crate) fn theme(mode: ThemeMode, accent: &Accent) -> ThemeConfig {
         )
         .into(),
         mode,
+        // Fluent's Segoe UI family with sane cross-platform fallbacks; the
+        // resolver in theme.rs names the first installed one.
+        font_family: Some(
+            "Segoe UI Variable Text, Segoe UI Variable, Segoe UI, Inter, Noto Sans, \
+             DejaVu Sans, sans-serif"
+                .into(),
+        ),
+        mono_font_family: Some(
+            "Cascadia Mono, Cascadia Code, Consolas, Courier New, DejaVu Sans Mono, \
+             monospace"
+                .into(),
+        ),
         // Fluent controls use 4 px corners; flyouts and cards use 8.
         radius: Some(4),
         radius_lg: Some(8),
@@ -437,6 +449,14 @@ mod tests {
         // Fluent corner radii.
         assert_eq!(light.radius, Some(4));
         assert_eq!(light.radius_lg, Some(8));
+        assert!(light
+            .font_family
+            .as_deref()
+            .is_some_and(|list| list.starts_with("Segoe UI Variable")));
+        assert!(light
+            .mono_font_family
+            .as_deref()
+            .is_some_and(|list| list.starts_with("Cascadia Mono")));
     }
 
     #[test]

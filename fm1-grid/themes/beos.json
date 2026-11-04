@@ -6,6 +6,8 @@
     {
       "name": "FM-1 (BeOS) Light",
       "mode": "light",
+      "font.family": "Swiss 721, Helvetica Neue, Helvetica, Arial, Liberation Sans, sans-serif",
+      "mono_font.family": "Courier New, Nimbus Mono PS, Liberation Mono, DejaVu Sans Mono, monospace",
       "colors": {
         "accent.background": "#fcc80033",
         "accent.foreground": "#1a1a1a",
@@ -190,6 +192,8 @@
     {
       "name": "FM-1 (BeOS) Dark",
       "mode": "dark",
+      "font.family": "Swiss 721, Helvetica Neue, Helvetica, Arial, Liberation Sans, sans-serif",
+      "mono_font.family": "Courier New, Nimbus Mono PS, Liberation Mono, DejaVu Sans Mono, monospace",
       "colors": {
         "accent.background": "#c1ac5c33",
         "accent.foreground": "#e4e4e4",

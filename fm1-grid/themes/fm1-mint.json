@@ -6,6 +6,8 @@
     {
       "name": "FM-1 (Mint)",
       "mode": "dark",
+      "font.family": "Avenir Next, Verdana, Tahoma, Segoe UI, Helvetica Neue, sans-serif",
+      "mono_font.family": "SF Mono, Menlo, Consolas, DejaVu Sans Mono, monospace",
       "colors": {
         "accent.background": "#75d7cd40",
         "accent.foreground": "#e3dddf",

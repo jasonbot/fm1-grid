@@ -6,6 +6,8 @@
     {
       "name": "FM-1 (Frost) Light",
       "mode": "light",
+      "font.family": "SF Pro Display, Segoe UI Variable, Segoe UI, Inter, Helvetica Neue, Arial, sans-serif",
+      "mono_font.family": "SF Mono, Cascadia Code, Consolas, DejaVu Sans Mono, monospace",
       "colors": {
         "accent.background": "#d0dff1",
         "accent.foreground": "#403630",
@@ -156,6 +158,8 @@
     {
       "name": "FM-1 (Frost) Dark",
       "mode": "dark",
+      "font.family": "SF Pro Display, Segoe UI Variable, Segoe UI, Inter, Helvetica Neue, Arial, sans-serif",
+      "mono_font.family": "SF Mono, Cascadia Code, Consolas, DejaVu Sans Mono, monospace",
       "colors": {
         "accent.background": "#26313e",
         "accent.foreground": "#d2c9c4",

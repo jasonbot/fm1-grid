@@ -6,6 +6,8 @@
     {
       "name": "FM-1 (Cream) Light",
       "mode": "light",
+      "font.family": "Avenir Next, Avenir, Nunito, Quicksand, Segoe UI, Helvetica Neue, Arial, sans-serif",
+      "mono_font.family": "SF Mono, Menlo, Cascadia Mono, Consolas, DejaVu Sans Mono, monospace",
       "colors": {
         "accent.background": "#d0d6f1",
         "accent.foreground": "#3f3531",
@@ -156,6 +158,8 @@
     {
       "name": "FM-1 (Cream) Dark",
       "mode": "dark",
+      "font.family": "Avenir Next, Avenir, Nunito, Quicksand, Segoe UI, Helvetica Neue, Arial, sans-serif",
+      "mono_font.family": "SF Mono, Menlo, Cascadia Mono, Consolas, DejaVu Sans Mono, monospace",
       "colors": {
         "accent.background": "#262a3e",
         "accent.foreground": "#d1c8c4",

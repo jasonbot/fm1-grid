@@ -6,6 +6,8 @@
     {
       "name": "FM-1 (Shadow)",
       "mode": "dark",
+      "font.family": "SF Pro Text, Segoe UI, Inter, Helvetica Neue, Arial, sans-serif",
+      "mono_font.family": "SF Mono, Cascadia Mono, Consolas, DejaVu Sans Mono, monospace",
       "colors": {
         "accent.background": "#75d7cb40",
         "accent.foreground": "#e3dddd",

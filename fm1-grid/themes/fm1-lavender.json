@@ -6,6 +6,8 @@
     {
       "name": "FM-1 (Lavender) Light",
       "mode": "light",
+      "font.family": "Avenir Next, Nunito, Quicksand, Segoe UI, Helvetica Neue, sans-serif",
+      "mono_font.family": "SF Mono, Menlo, Consolas, DejaVu Sans Mono, monospace",
       "colors": {
         "accent.background": "#d6d0f1",
         "accent.foreground": "#3e2d43",
@@ -156,6 +158,8 @@
     {
       "name": "FM-1 (Lavender) Dark",
       "mode": "dark",
+      "font.family": "Avenir Next, Nunito, Quicksand, Segoe UI, Helvetica Neue, sans-serif",
+      "mono_font.family": "SF Mono, Menlo, Consolas, DejaVu Sans Mono, monospace",
       "colors": {
         "accent.background": "#2a263e",
         "accent.foreground": "#d1c1d5",

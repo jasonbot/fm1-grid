@@ -6,6 +6,8 @@
     {
       "name": "FM-1 (Mac Platinum) Light",
       "mode": "light",
+      "font.family": "Chicago, Charcoal, Geneva, Helvetica Neue, Helvetica, Arial, sans-serif",
+      "mono_font.family": "Monaco, Menlo, Courier New, DejaVu Sans Mono, monospace",
       "colors": {
         "accent.background": "#31319c22",
         "accent.foreground": "#1f1f1f",
@@ -190,6 +192,8 @@
     {
       "name": "FM-1 (Mac Platinum) Dark",
       "mode": "dark",
+      "font.family": "Chicago, Charcoal, Geneva, Helvetica Neue, Helvetica, Arial, sans-serif",
+      "mono_font.family": "Monaco, Menlo, Courier New, DejaVu Sans Mono, monospace",
       "colors": {
         "accent.background": "#8d8db922",
         "accent.foreground": "#e0e0e0",

@@ -20,26 +20,30 @@ use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{TestSupportExt as _, *};
 use std::rc::Rc;
 
-/// Tag pill colors, picked by the tag's hash: the same tag always lands on the same
-/// color. Saturated mid-tones that read on the light theme.
-const TAG_COLORS: [u32; 8] = [
-    0x3584e4, // blue
-    0x2ec27e, // green
-    0xc64600, // orange
-    0x9141ac, // purple
-    0xe01b24, // red
-    0x9f6e03, // ochre
-    0x0e7a86, // teal
-    0x5e5c64, // slate
-];
+/// Tag pill colors are eight hue rotations of the theme's base colour, picked by
+/// the tag's hash so the same tag always lands on the same hue. The base is the
+/// chosen accent for Influenza/Meltysand and the theme's primary otherwise.
+/// Saturation/lightness are clamped so every pill stays readable on light and dark
+/// surfaces, and a neutral primary gets a blue hue to rotate.
+fn tag_palette(base: Hsla) -> [Hsla; 8] {
+    let h = if base.s < 0.05 { 0.58 } else { base.h };
+    let s = base.s.clamp(0.5, 0.85);
+    let l = base.l.clamp(0.42, 0.60);
+    std::array::from_fn(|i| Hsla {
+        h: (h + i as f32 / 8.0) % 1.0,
+        s,
+        l,
+        a: 1.0,
+    })
+}
 
-/// FNV-1a of the tag, into the palette.
-fn tag_color(tag: &str) -> u32 {
+/// FNV-1a of the tag, into the eight-hue palette.
+fn tag_index(tag: &str) -> usize {
     let mut hash = 0x811c_9dc5u32;
     for byte in tag.bytes() {
         hash = (hash ^ byte as u32).wrapping_mul(0x0100_0193);
     }
-    TAG_COLORS[(hash % TAG_COLORS.len() as u32) as usize]
+    (hash % 8) as usize
 }
 
 /// The glyphs a favorite can show, in menu order.
@@ -661,9 +665,20 @@ impl GridApp {
         // A NoThanks favorite greys its row out.
         let no_thanks = favorite && glyph == NO_THANKS_GLYPH;
         let tags = std::iter::once(glyph.clone()).chain(firmware.tags.iter().cloned());
+        // The pill hues follow the theme: the accent for the computed families,
+        // the primary otherwise. Same tag, same slice of the wheel.
+        let base = if matches!(
+            self.theme_id.as_str(),
+            crate::theme::INFLUENZA | crate::theme::MELTYSAND
+        ) {
+            crate::influenza::color(crate::influenza::accent(&self.accent))
+        } else {
+            cx.theme().primary
+        };
+        let palette = tag_palette(base);
         let mut pills = h_flex().gap_1().flex_nowrap().min_w_0().overflow_hidden();
         for tag in tags {
-            let color: Hsla = rgb(tag_color(&tag)).into();
+            let color = palette[tag_index(&tag)];
             let id_tag = tag.clone();
             pills = pills.child(
                 div()
@@ -1160,11 +1175,30 @@ mod tests {
     // No `use super::*` — the parent's gpui glob import would drag in GPUI's `test`
     // attribute macro, which re-expands the built-in #[test] (see tests/mod.rs).
     use super::{
-        favorite_key, flatten_library, is_installed, matches_filter, snap_in, toggle_tag, LibItem,
+        favorite_key, flatten_library, is_installed, matches_filter, snap_in, tag_index,
+        tag_palette, toggle_tag, LibItem,
     };
     use super::{DeviceFilter, NO_THANKS_GLYPH};
     use fm1_performer::library::{Firmware, FirmwareDevice, FirmwareSource, Status};
     use std::collections::{HashMap, HashSet};
+
+    /// The pill palette walks the hue wheel from the theme base and clamps to
+    /// readable saturation/lightness; a neutral base still gets real hues.
+    #[test]
+    fn tag_palette_rotates_hues_and_stays_readable() {
+        let palette = tag_palette(gpui_kit::hsla(0.0, 0.8, 0.5, 1.0));
+        for (i, color) in palette.iter().enumerate() {
+            assert!((color.h - i as f32 / 8.0).abs() < 1e-6);
+            assert!((0.5..=0.85).contains(&color.s));
+            assert!((0.42..=0.60).contains(&color.l));
+        }
+        assert!(tag_index("groove") < 8);
+        assert_eq!(tag_index("groove"), tag_index("groove"));
+
+        let neutral = tag_palette(gpui_kit::hsla(0.0, 0.0, 0.1, 1.0));
+        assert!((neutral[0].h - 0.58).abs() < 1e-6);
+        assert!(neutral[0].s >= 0.5);
+    }
 
     fn no_glyphs() -> HashMap<String, String> {
         HashMap::new()

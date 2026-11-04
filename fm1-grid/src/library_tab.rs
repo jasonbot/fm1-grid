@@ -5,10 +5,10 @@
 //! powers on). At the bottom, the add-a-file form.
 
 use crate::app::{DeviceFilter, GridApp};
-use fm1_performer::firmware_picker::{FirmwarePick, pick_of};
-use gpui_kit::assets::IconName as Lucide;
+use fm1_performer::firmware_picker::{pick_of, FirmwarePick};
 use fm1_performer::library::{Firmware, FirmwareDevice, FirmwareSource, Status};
-use gpui_kit::base::{ElementExt, h_flex, v_flex, v_virtual_list};
+use gpui_kit::assets::IconName as Lucide;
+use gpui_kit::base::{h_flex, v_flex, v_virtual_list, ElementExt};
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::input::Input;
 use gpui_kit::component::menu::{DropdownMenu, PopupMenuItem};
@@ -131,11 +131,7 @@ fn matches_filter(firmware: &Firmware, needle: &str, glyph: &str) -> bool {
 fn toggle_tag(filter: &str, tag: &str) -> String {
     let words: Vec<&str> = tag.split_whitespace().collect();
     let tokens: Vec<&str> = filter.split_whitespace().collect();
-    let present = |word: &str| {
-        tokens
-            .iter()
-            .any(|token| token.eq_ignore_ascii_case(word))
-    };
+    let present = |word: &str| tokens.iter().any(|token| token.eq_ignore_ascii_case(word));
     if words.iter().all(|word| present(word)) {
         tokens
             .iter()
@@ -181,9 +177,10 @@ pub(crate) enum LibItem {
     HubStatus,
 }
 
-/// Row: name/version + pills, one-line description, the action group, plus the
-/// inter-row slack that used to be the flex gap (a virtual list has no gaps).
-const LIB_ROW_H: Pixels = px(80.0);
+/// Row: favorite selector + name/version + pills, one-line description, the action
+/// group, plus the inter-row slack that used to be the flex gap (a virtual list has
+/// no gaps). Tall enough for the large favorite selector in the title row.
+const LIB_ROW_H: Pixels = px(96.0);
 /// Section header: small caps over a hairline, including the section's top gap.
 const LIB_HEADER_H: Pixels = px(28.0);
 /// The hub status line: spinner/dot + text + the Download All toggle and Reload.
@@ -331,7 +328,12 @@ impl GridApp {
         v_flex()
             .size_full()
             .child(
-                h_flex().w_full().px_2().pt_2().gap_2().items_center()
+                h_flex()
+                    .w_full()
+                    .px_2()
+                    .pt_2()
+                    .gap_2()
+                    .items_center()
                     .child(
                         div().flex_1().min_w_0().child(
                             Input::new(&self.lib_form.filter)
@@ -355,25 +357,27 @@ impl GridApp {
                                         (devices.smk37, "SMK-37", false),
                                     ] {
                                         let app = app.clone();
-                                        menu = menu.item(PopupMenuItem::new(label).checked(on).on_click(
-                                            move |_, _, cx| {
-                                                app.update(cx, |this, cx| {
-                                                    if fm1 {
-                                                        this.device_filter.fm1 =
-                                                            !this.device_filter.fm1;
-                                                    } else {
-                                                        this.device_filter.smk37 =
-                                                            !this.device_filter.smk37;
-                                                    }
-                                                    this.library.set_device_filter(Some((
-                                                        this.device_filter.fm1,
-                                                        this.device_filter.smk37,
-                                                    )));
-                                                    this.save_session(cx);
-                                                    cx.notify();
-                                                });
-                                            },
-                                        ));
+                                        menu = menu.item(
+                                            PopupMenuItem::new(label).checked(on).on_click(
+                                                move |_, _, cx| {
+                                                    app.update(cx, |this, cx| {
+                                                        if fm1 {
+                                                            this.device_filter.fm1 =
+                                                                !this.device_filter.fm1;
+                                                        } else {
+                                                            this.device_filter.smk37 =
+                                                                !this.device_filter.smk37;
+                                                        }
+                                                        this.library.set_device_filter(Some((
+                                                            this.device_filter.fm1,
+                                                            this.device_filter.smk37,
+                                                        )));
+                                                        this.save_session(cx);
+                                                        cx.notify();
+                                                    });
+                                                },
+                                            ),
+                                        );
                                     }
                                     menu
                                 }
@@ -544,20 +548,15 @@ impl GridApp {
             .items_center()
             .gap_2()
             .pt_2()
-            .child(
+            .child(div().w(px(14.0)).h(px(14.0)).child(if loading {
+                Spinner::new().into_any_element()
+            } else {
                 div()
-                    .w(px(14.0))
-                    .h(px(14.0))
-                    .child(if loading {
-                        Spinner::new().into_any_element()
-                    } else {
-                        div()
-                            .size_full()
-                            .rounded_full()
-                            .bg(if failed { danger } else { dim })
-                            .into_any_element()
-                    }),
-            )
+                    .size_full()
+                    .rounded_full()
+                    .bg(if failed { danger } else { dim })
+                    .into_any_element()
+            }))
             .child(
                 div()
                     .flex_1()
@@ -579,7 +578,9 @@ impl GridApp {
                         .rounded_none()
                         .selected(self.download_all)
                         .toggled(self.download_all)
-                        .tooltip("Download every downloadable or upgradable firmware, one at a time")
+                        .tooltip(
+                            "Download every downloadable or upgradable firmware, one at a time",
+                        )
                         .on_click(cx.listener(|this, _, _, cx| {
                             this.download_all = !this.download_all;
                             // Turning it on sweeps at once (and retries what failed
@@ -707,22 +708,18 @@ impl GridApp {
                 .child(device),
         );
 
-        // The actions as one fused group: the favorite toggle first (the row's glyph
-        // pill is its readout), its glyph menu, then the website/source link pair
-        // (disabled when the listing carries no such link), Remove (never builtins,
-        // and only when the package is at hand), Download (hub offers; its percent
-        // while in flight), Flash To…
-        let locally = pick.is_some() && firmware.status == Status::Available;
-        let mut buttons: Vec<AnyElement> = Vec::new();
-        {
+        // The favorite toggle + glyph menu, promoted to the title row and sized
+        // large: the glyph pill in the tag row stays its searchable readout.
+        let favorite_control = {
             let name = name.clone();
             let glyph = glyph.clone();
             let star_name = name.clone();
             let star = Button::new(format!("lib-fav-{star_name}"))
                 .label(glyph.clone())
-                .small()
+                .large()
                 .ghost()
                 .rounded_none()
+                .px_1()
                 .selected(favorite)
                 .toggled(favorite)
                 .tooltip(if favorite {
@@ -740,9 +737,10 @@ impl GridApp {
             let app = cx.entity().clone();
             let caret = Button::new(format!("lib-fav-glyph-{name}"))
                 .icon(Icon::new(Lucide::ChevronDown))
-                .xsmall()
+                .small()
                 .ghost()
                 .rounded_none()
+                .px_1()
                 .tooltip("Choose the favorite's glyph")
                 .dropdown_menu(move |menu, _, _| {
                     let mut menu = menu;
@@ -765,16 +763,17 @@ impl GridApp {
                 })
                 .into_any_element();
 
-            // One combo, two hit areas: the glyph toggles the favorite, the small caret
-            // opens its glyph menu without toggling.
-            buttons.push(
-                h_flex()
-                    .items_center()
-                    .child(star)
-                    .child(caret)
-                    .into_any_element(),
-            );
-        }
+            // The same fused, border-only chrome as the row's action group: two
+            // ghost hit areas divided by a hairline, no fill of its own.
+            action_group(vec![star, caret], border)
+        };
+
+        // The actions as one fused group: the website/source link pair (disabled when
+        // the listing carries no such link), Remove (never builtins, and only when
+        // the package is at hand), Download (hub offers; its percent while in
+        // flight), Flash To…
+        let locally = pick.is_some() && firmware.status == Status::Available;
+        let mut buttons: Vec<AnyElement> = Vec::new();
         for (kind, label, icon, url) in [
             ("website", "Web site", Lucide::Globe, &firmware.website),
             ("source", "Github", Lucide::Github, &firmware.source_url),
@@ -808,7 +807,7 @@ impl GridApp {
                     .icon(Icon::new(Lucide::Trash))
                     .small()
                     .ghost()
-                        .rounded_none()
+                    .rounded_none()
                     .disabled(!locally)
                     .tooltip(if locally {
                         "Forget this firmware (the package stays on disk)"
@@ -900,7 +899,7 @@ impl GridApp {
                     .child(
                         h_flex()
                             .gap_2()
-                            .items_baseline()
+                            .items_center()
                             .min_w_0()
                             .child(
                                 div()
@@ -913,7 +912,8 @@ impl GridApp {
                                     .text_size(px(10.0))
                                     .text_color(dim)
                                     .child(firmware.version.clone()),
-                            ),
+                            )
+                            .child(favorite_control),
                     )
                     .child(pills),
             )
@@ -974,7 +974,9 @@ impl GridApp {
             })
             .dropdown_menu(move |menu, _, _| {
                 let mut menu = menu;
-                let Some(pick) = pick.clone() else { return menu };
+                let Some(pick) = pick.clone() else {
+                    return menu;
+                };
                 for unit in &units {
                     let app = app.clone();
                     let unit = unit.clone();
@@ -998,9 +1000,7 @@ impl GridApp {
                     menu = menu.item(PopupMenuItem::new(format!("Pane {}", slot + 1)).on_click(
                         move |_, window, cx| {
                             let pick = pick.clone();
-                            app.update(cx, |this, cx| {
-                                this.flash_to_slot(slot, pick, window, cx)
-                            });
+                            app.update(cx, |this, cx| this.flash_to_slot(slot, pick, window, cx));
                         },
                     ));
                 }
@@ -1044,7 +1044,11 @@ impl GridApp {
     }
 
     /// The add-file form at the bottom of the list.
-    fn library_add_form(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn library_add_form(
+        &mut self,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
         let (dim, border) = {
             let theme = cx.theme();
             (theme.muted_foreground, theme.border)
@@ -1084,9 +1088,9 @@ impl GridApp {
                                 .file_stem()
                                 .map(|s| s.to_string_lossy().into_owned())
                                 .unwrap_or_default();
-                            this.lib_form.name.update(cx, |state, cx| {
-                                state.set_value(stem, window, cx)
-                            });
+                            this.lib_form
+                                .name
+                                .update(cx, |state, cx| state.set_value(stem, window, cx));
                         }
                         this.lib_form.file = Some(path);
                         cx.notify();
@@ -1119,11 +1123,18 @@ impl GridApp {
                     .primary()
                     .disabled(!ready)
                     .on_click(cx.listener(|this, _, window, cx| {
-                        let Some(path) = this.lib_form.file.take() else { return };
+                        let Some(path) = this.lib_form.file.take() else {
+                            return;
+                        };
                         let name = this.lib_form.name.read(cx).value().trim().to_string();
                         let version = this.lib_form.version.read(cx).value().trim().to_string();
-                        let description =
-                            this.lib_form.description.read(cx).value().trim().to_string();
+                        let description = this
+                            .lib_form
+                            .description
+                            .read(cx)
+                            .value()
+                            .trim()
+                            .to_string();
                         this.library.import_file(
                             path.to_string_lossy().as_ref(),
                             if name.is_empty() { "imported" } else { &name },
@@ -1152,8 +1163,8 @@ mod tests {
         favorite_key, flatten_library, is_installed, matches_filter, snap_in, toggle_tag, LibItem,
     };
     use super::{DeviceFilter, NO_THANKS_GLYPH};
-    use std::collections::{HashMap, HashSet};
     use fm1_performer::library::{Firmware, FirmwareDevice, FirmwareSource, Status};
+    use std::collections::{HashMap, HashSet};
 
     fn no_glyphs() -> HashMap<String, String> {
         HashMap::new()
@@ -1271,8 +1282,13 @@ mod tests {
             .expect("the hub section");
         assert_eq!(items[hub + 1], LibItem::Row(3));
         // The filter still applies after the sort.
-        let filtered =
-            flatten_library(&view, "bet", &favorites, &no_glyphs(), DeviceFilter::default());
+        let filtered = flatten_library(
+            &view,
+            "bet",
+            &favorites,
+            &no_glyphs(),
+            DeviceFilter::default(),
+        );
         assert_eq!(filtered[1..2].to_vec(), vec![LibItem::Row(1)]);
     }
 
@@ -1330,13 +1346,8 @@ mod tests {
         smk.device = FirmwareDevice::Smk37;
         let view = vec![firmware("Fm One", &[]), smk];
         let favorites = HashSet::new();
-        let fm1_only = flatten_library(
-            &view,
-            "",
-            &favorites,
-            &no_glyphs(),
-            DeviceFilter::default(),
-        );
+        let fm1_only =
+            flatten_library(&view, "", &favorites, &no_glyphs(), DeviceFilter::default());
         assert_eq!(fm1_only[1..2].to_vec(), vec![LibItem::Row(0)]);
         let both = flatten_library(
             &view,

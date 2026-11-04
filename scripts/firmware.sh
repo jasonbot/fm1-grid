@@ -2,13 +2,18 @@
 # Manage the embedded firmware list (fm1-performer/firmware/firmwares.json); requires jq.
 #
 #   scripts/firmware.sh add <file.fwsc> <name> <version> [tags] [url]
+#   scripts/firmware.sh index <name-or-file>
+#   scripts/firmware.sh baked <name-or-file>
 #   scripts/firmware.sh del <name-or-file>
 #   scripts/firmware.sh list
 #
 # `tags` is comma-separated; the first tag is the dropdown group. `url` is the download
 # location build.rs fetches a missing package from (omit it for local-only packages).
-# After add/del, rebuild with `cargo build --release`. The default slot contents follow the
-# JSON order, so the first entries are what starts with no CLI arguments.
+# `index` marks an entry listing-only: its metadata ships and the app offers it as a
+# download, but the package is never downloaded at build time or baked into the binary.
+# After add/del/index/baked, rebuild with `cargo build --release`. The default slot
+# contents follow the JSON order, so the first entries are what starts with no CLI
+# arguments.
 set -eu
 
 cd "$(dirname "$0")/.."
@@ -17,6 +22,8 @@ JSON=fm1-performer/firmware/firmwares.json
 usage() {
     echo "usage:" >&2
     echo "  $0 add <file.fwsc> <name> <version> [tags] [url]" >&2
+    echo "  $0 index <name-or-file>    # metadata only, never baked" >&2
+    echo "  $0 baked <name-or-file>    # embed the package again" >&2
     echo "  $0 del <name-or-file>" >&2
     echo "  $0 list" >&2
     exit 2
@@ -69,7 +76,8 @@ case "${1:-}" in
                 url: (if $url != "" then $url else $old.url end),
                 source: $old.source,
                 sha256: $sha256,
-                license: $old.license
+                license: $old.license,
+                index_only: $old.index_only
               } | with_entries(select(.value != null))) as $new
             | (reduce .[] as $e ({replaced: false, out: []};
                 if $e.file == $file or $e.name == $name then
@@ -80,6 +88,25 @@ case "${1:-}" in
             | if .replaced then .out else .out + [$new] end
         ' "$JSON" | save
         echo "added: $name $version ($file, sha256 $sum, tags $tags)"
+        echo "rebuild with: cargo build --release"
+        ;;
+    index|baked)
+        [ $# -eq 2 ] || usage
+        what=$2
+        hits=$(jq --arg what "$what" \
+            '[.[] | select(.name == $what or .file == $what)] | length' "$JSON")
+        [ "$hits" -gt 0 ] || { echo "no such entry: $what" >&2; exit 1; }
+        if [ "$1" = index ]; then flag=true; else flag=false; fi
+        jq --arg what "$what" --argjson index_only "$flag" '
+            map(if .name == $what or .file == $what
+                then .index_only = $index_only
+                else . end)
+        ' "$JSON" | save
+        if [ "$flag" = true ]; then
+            echo "index-only: $what (metadata ships, package is not baked)"
+        else
+            echo "baked: $what"
+        fi
         echo "rebuild with: cargo build --release"
         ;;
     del)
@@ -96,7 +123,7 @@ case "${1:-}" in
         echo "rebuild with: cargo build --release"
         ;;
     list)
-        rows=$(jq -r '.[] | [.file, .name, .version, .sha256, (.tags | join(","))] | join(" | ")' "$JSON")
+        rows=$(jq -r '.[] | [.file, .name, .version, .sha256, (.tags | join(",")), (if .index_only then "index-only" else "" end)] | join(" | ")' "$JSON")
         printf '%s\n' "$rows" | column -t -s'|' 2>/dev/null || printf '%s\n' "$rows"
         ;;
     *)

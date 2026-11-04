@@ -1,35 +1,36 @@
 [
   {
     "name": "SLOOP",
-    "version": "2.8.4",
-    "file": "sloop-2.8.4.fwsc",
+    "version": "2.8.5",
+    "file": "sloop-2.8.5.fwsc",
     "tags": [
       "groove"
     ],
     "description": "A live groovebox: tracks, layers, a step sequencer, song mode, punch-in effects and samples, played on the FM-1 in real time.",
     "byline": "isod89",
     "device": "fm-1",
-    "url": "https://thefirmwarehub.com/fw/sloop-2.8.4.fwsc",
+    "url": "https://thefirmwarehub.com/fw/sloop-2.8.5.fwsc",
     "website": "https://github.com/isod89/sloop-fm1",
     "source": "https://github.com/isod89/sloop-fm1",
-    "sha256": "5a6a0843c868650dba6718cf85e43e719aec18c3dc5cc803c57c38b382158d4e",
+    "sha256": "b0446effb840740a3aa5c386ce004e79334e4f833d48d82a9eb5edbfde92ae67",
     "license": "GPL-3.0"
   },
   {
     "name": "Felucca",
-    "version": "1.8.0",
-    "file": "felucca-1.8.0.fwsc",
+    "version": "1.8.2-beta",
+    "file": "felucca-1.8.2-beta.fwsc",
     "tags": [
       "groove",
-      "dev"
+      "dev",
+      "beta"
     ],
     "description": "The custom firmware the others build on: the FM-1's own synth engines, a sequencer, effects and a better panel, with an editor in the browser.",
     "byline": "Leo Kuroshita (Hügelton Instruments)",
     "device": "fm-1",
-    "url": "https://thefirmwarehub.com/fw/felucca-1.8.0.fwsc",
+    "url": "https://thefirmwarehub.com/fw/felucca-1.8.2-beta.fwsc",
     "website": "https://github.com/hugelton/Felucca",
     "source": "https://github.com/hugelton/Felucca",
-    "sha256": "a31760f2588b39bcb3a8d6f78f6041a1a550978a972ecd71564e45513698ecd6",
+    "sha256": "b57724fff5a9b55b67d6f8a7d852e68d5d5814ed6fb769ec80a274fb44958e12",
     "license": "GPL-3.0"
   },
   {
@@ -66,8 +67,8 @@
   },
   {
     "name": "ChoralRoot",
-    "version": "0.27",
-    "file": "choralroot-0.27.fwsc",
+    "version": "0.29.2",
+    "file": "choralroot-0.29.2.fwsc",
     "tags": [
       "chords",
       "beta"
@@ -75,10 +76,10 @@
     "description": "A Telepathic Orchid-style chord instrument: one hand plays roots, the other shapes chords; voicings, performance modes, bass and a looper.",
     "byline": "Quixotic7",
     "device": "fm-1",
-    "url": "https://thefirmwarehub.com/fw/choralroot-0.27.fwsc",
+    "url": "https://thefirmwarehub.com/fw/choralroot-0.29.2.fwsc",
     "website": "https://github.com/Quixotic7/ChoralRootFM1",
     "source": "https://github.com/Quixotic7/ChoralRootFM1",
-    "sha256": "a09f9e19b66a91351de37c532e0d15cdc03ff9e9c82a0b152cdb66ca3fdc0326",
+    "sha256": "b96afe10c09ba241b25d18ceff9570183495412ccf94050f1e1cb9a75ace09cc",
     "license": "GPL-3.0"
   },
   {
@@ -95,6 +96,7 @@
     "website": "https://baudgirl.com/work/FM-1+VA",
     "source": "",
     "sha256": "7b169a69b30570581d0ebc7b44851e3e08898d2956ade155363bcf18fac5c348",
-    "license": "Proprietary"
+    "license": "Proprietary",
+    "index_only": true
   }
 ]

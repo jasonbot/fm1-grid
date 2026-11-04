@@ -1,13 +1,13 @@
-//! The drawing half of fm1-tty: the devices block, the library list, the piano, the
-//! metronome bar and the popups. State lives in `app.rs`; this reads it and refills
-//! the mouse hit regions (`app.regions`) for the next event pass.
+//! The drawing half of fm1-tty: the devices block, the MIDI graph, the library list
+//! with its filter row, the metronome bar and the popups. State lives in `app.rs`;
+//! this reads it and refills the mouse hit regions (`app.regions`) for the next event
+//! pass.
 
-use crate::app::{Focus, Popup, Regions, TuiApp};
+use crate::app::{Focus, GraphRow, Popup, Regions, TuiApp};
 use fm1_performer::clock::{MAX_BPM, MIN_BPM};
 use fm1_performer::hardware::{DeviceRow, FlashState};
-use fm1_performer::keys::{panel_key_hint, BLACK_KEYS, PANEL_KEYS, WHITE_KEYS};
 use fm1_performer::library::{Firmware, FirmwareDevice, FirmwareSource, HubStatus, Status};
-use ratatui::buffer::Buffer;
+use fm1_performer::routing::Port;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
@@ -18,8 +18,6 @@ const ACCENT: Color = Color::Cyan;
 const OK: Color = Color::Green;
 const ERR: Color = Color::Red;
 const DIM: Color = Color::DarkGray;
-/// The black keys' fill: plain black disappears on a dark terminal.
-const KEY_BLACK: Color = Color::DarkGray;
 
 /// Display width for the ASCII-ish strings drawn here (the symbols used are all one
 /// column wide).
@@ -41,24 +39,29 @@ pub fn draw(frame: &mut Frame, app: &mut TuiApp) {
     let device_rows =
         app.devices.len() + if app.rescue { app.rescue_ports.len() } else { 0 };
     let devices_h = (device_rows as u16 + 2).clamp(3, 6);
+    // The graph takes the piano's old space, growing with its rows (and scrolling
+    // past that) so the library keeps the rest.
+    let graph_h = (app.graph_rows().len() as u16 + 3).clamp(4, 12);
     let chunks = Layout::vertical([
         Constraint::Length(devices_h),
+        Constraint::Length(graph_h),
         Constraint::Min(6),
-        Constraint::Length(9),
         Constraint::Length(1),
         Constraint::Length(1),
     ])
     .split(area);
     app.regions = Regions::default();
     devices(frame, app, chunks[0]);
-    library(frame, app, chunks[1]);
-    keyboard(frame, app, chunks[2]);
+    graph(frame, app, chunks[1]);
+    library(frame, app, chunks[2]);
     metronome(frame, app, chunks[3]);
     footer(frame, app, chunks[4]);
 
     match app.popup.clone() {
         Some(Popup::MidiPorts(sel)) => midi_popup(frame, app, sel),
         Some(Popup::FlashTarget(sel, names, _)) => flash_target_popup(frame, app, sel, &names),
+        Some(Popup::DeviceFilter(sel)) => device_popup(frame, app, sel),
+        Some(Popup::GraphSinks(source, sel)) => graph_sinks_popup(frame, app, sel, &source),
         None => {}
     }
     if let Some(board) = app.flash_board() {
@@ -143,8 +146,88 @@ fn device_row(device: &DeviceRow) -> Line<'static> {
     Line::from(spans)
 }
 
-/// The firmware library: installed entries and hub offers, with the hub fetch status
-/// in the title.
+/// The MIDI graph, in text: every source (system MIDI outs, live units) with its
+/// links and a connect action, plus the physical-keyboard selector that forwards one
+/// keyboard to every unit. Rows are mouse-clickable and keyboard-selectable.
+fn graph(frame: &mut Frame, app: &mut TuiApp, area: Rect) {
+    let focused = app.focus == Focus::Graph;
+    let block = Block::bordered()
+        .title(" MIDI GRAPH · one out feeds any number of ins ")
+        .border_style(Style::default().fg(if focused { ACCENT } else { DIM }));
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    if inner.height == 0 || inner.width == 0 {
+        return;
+    }
+
+    let label = app.midi_label();
+    let field = Line::from(vec![
+        dim("MIDI in: "),
+        Span::styled(
+            format!("▾ {label}"),
+            Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+        ),
+        dim("   (m to change; forwards to every FM-1)"),
+    ]);
+    let field_area = Rect::new(inner.x, inner.y, inner.width, 1);
+    frame.render_widget(Paragraph::new(field), field_area);
+    app.regions.midi_field =
+        Rect::new(field_area.x, field_area.y, (11 + cols(&label)) as u16, 1);
+    if inner.height < 2 {
+        return;
+    }
+
+    let list_area = Rect::new(inner.x, inner.y + 1, inner.width, inner.height - 1);
+    app.regions.graph_list = list_area;
+    let rows = app.graph_rows();
+    if rows.is_empty() {
+        frame.render_widget(
+            Paragraph::new(dim("No MIDI outs in sight — plug something in.")),
+            list_area,
+        );
+        return;
+    }
+    let items: Vec<ListItem> = rows
+        .iter()
+        .map(|row| ListItem::new(graph_line(app, row)))
+        .collect();
+    let highlight = if focused {
+        Style::default().add_modifier(Modifier::REVERSED)
+    } else {
+        Style::default()
+    };
+    let list = List::new(items).highlight_style(highlight);
+    app.graph_state
+        .select(Some(app.graph_sel.min(rows.len() - 1)));
+    frame.render_stateful_widget(list, list_area, &mut app.graph_state);
+    let offset = app.graph_state.offset();
+    app.regions.graph_rows = (offset..rows.len())
+        .map_while(|index| {
+            let y = list_area.y + (index - offset) as u16;
+            (y < list_area.bottom()).then(|| {
+                (Rect::new(list_area.x, y, list_area.width, 1), index)
+            })
+        })
+        .collect();
+}
+
+/// One graph row's line: a bold source heading, an unroute pill and its sink, or the
+/// connect action.
+fn graph_line(app: &TuiApp, row: &GraphRow) -> Line<'static> {
+    match row {
+        GraphRow::Source(port) => Line::from(bold(format!(" {}", app.graph_source_label(port)))),
+        GraphRow::Link(_, sink) => Line::from(vec![
+            Span::styled("   × ", Style::default().fg(ERR)),
+            dim(app.graph_source_label(sink)),
+        ]),
+        GraphRow::Connect(_) => {
+            Line::from(Span::styled("   + connect…", Style::default().fg(ACCENT)))
+        }
+    }
+}
+
+/// The firmware library: installed entries and hub offers, with the filter field and
+/// device selector on top and the hub fetch status in the title.
 fn library(frame: &mut Frame, app: &mut TuiApp, area: Rect) {
     let installed = app
         .firmwares
@@ -162,23 +245,55 @@ fn library(frame: &mut Frame, app: &mut TuiApp, area: Rect) {
     let block = Block::bordered()
         .title(format!(" LIBRARY — {installed} installed · {hub}{all} "))
         .border_style(Style::default().fg(if focused { ACCENT } else { DIM }));
-    let width = area.width.saturating_sub(2) as usize;
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    if inner.height == 0 || inner.width == 0 {
+        return;
+    }
+
+    // The filter field on the left, the device selector on the right. Both are
+    // measured into regions so a click can focus or open them.
+    let editing = app.focus == Focus::Filter;
+    let left = if app.filter.is_empty() && !editing {
+        " filter: / to search".to_string()
+    } else {
+        format!(" filter: {}{}", app.filter, if editing { "▏" } else { "" })
+    };
+    let right = format!("▾ {} ", app.device_filter_label());
+    let pad = (inner.width as usize).saturating_sub(cols(&left) + cols(&right));
+    let header = Line::from(vec![
+        Span::styled(
+            left,
+            Style::default().fg(if editing { ACCENT } else { Color::Reset }),
+        ),
+        Span::raw(" ".repeat(pad)),
+        Span::styled(right, Style::default().fg(ACCENT)),
+    ]);
+    let header_area = Rect::new(inner.x, inner.y, inner.width, 1);
+    frame.render_widget(Paragraph::new(header), header_area);
+    let right_w = (cols(&format!("▾ {} ", app.device_filter_label())) as u16).min(inner.width);
+    app.regions.lib_devices =
+        Rect::new(header_area.right().saturating_sub(right_w), header_area.y, right_w, 1);
+    app.regions.lib_filter =
+        Rect::new(header_area.x, header_area.y, header_area.width.saturating_sub(right_w), 1);
+
+    let list_area = Rect::new(
+        inner.x,
+        inner.y + 1,
+        inner.width,
+        inner.height.saturating_sub(1),
+    );
+    let width = list_area.width as usize;
     let items: Vec<ListItem> = app
-        .firmwares
-        .iter()
+        .visible()
         .map(|firmware| ListItem::new(library_row(app, firmware, width)))
         .collect();
     let list = List::new(items)
-        .block(block)
         .highlight_style(Style::default().add_modifier(Modifier::REVERSED));
-    app.list_state.select(Some(app.sel));
-    frame.render_stateful_widget(list, area, &mut app.list_state);
-    app.regions.lib_rows = Rect::new(
-        area.x + 1,
-        area.y + 1,
-        area.width.saturating_sub(2),
-        area.height.saturating_sub(2),
-    );
+    app.list_state
+        .select((!app.view.is_empty()).then_some(app.sel));
+    frame.render_stateful_widget(list, list_area, &mut app.list_state);
+    app.regions.lib_rows = list_area;
     app.regions.lib_offset = app.list_state.offset();
 }
 
@@ -224,122 +339,6 @@ fn library_row(app: &TuiApp, firmware: &Firmware, width: usize) -> Line<'static>
         dim(" ".repeat(pad)),
         Span::styled(pill, Style::default().fg(pill_color)),
     ])
-}
-
-/// The piano with its MIDI-input selector: a field row, then the keys.
-fn keyboard(frame: &mut Frame, app: &mut TuiApp, area: Rect) {
-    let focused = app.focus == Focus::Keys;
-    let block = Block::bordered()
-        .title(" KEYBOARD ")
-        .border_style(Style::default().fg(if focused { ACCENT } else { DIM }));
-    let inner = block.inner(area);
-    frame.render_widget(block, area);
-    if inner.height < 2 {
-        return;
-    }
-    let field = Rect::new(inner.x, inner.y, inner.width, 1);
-    let keys_area = Rect::new(inner.x, inner.y + 1, inner.width, inner.height - 1);
-
-    let label = app.midi_label();
-    let text = Line::from(vec![
-        dim("MIDI in:  "),
-        Span::styled(
-            format!("▾ {label}"),
-            Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
-        ),
-        dim("   (m to change; plays every connected unit)"),
-    ]);
-    frame.render_widget(Paragraph::new(text), field);
-    app.regions.midi_field = Rect::new(field.x, field.y, (12 + cols(&label)) as u16, 1);
-
-    let (whites, blacks) = layout_piano(keys_area);
-    let buf = frame.buffer_mut();
-    for &(rect, id) in &whites {
-        paint_key(buf, keys_area, rect, id, false, app.held[id as usize]);
-    }
-    for &(rect, id) in &blacks {
-        paint_key(buf, keys_area, rect, id, true, app.held[id as usize]);
-    }
-    // Black keys first: they overlap the whites and must win the hit test.
-    app.regions.keys = blacks
-        .iter()
-        .chain(whites.iter())
-        .map(|(rect, id)| (rect.intersection(keys_area), *id))
-        .filter(|(rect, _)| !rect.is_empty())
-        .collect();
-}
-
-#[allow(clippy::too_many_arguments)]
-fn paint_key(buf: &mut Buffer, area: Rect, rect: Rect, id: u8, black: bool, held: bool) {
-    let rect = rect.intersection(area);
-    if rect.is_empty() {
-        return;
-    }
-    let style = if held {
-        Style::default()
-            .fg(Color::Black)
-            .bg(ACCENT)
-            .add_modifier(Modifier::BOLD)
-    } else if black {
-        Style::default().fg(Color::Black).bg(KEY_BLACK)
-    } else {
-        Style::default().fg(Color::Black).bg(Color::White)
-    };
-    // A one-column gap on the right edge separates the white keys.
-    let fill = if black {
-        rect
-    } else {
-        Rect::new(
-            rect.x,
-            rect.y,
-            rect.width.saturating_sub(1).max(1),
-            rect.height,
-        )
-    };
-    buf.set_style(fill, style);
-    let note = PANEL_KEYS
-        .iter()
-        .find(|(key, _, _)| *key == id)
-        .map(|(_, name, _)| *name)
-        .unwrap_or("");
-    let hint = panel_key_hint(id);
-    if black {
-        if !hint.is_empty() {
-            let x = fill.x + fill.width.saturating_sub(1) / 2;
-            buf.set_stringn(x, fill.y + fill.height - 1, hint, 1, style);
-        }
-    } else {
-        let label = if fill.width >= 5 && !hint.is_empty() {
-            format!("{note} {hint}")
-        } else {
-            note.to_string()
-        };
-        let x = fill.x + (fill.width.saturating_sub(cols(&label) as u16)) / 2;
-        buf.set_stringn(x, fill.y + fill.height - 1, &label, fill.width as usize, style);
-    }
-}
-
-/// The piano's geometry: white keys partition the width; black keys straddle the seam
-/// after the white key they follow. Returns (whites, blacks) as (rect, key id).
-fn layout_piano(area: Rect) -> (Vec<(Rect, u8)>, Vec<(Rect, u8)>) {
-    let ww = (area.width / WHITE_KEYS.len() as u16).max(2);
-    let total = ww * WHITE_KEYS.len() as u16;
-    let x0 = area.x + area.width.saturating_sub(total) / 2;
-    let whites: Vec<(Rect, u8)> = WHITE_KEYS
-        .iter()
-        .enumerate()
-        .map(|(i, &id)| (Rect::new(x0 + i as u16 * ww, area.y, ww, area.height), id))
-        .collect();
-    let bw = ww.saturating_sub(2).clamp(2, ww);
-    let bh = (area.height * 3 / 5).max(1);
-    let blacks: Vec<(Rect, u8)> = BLACK_KEYS
-        .iter()
-        .map(|&(id, after)| {
-            let seam = x0 + (after as u16 + 1) * ww;
-            (Rect::new(seam - bw / 2, area.y, bw, bh), id)
-        })
-        .collect();
-    (whites, blacks)
 }
 
 /// The metronome bar: clock switch, tempo with steppers, the beat light, and the
@@ -412,10 +411,11 @@ fn footer(frame: &mut Frame, app: &mut TuiApp, area: Rect) {
                 if app.selected_deletable() {
                     hints.push_str(" · x delete");
                 }
-                hints.push_str(" · a all · f flash · R rescue · r refresh hub · m MIDI in · space clock · −/+ tempo · Tab keys · q quit");
+                hints.push_str(" · / filter · v devices · a all · f flash · R rescue · r refresh hub · m MIDI in · space clock · −/+ tempo · Tab graph · q quit");
                 hints
             }
-            Focus::Keys => " letters and clicks play · Tab/Esc library · space clock · −/+ tempo · Ctrl-C quit".to_string(),
+            Focus::Graph => " ↑↓ select · Enter connect/unroute · m MIDI in · Tab filter/list · space clock · −/+ tempo · q quit".to_string(),
+            Focus::Filter => " type to filter · Backspace edit · Ctrl-U clear · Enter/Esc back · Tab graph · Ctrl-C quit".to_string(),
         };
         Line::from(dim(hints))
     };
@@ -483,6 +483,30 @@ fn midi_popup(frame: &mut Frame, app: &mut TuiApp, sel: usize) {
     list_popup(frame, app, "MIDI keyboard", &items, sel);
 }
 
+/// The library's device-family selector.
+fn device_popup(frame: &mut Frame, app: &mut TuiApp, sel: usize) {
+    let check = |on: bool| if on { "[✓]" } else { "[ ]" };
+    let items = vec![
+        Line::from(format!("{} FM-1", check(app.device_filter.fm1))),
+        Line::from(format!("{} SMK-37", check(app.device_filter.smk37))),
+    ];
+    list_popup(frame, app, "Library devices", &items, sel);
+}
+
+/// The graph's connect menu for one source: every sink it feeds nothing yet.
+fn graph_sinks_popup(frame: &mut Frame, app: &mut TuiApp, sel: usize, source: &Port) {
+    let sinks = app.graph_sinks(source);
+    let mut items: Vec<Line> = sinks
+        .iter()
+        .map(|(_, label)| Line::from(label.clone()))
+        .collect();
+    if items.is_empty() {
+        items.push(Line::from(dim("no other sinks")));
+    }
+    let title = format!("Connect {}", app.graph_source_label(source));
+    list_popup(frame, app, &title, &items, sel);
+}
+
 /// Pick which target gets the firmware: the live units, plus every MIDI port while
 /// the rescue toggle is on (flagged, in warning yellow).
 fn flash_target_popup(frame: &mut Frame, app: &mut TuiApp, sel: usize, targets: &[(String, bool)]) {
@@ -547,49 +571,4 @@ fn flash_modal(frame: &mut Frame, board: &FlashState) {
         .collect();
     frame.render_widget(Paragraph::new(tail), chunks[2]);
     frame.render_widget(Paragraph::new(dim("Esc close")), chunks[3]);
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// Every FM-1 note key gets a rect; blacks stay inside the piano and shorter
-    /// than the whites.
-    #[test]
-    fn piano_covers_all_keys() {
-        let area = Rect::new(0, 0, 100, 7);
-        let (whites, blacks) = layout_piano(area);
-        assert_eq!(whites.len(), WHITE_KEYS.len());
-        assert_eq!(blacks.len(), BLACK_KEYS.len());
-        for (rect, _) in whites.iter().chain(&blacks) {
-            assert!(rect.right() <= area.right() && rect.bottom() <= area.bottom());
-        }
-        let white_h = whites[0].0.height;
-        for (rect, _) in &blacks {
-            assert!(rect.height < white_h);
-        }
-        // The whites tile the piano without gaps or overlaps.
-        let mut x = whites[0].0.x;
-        for (rect, _) in &whites {
-            assert_eq!(rect.x, x);
-            x = rect.right();
-        }
-    }
-
-    /// A black key straddles the seam after its white key: it overlaps both
-    /// neighbours, so a click near a seam hits the black key first.
-    #[test]
-    fn black_keys_straddle_seams() {
-        let area = Rect::new(0, 0, 96, 7); // 6 columns per white key
-        let (whites, blacks) = layout_piano(area);
-        for (rect, id) in &blacks {
-            let after = BLACK_KEYS
-                .iter()
-                .find(|(black_id, _)| black_id == id)
-                .map(|(_, after)| *after)
-                .unwrap();
-            let seam = whites[after].0.right();
-            assert!(rect.x < seam && rect.right() > seam);
-        }
-    }
 }

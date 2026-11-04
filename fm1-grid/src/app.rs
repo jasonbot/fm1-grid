@@ -379,10 +379,12 @@ pub struct GridApp {
     /// event-driven sweeps keep one hub download going until nothing downloadable
     /// or upgradable remains.
     pub(crate) download_all: bool,
-    /// The Settings tab's state (persisted in the session): the theme family and
-    /// the appearance override.
+    /// The Settings tab's state (persisted in the session): the theme family, the
+    /// appearance override and the accent colour Influenza is computed from.
     pub(crate) theme_id: String,
     pub(crate) appearance: Appearance,
+    /// The accent colour id (`influenza::ACCENTS`); ignored by JSON-backed families.
+    pub(crate) accent: String,
     /// The tab rail's rendered height, recorded during prepaint — the sliding chip
     /// aims the gear's bottom slot with it (one frame of lag, like the sidebar's).
     pub(crate) rail_h: f32,
@@ -693,6 +695,7 @@ impl GridApp {
             download_all: session.download_all,
             theme_id: session.theme.clone(),
             appearance: session.appearance,
+            accent: session.accent.clone(),
             rail_h: 740.0,
             combos_at_generation: 0,
             _tick: tick,
@@ -1603,20 +1606,32 @@ impl GridApp {
     /// Apply the theme family and appearance override: swap the family's configs
     /// into the registry's light/dark slots, then load the side the mode points at.
     /// `Theme::change` reloads the current mode's config, so this repaints at once.
+    /// Influenza has no registry entry: both sides are computed from the accent.
     pub(crate) fn apply_theme(&self, cx: &mut Context<Self>) {
         let family = crate::theme::family(&self.theme_id);
-        let (light, dark) = {
-            let registry = ThemeRegistry::global(cx);
-            let pick = |name: &Option<String>,
-                        fallback: &std::rc::Rc<gpui_kit::component::ThemeConfig>| {
-                name.as_ref()
-                    .and_then(|name| registry.themes().get(name.as_str()).cloned())
-                    .unwrap_or_else(|| fallback.clone())
-            };
-            (
-                pick(&family.light, registry.default_light_theme()),
-                pick(&family.dark, registry.default_dark_theme()),
-            )
+        let accent = crate::influenza::accent(&self.accent);
+        let (light, dark) = match family.id {
+            crate::theme::INFLUENZA => (
+                Rc::new(crate::influenza::theme(ThemeMode::Light, accent)),
+                Rc::new(crate::influenza::theme(ThemeMode::Dark, accent)),
+            ),
+            crate::theme::MELTYSAND => (
+                Rc::new(crate::meltysand::theme(ThemeMode::Light, accent)),
+                Rc::new(crate::meltysand::theme(ThemeMode::Dark, accent)),
+            ),
+            _ => {
+                let registry = ThemeRegistry::global(cx);
+                let pick = |name: &Option<String>,
+                            fallback: &Rc<gpui_kit::component::ThemeConfig>| {
+                    name.as_ref()
+                        .and_then(|name| registry.themes().get(name.as_str()).cloned())
+                        .unwrap_or_else(|| fallback.clone())
+                };
+                (
+                    pick(&family.light, registry.default_light_theme()),
+                    pick(&family.dark, registry.default_dark_theme()),
+                )
+            }
         };
         let mode = match self.appearance {
             Appearance::Light => ThemeMode::Light,
@@ -1635,6 +1650,15 @@ impl GridApp {
     /// immediately (a crash shouldn't lose the choice; the quit hook saves again).
     pub(crate) fn set_theme_family(&mut self, id: &str, cx: &mut Context<Self>) {
         self.theme_id = id.to_string();
+        self.apply_theme(cx);
+        self.save_session(cx);
+        cx.notify();
+    }
+
+    /// The Settings tab's accent pick: only Influenza consumes it, but the choice
+    /// is stored for every family.
+    pub(crate) fn set_accent(&mut self, id: &str, cx: &mut Context<Self>) {
+        self.accent = crate::influenza::accent(id).id.to_string();
         self.apply_theme(cx);
         self.save_session(cx);
         cx.notify();

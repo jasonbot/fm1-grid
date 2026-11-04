@@ -1,6 +1,6 @@
 //! fm1-tty — the pared-down terminal companion for live M-VAVE FM-1 units: the
-//! firmware library with hub downloads and flashing, the virtual keyboard with a
-//! MIDI-input selector, and the MIDI-clock metronome. No emulator — a TUI makes no
+//! firmware library with hub downloads and flashing, the MIDI graph, the
+//! MIDI-keyboard selector and the MIDI-clock metronome. No emulator — a TUI makes no
 //! sense for one; everything here talks to units over USB-MIDI. All the machinery is
 //! fm1-performer's; only the drawing and the event loop are new.
 
@@ -23,31 +23,22 @@ fn main() -> std::io::Result<()> {
     terminal::enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, terminal::EnterAlternateScreen, event::EnableMouseCapture)?;
-    // Key releases let the computer keyboard hold notes; plain terminals get the
-    // momentary fallback in app.rs.
-    let key_release = terminal::supports_keyboard_enhancement().unwrap_or(false);
-    if key_release {
-        execute!(
-            stdout,
-            event::PushKeyboardEnhancementFlags(event::KeyboardEnhancementFlags::REPORT_EVENT_TYPES)
-        )?;
-    }
     let original = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
-        let _ = restore(key_release);
+        let _ = restore();
         original(info);
     }));
 
     let mut terminal = ratatui::Terminal::new(ratatui::backend::CrosstermBackend::new(stdout))?;
-    let mut app = app::TuiApp::new(key_release);
+    let mut app = app::TuiApp::new();
     let result = run(&mut terminal, &mut app);
-    restore(key_release)?;
+    restore()?;
     result
 }
 
 /// Put the terminal back. Idempotent enough for the panic hook.
 #[cfg(not(target_arch = "wasm32"))]
-fn restore(key_release: bool) -> std::io::Result<()> {
+fn restore() -> std::io::Result<()> {
     use ratatui::crossterm::{event, execute, terminal};
     use std::io;
 
@@ -55,9 +46,6 @@ fn restore(key_release: bool) -> std::io::Result<()> {
     osc::progress_clear();
     terminal::disable_raw_mode()?;
     let mut stdout = io::stdout();
-    if key_release {
-        execute!(stdout, event::PopKeyboardEnhancementFlags)?;
-    }
     execute!(stdout, event::DisableMouseCapture, terminal::LeaveAlternateScreen)?;
     Ok(())
 }
@@ -91,20 +79,14 @@ fn handle(app: &mut app::TuiApp, event: ratatui::crossterm::event::Event) {
     }
 }
 
-/// The computer key that plays an FM-1 note key, per the shared layout table.
-#[cfg(not(target_arch = "wasm32"))]
-fn piano_key(name: &str) -> Option<u8> {
-    fm1_performer::keys::PIANO
-        .iter()
-        .find(|(key, _)| *key == name)
-        .map(|(_, id)| *id)
-}
-
 #[cfg(not(target_arch = "wasm32"))]
 fn on_key(app: &mut app::TuiApp, key: ratatui::crossterm::event::KeyEvent) {
     use app::{Focus, Popup};
     use ratatui::crossterm::event::{KeyCode, KeyEventKind, KeyModifiers};
 
+    if key.kind != KeyEventKind::Press {
+        return;
+    }
     // Ctrl-C quits from anywhere, even over a modal (a flash runs to completion on
     // its own thread regardless; abandoning it mid-write is the user's call).
     if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
@@ -113,32 +95,32 @@ fn on_key(app: &mut app::TuiApp, key: ratatui::crossterm::event::KeyEvent) {
     }
     // A popup captures the keyboard.
     if app.popup.is_some() {
-        if key.kind == KeyEventKind::Press {
-            popup_key(app, key.code);
-        }
+        popup_key(app, key.code);
         return;
     }
     // So does the flash modal: Esc closes it any time — a running flash continues on
     // its own thread, and the board stays down until the next flash starts. Enter
     // still closes an error board.
     if let Some(board) = app.flash_board() {
-        if key.kind == KeyEventKind::Press
-            && (key.code == KeyCode::Esc || (board.error && key.code == KeyCode::Enter))
-        {
+        if key.code == KeyCode::Esc || (board.error && key.code == KeyCode::Enter) {
             app.dismiss_flash();
         }
         return;
     }
-    // Key releases lift piano keys (terminals with the kitty protocol only).
-    if key.kind == KeyEventKind::Release {
-        if let KeyCode::Char(c) = key.code {
-            if let Some(id) = piano_key(c.to_ascii_lowercase().encode_utf8(&mut [0; 4])) {
-                app.note_up(id);
+    // The filter field takes printable keys; only its own edits and exits apply.
+    if app.focus == Focus::Filter {
+        match key.code {
+            KeyCode::Esc | KeyCode::Enter => app.focus = Focus::Library,
+            KeyCode::Tab => app.focus = Focus::Graph,
+            KeyCode::Backspace => app.filter_backspace(),
+            KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                app.filter_clear()
             }
+            KeyCode::Char(c) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
+                app.filter_push(c)
+            }
+            _ => {}
         }
-        return;
-    }
-    if key.kind == KeyEventKind::Repeat {
         return;
     }
     // Global keys, both focuses.
@@ -148,10 +130,22 @@ fn on_key(app: &mut app::TuiApp, key: ratatui::crossterm::event::KeyEvent) {
         KeyCode::Char('=') | KeyCode::Char('+') => return app.bump_bpm(1),
         KeyCode::Char('[') => return app.bump_bpm(-10),
         KeyCode::Char(']') => return app.bump_bpm(10),
+        KeyCode::Char('m') => {
+            let current = app.midi_label();
+            let sel = app
+                .midi_ports()
+                .iter()
+                .position(|(_, label)| *label == current)
+                .map(|i| i + 1)
+                .unwrap_or(0);
+            app.popup = Some(Popup::MidiPorts(sel));
+            return;
+        }
         KeyCode::Tab => {
             app.focus = match app.focus {
-                Focus::Library => Focus::Keys,
-                Focus::Keys => Focus::Library,
+                Focus::Library => Focus::Graph,
+                Focus::Graph => Focus::Filter,
+                Focus::Filter => Focus::Library,
             };
             return;
         }
@@ -165,34 +159,34 @@ fn on_key(app: &mut app::TuiApp, key: ratatui::crossterm::event::KeyEvent) {
             KeyCode::PageDown => app.scroll(10),
             KeyCode::Home => app.scroll(isize::MIN),
             KeyCode::End => app.scroll(isize::MAX),
+            KeyCode::Char('/') => app.focus = Focus::Filter,
+            KeyCode::Char('v') => app.popup = Some(Popup::DeviceFilter(0)),
             KeyCode::Char('d') => app.download_selected(),
             KeyCode::Char('x') => app.delete_selected(),
             KeyCode::Char('a') => app.toggle_download_all(),
             KeyCode::Char('f') => app.flash_selected(),
             KeyCode::Char('r') => app.reload_hub(),
             KeyCode::Char('R') => app.toggle_rescue(),
-            KeyCode::Char('m') => {
-                let current = app.midi_label();
-                let sel = app
-                    .midi_ports()
-                    .iter()
-                    .position(|(_, label)| *label == current)
-                    .map(|i| i + 1)
-                    .unwrap_or(0);
-                app.popup = Some(Popup::MidiPorts(sel));
-            }
             KeyCode::Char('q') | KeyCode::Esc => app.quit = true,
             _ => {}
         },
-        Focus::Keys => match key.code {
-            KeyCode::Esc => app.focus = Focus::Library,
-            KeyCode::Char(c) => {
-                if let Some(id) = piano_key(c.to_ascii_lowercase().encode_utf8(&mut [0; 4])) {
-                    app.note_down(id);
-                }
+        Focus::Graph => match key.code {
+            KeyCode::Up | KeyCode::Char('k') => app.graph_move(-1),
+            KeyCode::Down | KeyCode::Char('j') => app.graph_move(1),
+            KeyCode::PageUp => app.graph_move(-5),
+            KeyCode::PageDown => app.graph_move(5),
+            KeyCode::Home => app.graph_move(isize::MIN),
+            KeyCode::End => app.graph_move(isize::MAX),
+            KeyCode::Enter => {
+                let sel = app.graph_sel;
+                app.graph_activate(sel);
             }
+            KeyCode::Esc => app.focus = Focus::Library,
+            KeyCode::Char('q') => app.quit = true,
+            KeyCode::Char('/') => app.focus = Focus::Filter,
             _ => {}
         },
+        Focus::Filter => {}
     }
 }
 
@@ -240,6 +234,27 @@ fn popup_key(app: &mut app::TuiApp, code: ratatui::crossterm::event::KeyCode) {
             }
             _ => {}
         },
+        Some(Popup::DeviceFilter(sel)) => match code {
+            KeyCode::Esc => app.popup = None,
+            KeyCode::Up => app.popup = Some(Popup::DeviceFilter(sel.saturating_sub(1))),
+            KeyCode::Down => app.popup = Some(Popup::DeviceFilter((sel + 1).min(1))),
+            KeyCode::Enter => app.toggle_device_row(sel),
+            _ => {}
+        },
+        Some(Popup::GraphSinks(source, sel)) => {
+            let count = app.graph_sinks(&source).len().max(1);
+            match code {
+                KeyCode::Esc => app.popup = None,
+                KeyCode::Up => {
+                    app.popup = Some(Popup::GraphSinks(source, sel.saturating_sub(1)))
+                }
+                KeyCode::Down => {
+                    app.popup = Some(Popup::GraphSinks(source, (sel + 1).min(count - 1)))
+                }
+                KeyCode::Enter => app.confirm_graph_sink(sel),
+                _ => {}
+            }
+        }
         None => {}
     }
 }
@@ -266,6 +281,11 @@ fn popup_click(app: &mut app::TuiApp, index: usize) {
                 app.popup = None;
             }
         }
+        Some(Popup::DeviceFilter(_)) => {
+            app.toggle_device_row(index);
+            app.popup = Some(Popup::DeviceFilter(index.min(1)));
+        }
+        Some(Popup::GraphSinks(_, _)) => app.confirm_graph_sink(index),
         None => {}
     }
 }
@@ -277,13 +297,6 @@ fn on_mouse(app: &mut app::TuiApp, mouse: ratatui::crossterm::event::MouseEvent)
     use ratatui::layout::Position;
 
     let at = Position::new(mouse.column, mouse.row);
-    let key_at = |app: &app::TuiApp| -> Option<u8> {
-        app.regions
-            .keys
-            .iter()
-            .find(|(rect, _)| rect.contains(at))
-            .map(|(_, id)| *id)
-    };
 
     // Popup clicks confirm a row; a click outside cancels.
     if app.popup.is_some() {
@@ -301,17 +314,26 @@ fn on_mouse(app: &mut app::TuiApp, mouse: ratatui::crossterm::event::MouseEvent)
         }
         return;
     }
-    // The flash modal ignores clicks (Esc closes it); keep the piano silent.
+    // The flash modal ignores clicks (Esc closes it).
     if app.flash_board().is_some() {
         return;
     }
     match mouse.kind {
         MouseEventKind::Down(MouseButton::Left) => {
-            if let Some(id) = key_at(app) {
-                app.focus = Focus::Keys;
-                app.mouse_note(Some(id));
-            } else if app.regions.midi_field.contains(at) {
+            if app.regions.midi_field.contains(at) {
                 app.popup = Some(Popup::MidiPorts(0));
+            } else if app.regions.lib_filter.contains(at) {
+                app.focus = Focus::Filter;
+            } else if app.regions.lib_devices.contains(at) {
+                app.popup = Some(Popup::DeviceFilter(0));
+            } else if let Some(&(_, index)) = app
+                .regions
+                .graph_rows
+                .iter()
+                .find(|(rect, _)| rect.contains(at))
+            {
+                app.focus = Focus::Graph;
+                app.graph_activate(index);
             } else if app.regions.metro_toggle.contains(at) {
                 app.toggle_clock();
             } else if app.regions.bpm_minus.contains(at) {
@@ -320,21 +342,14 @@ fn on_mouse(app: &mut app::TuiApp, mouse: ratatui::crossterm::event::MouseEvent)
                 app.bump_bpm(1);
             } else if app.regions.lib_rows.contains(at) {
                 let row = app.regions.lib_offset + (mouse.row - app.regions.lib_rows.y) as usize;
-                if row < app.firmwares.len() {
+                if row < app.view.len() {
                     app.sel = row;
                 }
                 app.focus = Focus::Library;
             }
         }
-        MouseEventKind::Up(MouseButton::Left) => app.mouse_note(None),
-        MouseEventKind::Drag(MouseButton::Left) => {
-            // Glide across the keys; leaving the piano keeps the last note held.
-            if app.mouse_holding() {
-                if let Some(id) = key_at(app) {
-                    app.mouse_note(Some(id));
-                }
-            }
-        }
+        MouseEventKind::ScrollUp if app.regions.graph_list.contains(at) => app.graph_move(-3),
+        MouseEventKind::ScrollDown if app.regions.graph_list.contains(at) => app.graph_move(3),
         MouseEventKind::ScrollUp if app.regions.lib_rows.contains(at) => app.scroll(-3),
         MouseEventKind::ScrollDown if app.regions.lib_rows.contains(at) => app.scroll(3),
         _ => {}

@@ -20,7 +20,9 @@ use sha2::{Digest, Sha256};
 struct Firmware {
     name: String,
     version: String,
+    #[serde(default)]
     file: String,
+    #[serde(default)]
     sha256: String,
     /// Download location for missing packages; entries added locally by
     /// `scripts/firmware.sh add` may not have one.
@@ -38,6 +40,10 @@ struct Firmware {
     website: String,
     #[serde(default)]
     source: String,
+    /// Listing-only: ship the metadata (so the app can offer the package before the
+    /// online catalog arrives) but never download or embed its bytes.
+    #[serde(default)]
+    index_only: bool,
 }
 
 fn escape(text: &str) -> String {
@@ -114,6 +120,33 @@ fn ensure_firmware(fw: &Firmware, path: &Path) {
     }
 }
 
+/// One generated `BuiltinFirmware` literal. `path` is None for index-only entries,
+/// whose bytes are never embedded.
+fn entry(fw: &Firmware, path: Option<&Path>) -> String {
+    let bytes = match path {
+        Some(path) => format!(
+            "include_bytes!(\"{}\")",
+            escape(&path.to_string_lossy())
+        ),
+        None => "&[]".to_string(),
+    };
+    format!(
+        "    BuiltinFirmware {{\n        name: \"{}\",\n        version: \"{}\",\n        file: \"{}\",\n        sha256: \"{}\",\n        tags: \"{}\",\n        description: \"{}\",\n        byline: \"{}\",\n        device: \"{}\",\n        website: \"{}\",\n        source: \"{}\",\n        url: \"{}\",\n        bytes: {},\n    }},\n",
+        escape(&fw.name),
+        escape(&fw.version),
+        escape(&fw.file),
+        escape(&fw.sha256),
+        escape(&fw.tags.join(",")),
+        escape(&fw.description),
+        escape(&fw.byline),
+        escape(&fw.device),
+        escape(&fw.website),
+        escape(&fw.source),
+        escape(fw.url.as_deref().unwrap_or("")),
+        bytes,
+    )
+}
+
 fn main() {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
     let json_path = manifest_dir.join("firmware/firmwares.json");
@@ -124,17 +157,32 @@ fn main() {
     let list: Vec<Firmware> = serde_json::from_str(&text)
         .unwrap_or_else(|e| panic!("cannot parse {}: {e}", json_path.display()));
 
-    let mut code = String::from("&[\n");
+    let mut baked = String::from("&[\n");
+    let mut index = String::from("&[\n");
     for fw in &list {
-        if fw.name.is_empty()
-            || fw.version.is_empty()
-            || fw.file.is_empty()
-            || fw.sha256.is_empty()
-            || fw.tags.is_empty()
-        {
+        if fw.name.is_empty() || fw.version.is_empty() || fw.tags.is_empty() {
             panic!(
-                "{}: entry {:?}: name, version, file, sha256 and a non-empty tags list are required \
+                "{}: entry {:?}: name, version and a non-empty tags list are required \
                  (the first tag is the dropdown group)",
+                json_path.display(),
+                fw.name
+            );
+        }
+        if fw.index_only {
+            if fw.url.as_deref().unwrap_or("").is_empty() {
+                panic!(
+                    "{}: entry {:?}: index_only entries need a url to download from",
+                    json_path.display(),
+                    fw.name
+                );
+            }
+            index.push_str(&entry(fw, None));
+            continue;
+        }
+        if fw.file.is_empty() || fw.sha256.is_empty() {
+            panic!(
+                "{}: entry {:?}: file and sha256 are required unless the entry is \
+                 index_only",
                 json_path.display(),
                 fw.name
             );
@@ -142,23 +190,13 @@ fn main() {
         let path = manifest_dir.join("firmware").join(&fw.file);
         ensure_firmware(fw, &path);
         println!("cargo:rerun-if-changed={}", path.display());
-        code.push_str(&format!(
-            "    BuiltinFirmware {{\n        name: \"{}\",\n        version: \"{}\",\n        file: \"{}\",\n        sha256: \"{}\",\n        tags: \"{}\",\n        description: \"{}\",\n        byline: \"{}\",\n        device: \"{}\",\n        website: \"{}\",\n        source: \"{}\",\n        bytes: include_bytes!(\"{}\"),\n    }},\n",
-            escape(&fw.name),
-            escape(&fw.version),
-            escape(&fw.file),
-            escape(&fw.sha256),
-            escape(&fw.tags.join(",")),
-            escape(&fw.description),
-            escape(&fw.byline),
-            escape(&fw.device),
-            escape(&fw.website),
-            escape(&fw.source),
-            escape(&path.to_string_lossy()),
-        ));
+        baked.push_str(&entry(fw, Some(&path)));
     }
-    code.push_str("]\n");
+    baked.push_str("]\n");
+    index.push_str("]\n");
 
-    let out = Path::new(&env::var("OUT_DIR").unwrap()).join("builtins.rs");
-    fs::write(&out, code).unwrap();
+    let out_dir = env::var("OUT_DIR").unwrap();
+    let out = Path::new(&out_dir);
+    fs::write(out.join("builtins.rs"), baked).unwrap();
+    fs::write(out.join("bundled_index.rs"), index).unwrap();
 }

@@ -31,7 +31,7 @@ use std::thread;
 use std::time::Duration;
 
 /// One endpoint of the graph.
-#[derive(Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Port {
     /// A system MIDI port, by its midir (ALSA) name.
     System(String),

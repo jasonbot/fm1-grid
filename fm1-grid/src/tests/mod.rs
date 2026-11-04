@@ -998,12 +998,18 @@ fn settings_theme_and_appearance(cx: &mut TestAppContext) {
         // both use the same "btn" id).
         assert!(window.within("item-0").find("btn").visible());
         assert!(window.within("item-1").find("btn").visible());
-        // The fields are dropdowns whose items live in a popup overlay, so drive
-        // the apply paths directly. The dark override pins the mode even in this
-        // (light) test window.
+        // The accent field is a swatch row, not a dropdown.
+        assert!(window.find("accent-swatch-blue").visible());
+        assert!(window.find("accent-swatch-graphite").visible());
+        // The default family ignores accents, so the row is disabled and a click
+        // must not change the stored choice.
+        window.click("accent-swatch-red", cx);
+        // Dropdown fields live in popup overlays, so drive the apply path directly.
+        // The dark override pins the mode even in this (light) test window.
         app.update(cx, |app, cx| app.set_appearance(Appearance::Dark, cx));
     })
     .unwrap();
+    cx.update(|cx| assert_eq!(app.read(cx).accent, "blue"));
     cx.update(|cx| {
         assert!(Theme::global(cx).is_dark(), "the dark override should apply");
         assert_eq!(app.read(cx).appearance, Appearance::Dark);
@@ -1040,12 +1046,57 @@ fn settings_theme_and_appearance(cx: &mut TestAppContext) {
         assert_eq!(record.appearance, Appearance::Auto);
     });
 
-    // Leave the shared store at the defaults (the setters save the whole session
-    // record, so leave the Settings tab first — it would persist as the boot tab).
+    // Before leaving: Influenza computes from the accent, not from the registry.
+    // Pick it, re-render (which enables the swatch row) and choose Red by click.
+    cx.update_window(window.into(), |_, _window, cx| {
+        app.update(cx, |app, cx| app.set_theme_family(crate::theme::INFLUENZA, cx));
+    })
+    .unwrap();
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        window.click("accent-swatch-red", cx);
+    })
+    .unwrap();
+    cx.update(|cx| {
+        let theme = Theme::global(cx);
+        assert_eq!(theme.theme_name().as_ref(), "Influenza Light (Red)");
+        assert_eq!(
+            theme.colors.primary,
+            gpui_kit::component::try_parse_color("#ff5257").unwrap()
+        );
+        assert_eq!(app.read(cx).accent, "red");
+        let record: crate::session::Session = app
+            .read(cx)
+            .store
+            .as_ref()
+            .expect("a store")
+            .fetch_object("session")
+            .expect("the accent change should have saved the session");
+        assert_eq!(record.theme, crate::theme::INFLUENZA);
+        assert_eq!(record.accent, "red");
+    });
+
+    // Meltysand recomputes from the same accent.
+    cx.update_window(window.into(), |_, _window, cx| {
+        app.update(cx, |app, cx| app.set_theme_family(crate::theme::MELTYSAND, cx));
+    })
+    .unwrap();
+    cx.update(|cx| {
+        let theme = Theme::global(cx);
+        assert_eq!(theme.theme_name().as_ref(), "Meltysand Light (Red)");
+        assert_eq!(
+            theme.colors.primary,
+            gpui_kit::component::try_parse_color("#ff5257").unwrap()
+        );
+        // Tahoe's larger surface rounding.
+        assert_eq!(theme.radius_lg, px(26.0));
+    });
+
     cx.update_window(window.into(), |_, window, cx| {
         window.click(("tab", 0usize), cx);
         app.update(cx, |app, cx| {
             app.set_theme_family(crate::theme::DEFAULT_FAMILY, cx);
+            app.set_accent("blue", cx);
             app.set_appearance(Appearance::Auto, cx);
         });
     })
@@ -1062,11 +1113,17 @@ fn bundled_themes_load(cx: &mut TestAppContext) {
         gpui_kit::init(cx);
         crate::theme::load_bundled_themes(cx);
         let registry = ThemeRegistry::global(cx);
-        // Default plus every bundled themes/*.json (listed by build.rs).
+        // Default, Influenza, Meltysand, plus every bundled themes/*.json (listed
+        // by build.rs).
         assert_eq!(
             crate::theme::theme_families().len(),
-            crate::theme::THEME_FILES.len() + 1
+            crate::theme::THEME_FILES.len() + 3
         );
+        for id in [crate::theme::INFLUENZA, crate::theme::MELTYSAND] {
+            assert!(crate::theme::theme_families()
+                .iter()
+                .any(|family| family.id == id));
+        }
         for family in crate::theme::theme_families() {
             for name in [&family.light, &family.dark].into_iter().flatten() {
                 assert!(
@@ -1259,6 +1316,25 @@ fn library_device_filter_and_favorite_glyph(cx: &mut TestAppContext) {
         assert!(window.find("library-devices").visible());
         assert!(window.find("lib-fav-glyph-Felucca").visible());
         assert!(window.find(("lib-tag", pill_id("Felucca", "☆"))).visible());
+        // The favorite selector graduated to the title row and grew: it overlaps the
+        // tag pills vertically, and its hit box is large (the old small button was
+        // ~24 px; the large one is ~32).
+        let star = window.find("lib-fav-Felucca").bounds();
+        let pill = window.find(("lib-tag", pill_id("Felucca", "☆"))).bounds();
+        assert!(
+            star.origin.y < pill.origin.y + pill.size.height
+                && pill.origin.y < star.origin.y + star.size.height,
+            "the favorite selector shares the title row with the pills: {star:?} vs {pill:?}"
+        );
+        assert!(
+            f32::from(star.size.height) >= 28.0,
+            "the favorite selector is large: {star:?}"
+        );
+        let caret = window.find("lib-fav-glyph-Felucca").bounds();
+        assert!(
+            f32::from(caret.size.height) < f32::from(star.size.height),
+            "the glyph disclosure is smaller than the favorite button: {caret:?} vs {star:?}"
+        );
     })
     .unwrap();
 

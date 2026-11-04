@@ -15,7 +15,7 @@ use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use crate::builtin::BUILTINS;
+use crate::builtin::{BUILTINS, BUNDLED_INDEX};
 use crate::download_heuristics::{fetch_package, looks_like_web_page};
 use crate::sources::{editor, hub, mutant, reverbose};
 use crate::store::Store;
@@ -164,7 +164,7 @@ impl Library {
             store: store.clone(),
             builtins: BUILTINS.iter().map(builtin_entry).collect(),
             stored,
-            hub: Arc::new(Mutex::new(Vec::new())),
+            hub: Arc::new(Mutex::new(index_listing())),
             hub_status: Arc::new(Mutex::new(HubStatus::Idle)),
             last_refresh: Arc::new(Mutex::new(None)),
             downloads: HashMap::new(),
@@ -475,7 +475,7 @@ impl Library {
                             Err(_) => {}
                         }
                     }
-                    *hub.lock().unwrap() = listing;
+                    *hub.lock().unwrap() = merge_listings(listing, index_listing());
                     swapped.store(true, Ordering::Relaxed);
                     outcome
                 }
@@ -665,6 +665,46 @@ fn entry_status(
             }
         }
         FirmwareSource::Hub { blob: None, .. } => Status::Available,
+    }
+}
+
+/// The binary's listing-only entries as catalog offers: metadata and the recorded
+/// download URL, no bytes. They seed the hub at load and merge into every online
+/// refresh, so a package that may not be redistributed still appears (and downloads
+/// on request) without being baked into the app.
+fn index_listing() -> Vec<Firmware> {
+    BUNDLED_INDEX.iter().map(index_entry).collect()
+}
+
+fn index_entry(b: &crate::builtin::BuiltinFirmware) -> Firmware {
+    /// An empty string in the table means the link doesn't exist.
+    fn link(text: &str) -> Option<String> {
+        (!text.is_empty()).then(|| text.to_string())
+    }
+    let mut tags: Vec<String> = b
+        .tags
+        .split(',')
+        .map(str::trim)
+        .filter(|tag| !tag.is_empty())
+        .map(str::to_string)
+        .collect();
+    // The origin tag names the listing the offer came from: the binary's index.
+    tags.push("source:index".to_string());
+    Firmware {
+        name: b.name.to_string(),
+        byline: b.byline.to_string(),
+        version: b.version.to_string(),
+        description: b.description.to_string(),
+        tags,
+        device: crate::sources::parse_device(b.device),
+        website: link(b.website),
+        source_url: link(b.source),
+        upgradable: false,
+        status: Status::Available,
+        source: FirmwareSource::Hub {
+            path: b.url.to_string(),
+            blob: None,
+        },
     }
 }
 
@@ -1028,6 +1068,8 @@ mod tests {
         let (store, dir) = temp_store("next");
         let builtin = BUILTINS.first().expect("no builtins");
         let mut library = Library::load(&store);
+        // The load seeds the binary's index-only offers; this test owns the listing.
+        library.hub.lock().unwrap().clear();
 
         // No hub listing: nothing to fetch.
         assert_eq!(library.next_download(), None);
@@ -1087,6 +1129,8 @@ mod tests {
     fn download_all_sweeps_on_events() {
         let (store, dir) = temp_store("all");
         let mut library = Library::load(&store);
+        // The load seeds the binary's index-only offers; this test owns the listing.
+        library.hub.lock().unwrap().clear();
         let offer = |name: &str| Firmware {
             source: FirmwareSource::Hub {
                 // A closed port fails fast and deterministically, offline.
@@ -1559,6 +1603,34 @@ mod tests {
             }
         }
         assert!(matches!(library.hub_status(), HubStatus::Failed(_)));
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    /// Listing-only entries ship metadata and a URL, never bytes; the baked table
+    /// leaves them out and the hub carries them as downloadable offers from load.
+    #[test]
+    fn index_only_entries_are_offers_not_builtins() {
+        let (store, dir) = temp_store("indexonly");
+        let library = Library::load(&store);
+        let hub = library.hub.lock().unwrap();
+        assert_eq!(
+            hub.len(),
+            BUNDLED_INDEX.len(),
+            "the seeded hub is exactly the index-only listing"
+        );
+        for b in BUNDLED_INDEX {
+            assert!(b.bytes.is_empty(), "{} must not be embedded", b.name);
+            assert!(!BUILTINS.iter().any(|baked| baked.name == b.name));
+            let offer = hub
+                .iter()
+                .find(|firmware| firmware.name == b.name)
+                .expect("index-only entry in the seeded hub");
+            assert!(matches!(
+                offer.source,
+                FirmwareSource::Hub { ref path, blob: None } if path == b.url
+            ));
+            assert!(offer.tags.iter().any(|tag| tag == "source:index"));
+        }
         std::fs::remove_dir_all(dir).ok();
     }
 

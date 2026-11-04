@@ -679,17 +679,6 @@ impl Hardware {
         settle_board(&self.board, &Err(message));
     }
 
-    /// Send whole MIDI messages to the named device (the TUI's virtual keyboard plays
-    /// the unit this way). False when the device is gone or the send failed.
-    pub fn send(&self, name: &str, bytes: &[u8]) -> bool {
-        let Ok(list) = self.devices.lock() else {
-            return false;
-        };
-        list.iter()
-            .find(|device| device.name == name)
-            .is_some_and(|device| device.link.send(bytes))
-    }
-
     /// Show a message on the device's row (a file that could not be read, say).
     pub fn report(&self, name: &str, message: String) {
         if let Ok(list) = self.devices.lock() {

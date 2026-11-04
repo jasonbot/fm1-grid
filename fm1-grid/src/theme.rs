@@ -1,8 +1,9 @@
 //! The look. App chrome follows the gpui-kit theme (`cx.theme()` tokens at the call
 //! site), and the front panel's colours are derived from it in `panel.rs`; this
 //! module keeps only the colour helpers they share, the bundled theme catalog and
-//! the layout constants. The one computed colour in the app is the grid background
-//! (see `grid.rs`).
+//! the layout constants. The runtime "Influenza" and "Meltysand" families are
+//! computed in their own modules, not loaded from JSON. The one computed colour in
+//! the app is the grid background (see `grid.rs`).
 
 /// Linear per-channel mix of two theme colours, `t` of the way from `a` to `b`.
 pub(crate) fn mix_hsla(a: gpui_kit::Hsla, b: gpui_kit::Hsla, t: f32) -> gpui_kit::Hsla {
@@ -40,6 +41,12 @@ include!(concat!(env!("OUT_DIR"), "/theme_files.rs"));
 /// The picker's first entry: gpui-kit's own Default Light/Dark pair.
 pub(crate) const DEFAULT_FAMILY: &str = "default";
 
+/// The computed Fluent-UI family; `apply_theme` builds it from the accent colour.
+pub(crate) const INFLUENZA: &str = crate::influenza::FAMILY;
+
+/// The computed macOS Tahoe family; `apply_theme` builds it from the accent too.
+pub(crate) const MELTYSAND: &str = crate::meltysand::FAMILY;
+
 /// One picker family: the registered config names that fill the light and dark
 /// slots (the family's first of each mode; a missing side keeps the default theme).
 pub(crate) struct ThemeFamily {
@@ -64,12 +71,27 @@ struct ThemeHead {
 /// heads parse once; a file that fails to parse just doesn't get an entry (the same
 /// failure is logged at load).
 static FAMILIES: std::sync::LazyLock<Vec<ThemeFamily>> = std::sync::LazyLock::new(|| {
-    let mut families = vec![ThemeFamily {
-        id: DEFAULT_FAMILY,
-        label: "Default",
-        light: None,
-        dark: None,
-    }];
+    let mut families = vec![
+        ThemeFamily {
+            id: DEFAULT_FAMILY,
+            label: "Default",
+            light: None,
+            dark: None,
+        },
+        // Not JSON-backed: apply_theme computes both sides from the accent colour.
+        ThemeFamily {
+            id: INFLUENZA,
+            label: "Influenza",
+            light: None,
+            dark: None,
+        },
+        ThemeFamily {
+            id: MELTYSAND,
+            label: "Meltysand",
+            light: None,
+            dark: None,
+        },
+    ];
     for &(id, label, json) in THEME_FILES {
         let Ok(set) = serde_json::from_str::<ThemeSetHead>(json) else {
             continue;

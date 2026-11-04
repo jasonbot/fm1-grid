@@ -1,12 +1,16 @@
 //! The Settings tab: gpui-kit's Settings component — one General page with an
-//! Appearance group (the theme family and the auto/light/dark override). Both
-//! apply at once and land in the session record on change; both declare their
-//! defaults, so the page's Reset button restores them.
+//! Appearance group (the theme family, the auto/light/dark override and the accent
+//! swatches the two computed families use). Every pick applies at once and lands in
+//! the session record on change.
 
 use crate::app::{Appearance, GridApp};
+use gpui_kit::component::h_flex;
 use gpui_kit::component::setting::{
     SettingField, SettingGroup, SettingItem, SettingPage, Settings,
 };
+use gpui_kit::component::tooltip::Tooltip;
+use gpui_kit::component::ActiveTheme;
+use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 
 impl GridApp {
@@ -38,6 +42,7 @@ impl GridApp {
         )
         .default_value(crate::theme::DEFAULT_FAMILY);
 
+        let appearance_app = app.clone();
         let appearance_field = SettingField::dropdown(
             vec![
                 ("auto".into(), "Auto".into()),
@@ -45,7 +50,7 @@ impl GridApp {
                 ("dark".into(), "Dark".into()),
             ],
             {
-                let app = app.clone();
+                let app = appearance_app.clone();
                 move |cx: &App| {
                     match app.read(cx).appearance {
                         Appearance::Auto => "auto",
@@ -61,20 +66,88 @@ impl GridApp {
                     "dark" => Appearance::Dark,
                     _ => Appearance::Auto,
                 };
-                app.update(cx, |this, cx| this.set_appearance(appearance, cx));
+                appearance_app.update(cx, |this, cx| this.set_appearance(appearance, cx));
             },
         )
         .default_value("auto");
+
+        // The accent palette as one row of swatches: the macOS colours plus the
+        // surviving Windows 11 hues (see influenza.rs). The field is disabled unless
+        // the picked family actually consumes an accent.
+        let accent_active = matches!(
+            self.theme_id.as_str(),
+            crate::theme::INFLUENZA | crate::theme::MELTYSAND
+        );
+        let accent_field = SettingField::render({
+            let app = app.clone();
+            move |options, _window, cx| {
+                let current = app.read(cx).accent.clone();
+                let enabled = !options.is_disabled();
+                let mut row = h_flex().items_center().gap_1();
+                for accent in crate::influenza::ACCENTS {
+                    let selected = accent.id == current;
+                    let app = app.clone();
+                    let id = accent.id;
+                    let label = accent.label;
+                    // Every circle carries a subtle border; the selected one adds a
+                    // primary ring outside it, with a small gap so the colour reads.
+                    row = row.child(
+                        div()
+                            .id(format!("accent-swatch-{id}"))
+                            .test_support()
+                            .size(px(24.0))
+                            .rounded_full()
+                            .border_2()
+                            .border_color(if selected {
+                                cx.theme().primary
+                            } else {
+                                gpui_kit::transparent_black()
+                            })
+                            .p(px(2.0))
+                            .child(
+                                div()
+                                    .size_full()
+                                    .rounded_full()
+                                    .bg(crate::influenza::color(accent))
+                                    .border_1()
+                                    .border_color(cx.theme().border),
+                            )
+                            .when(enabled, |el| {
+                                el.cursor_pointer()
+                                    .tooltip(move |window, cx| {
+                                        Tooltip::new(label).build(window, cx)
+                                    })
+                                    .on_click(move |_, _, cx| {
+                                        app.update(cx, |this, cx| this.set_accent(id, cx));
+                                    })
+                            }),
+                    );
+                }
+                row
+            }
+        });
+
+        let accent_description = if accent_active {
+            "Color to drive the UI accents"
+        } else {
+            "This theme doesn't do accents"
+        };
 
         Settings::new("fm1-settings").page(
             SettingPage::new("General").resettable(true).group(
                 SettingGroup::new().title("Appearance").items(vec![
                     SettingItem::new("Theme", theme_field)
-                        .description("The colour scheme family: gpui-kit's sets plus the bundled FM-1 ones.")
+                        .description(
+                            "The colour scheme family: gpui-kit's sets plus the bundled FM-1 ones.",
+                        )
                         .keywords(["colors", "scheme"]),
                     SettingItem::new("Mode", appearance_field)
                         .description("Follow the OS light/dark setting, or pin one.")
                         .keywords(["dark", "light"]),
+                    SettingItem::new("Accent color", accent_field)
+                        .disabled(!accent_active)
+                        .description(accent_description)
+                        .keywords(["colour", "fluent", "windows", "macos"]),
                 ]),
             ),
         )

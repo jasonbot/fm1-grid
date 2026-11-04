@@ -38,8 +38,8 @@ startup (still powered off); unpinning forgets the pane's saved flash. Every pan
 firmware selection and pin restore the same way, and removing a firmware from the
 Library powers off the panes set to it and re-seats them with a random available
 one. The split position, selected tab (and Devices
-section), selected pane, metronome tempo, Download All toggle, theme and appearance
-override restore the same way. State lives in the com.fm1-grid
+section), selected pane, metronome tempo, Download All toggle, theme, appearance
+override and accent colour restore the same way. State lives in the com.fm1-grid
 data directory (`~/.local/share/fm1-grid` on Linux).
 
 The **Library** tab lists every firmware the app knows — the bundled set, files you
@@ -190,13 +190,17 @@ cannot enumerate. The graph says so while such a pane runs.
 
 The gear icon at the bottom of the rail opens the Settings tab. It is a searchable
 settings page with its own sidebar, like the Settings app on a Mac or iPhone. Under
-**General → Appearance** there are two dropdowns: **Theme** — the color scheme:
-gpui-kit's Default pair plus the bundled sets (BeOS, Cream, Ember, Frost, Lavender,
-Mint, Shadow and Mac Platinum) — and **Mode**: Auto (follows the OS), Light or Dark.
-Picks apply at once and are saved with the rest of the app state. The page's Reset
-button puts both back to their defaults. The search box at the top of the sidebar
-finds settings by name or keyword ("dark" finds Mode). A dark-only theme keeps the
-default light side, and vice versa.
+**General → Appearance** there are three fields: **Theme** — the color scheme:
+gpui-kit's Default pair, the bundled sets (BeOS, Cream, Ember, Frost, Lavender,
+Mint, Shadow and Mac Platinum), plus two computed families: **Influenza**, close to
+Windows 11's Fluent UI, and **Meltysand**, close to macOS Tahoe's Liquid Glass. Both
+are built at runtime from the **Accent color** row of circles (the merged Windows 11
+and macOS palette; the macOS value wins where they overlap) and the **Mode**: Auto
+(follows the OS), Light or Dark. The accent row is enabled only while Influenza or
+Meltysand is the theme. Picks apply at once and are saved with the rest of the app
+state. The page's Reset button puts the theme and mode back to their
+defaults. The search box at the top of the sidebar finds settings by name or keyword
+("dark" finds Mode). A dark-only theme keeps the default light side, and vice versa.
 
 ## fm1-tty
 
@@ -222,9 +226,21 @@ The screen has four parts:
   mode**: every MIDI port on the system joins the list as a flash target, for a
   unit too broken to answer to its name. If no FM-1 is found but some MIDI device
   is, the block's title warns `R: RESCUE?`.
+* **MIDI graph** — the terminal take on the GUI's graph: every MIDI out in the system
+  (and every live unit) is a source, with its current links listed under it. One out
+  feeds any number of ins. `Tab` into it, move with the arrow keys and press `Enter`
+  on a link to unroute it or on `+ connect…` to pick another sink; the same rows are
+  mouse-clickable. `m` (or the `MIDI in:` field) picks a physical MIDI keyboard whose
+  notes are forwarded to every connected FM-1.
 * **Library** — the firmware list, same as the GUI's Library tab: what came with the
   app, what you imported, and (online) what the Firmware Hub, fm1-editor.com,
   Reverbose and mutant.cloud offer.
+  * `/` focuses the filter box above the list; type any words and every row whose
+    name, version, tags, byline or description contains all of them stays. `Enter` or
+    `Esc` hands the keyboard back to the list, `Ctrl-U` clears.
+  * `v` opens the **device selector**: FM-1 is shown by default and SMK-37 is not,
+    exactly like the GUI. Toggle either row with `Enter`; the field shows the current
+    choice.
   * `r` re-fetches the online listings.
   * `d` downloads the selected firmware. If the hub has a newer version of the
     selected row (marked with `↑`, bundled and downloaded rows alike), `d` upgrades
@@ -241,17 +257,14 @@ The screen has four parts:
   * `f` flashes it onto a plugged-in FM-1 — with rescue mode on, onto any MIDI port
     (the picker flags those rows `RESCUE:`). With more than one target it asks which
     one. A pop-up shows progress; on failure it stays up until `Esc`.
-* **Keyboard** — an on-screen piano. Click keys with the mouse, or press `Tab` to
-  switch to it and use the same letter keys as the GUI. Every note goes to all
-  plugged-in FM-1s at once. `m` picks a real MIDI keyboard — its notes light the
-  piano and forward to the FM-1s too.
 * **Metronome** — the same MIDI-clock beat as the GUI. `Space` starts and stops it,
   `-` and `+` nudge the tempo, `[` and `]` jump by ten. The light blinks on every
   beat, and every FM-1 follows the clock.
 
-More keys: `Tab` moves between the library list and the piano. In the list, the arrow
-keys (or `j` and `k`) move, `PageUp` and `PageDown` jump ten rows, and `Home` and
-`End` go to the ends. `q` quits while the list is selected; `Ctrl-C` quits anywhere.
+More keys: `Tab` cycles the library list, the MIDI graph and the filter box; in the
+list, the arrow keys (or `j` and `k`) move, `PageUp` and `PageDown` jump ten rows, and
+`Home` and `End` go to the ends. `q` quits from the list or the graph; `Ctrl-C` quits
+anywhere.
 
 On terminals that support it (Windows Terminal, Ghostty, Konsole, WezTerm, …),
 downloads drive the terminal's own progress bar (OSC 9;4) and library additions and
@@ -286,11 +299,24 @@ after it recovers.
 it if you build for another machine. The emulator crates are pinned to an fm1-emu
 revision in `Cargo.toml`; bump the `rev` deliberately.
 
+To build on a fast machine and run it on a DevTerm A04 (aarch64, Cortex-A53):
+
+```sh
+scripts/deploy-devterm.sh                  # fm1-grid: cross-build, copy to ~/bin, Xvfb smoke test
+scripts/deploy-devterm.sh fm1-tty          # fm1-tty: cross-build, copy to ~/bin, pty smoke test
+scripts/deploy-devterm.sh fm1-tty --no-smoke
+DEVTERM_HOST=devterm-a04 DEVTERM_PASS=secret scripts/deploy-devterm.sh fm1-tty
+```
+
+It needs podman and sshpass; it builds the arm64 toolchain container itself.
+
 The firmware images are unmodified packages from
 [The FM-1 Firmware Hub](https://thefirmwarehub.com/), M-VAVE and the firmware authors.
 They keep their own licences: most are GPL-3.0, M-VAVE's FM1 Stock is Apache-2.0,
-FM1 Open adds a linking exception, and Baud Girl (FM-1+VA) is proprietary. The
-emulator crates are MIT. See `fm1-performer/firmware/README.md`.
+FM1 Open adds a linking exception, and Baud Girl (FM-1+VA) is proprietary — its
+metadata is bundled but the package itself is not, and the app downloads it from
+baudgirl.com on request. The emulator crates are MIT. See
+`fm1-performer/firmware/README.md`.
 
 ## Layout
 
@@ -298,8 +324,8 @@ Three crates in one workspace: **fm1-performer** holds the UI-free machinery bot
 apps share, **fm1-grid** is the gpui-kit app, **fm1-tty** the terminal UI.
 
 ```
-scripts/firmware.sh             add/del/list for the embedded firmware list
-fm1-performer/build.rs          generates the embedded firmware table from firmware/firmwares.json
+scripts/firmware.sh             add/del/index/baked/list for the embedded firmware list
+fm1-performer/build.rs          generates the baked and listing-only firmware tables from firmware/firmwares.json
 fm1-performer/firmware/         the embedded .fwsc packages plus firmwares.json
 fm1-performer/src/emulator.rs   one thread + SoC + cores per slot, flash snapshot at exit
 fm1-performer/src/audio.rs      the per-slot audio queue (the cpal output lives in fm1-grid)
@@ -325,13 +351,15 @@ fm1-grid/src/panel.rs           the clickable FM-1 front panel (bottom of the Em
 fm1-grid/src/transport.rs       the bottom bar: the metronome row, global across tabs
 fm1-grid/src/lcd.rs             RGB565 decode, colours, ghost/hqx/nearest image filters
 fm1-grid/src/theme.rs           the FM-1 hardware colours, the bundled theme catalog; chrome follows gpui-kit
+fm1-grid/src/influenza.rs       the computed Fluent-UI family (accent colour + light/dark)
+fm1-grid/src/meltysand.rs       the computed macOS Tahoe family (accent colour + light/dark)
 fm1-grid/src/library_tab.rs     the Library tab's list, pills, actions and add-file form
-fm1-grid/src/settings.rs        the Settings tab (gpui-kit's Settings component): theme and mode dropdowns
+fm1-grid/src/settings.rs        the Settings tab (gpui-kit's Settings component): theme, mode and accent swatches
 fm1-grid/themes/                the bundled gpui-kit theme sets (upstream themes/ at the pinned tag)
 fm1-grid/src/firmware_picker.rs the firmware dropdown's data (searchable, grouped by tag)
 fm1-grid/src/flash_dialog.rs    the modal flash progress + message terminal
 fm1-grid/src/session.rs         the saved UI state (split, tabs, pane, tempo, Download All)
 fm1-grid/src/main.rs            startup and the quit hook saving slot records
 fm1-grid/src/tests/             headless UI smoke tests
-fm1-tty/src/                    the terminal UI (ratatui): library + flashing, piano, metronome
+fm1-tty/src/                    the terminal UI (ratatui): library + flashing, MIDI graph, metronome
 ```

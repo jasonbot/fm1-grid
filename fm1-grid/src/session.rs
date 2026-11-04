@@ -42,6 +42,8 @@ pub(crate) struct Session {
     pub theme: String,
     /// The appearance override (auto/light/dark).
     pub appearance: crate::app::Appearance,
+    /// The accent colour id Influenza is computed from; other families ignore it.
+    pub accent: String,
 }
 
 impl Default for Session {
@@ -58,6 +60,7 @@ impl Default for Session {
             device_filter: Default::default(),
             theme: crate::theme::DEFAULT_FAMILY.to_string(),
             appearance: crate::app::Appearance::default(),
+            accent: crate::influenza::accent("blue").id.to_string(),
         }
     }
 }
@@ -75,6 +78,8 @@ impl Session {
         session.devices_tab = session.devices_tab.min(1);
         session.slot = session.slot.min(fm1_performer::MAX_SLOTS - 1);
         session.bpm = session.bpm.clamp(MIN_BPM, MAX_BPM);
+        // A stale or hand-edited accent id falls back to Blue.
+        session.accent = crate::influenza::accent(&session.accent).id.to_string();
         // The builtin "FM-1+VA" was renamed "Baud Girl (FM-1+VA)"; carry its star
         // over (favorites key on the normalized name, so a rename orphans them).
         if session.favorites.remove("fm-1+va") {
@@ -120,6 +125,7 @@ impl GridApp {
             device_filter: self.device_filter,
             theme: self.theme_id.clone(),
             appearance: self.appearance,
+            accent: self.accent.clone(),
         };
         if let Err(e) = store.store_object(SESSION_OBJECT, &session) {
             eprintln!("fm1-grid: {e}");
@@ -156,6 +162,7 @@ mod tests {
             },
             theme: "ayu".to_string(),
             appearance: crate::app::Appearance::Dark,
+            accent: "not-a-colour".to_string(),
         };
         store.store_object(SESSION_OBJECT, &record).unwrap();
         let loaded = Session::load(Some(&store));
@@ -164,6 +171,8 @@ mod tests {
         assert_eq!(loaded.devices_tab, 1);
         assert_eq!(loaded.theme, "ayu");
         assert_eq!(loaded.appearance, crate::app::Appearance::Dark);
+        // An unknown accent id comes back as the default Blue.
+        assert_eq!(loaded.accent, "blue");
         assert_eq!(loaded.slot, fm1_performer::MAX_SLOTS - 1);
         assert_eq!(loaded.bpm, MIN_BPM);
         assert!(loaded.download_all);
@@ -186,10 +195,12 @@ mod tests {
         let defaults = Session::load(Some(&store));
         assert_eq!(defaults.sidebar_width, SIDEBAR_INITIAL);
         assert!(defaults.device_filter.fm1 && !defaults.device_filter.smk37);
+        assert_eq!(defaults.accent, "blue");
         std::fs::write(dir.join("objects").join(format!("{SESSION_OBJECT}.json")), b"{").unwrap();
         let defaults = Session::load(Some(&store));
         assert_eq!(defaults.sidebar_width, SIDEBAR_INITIAL);
         assert!(defaults.device_filter.fm1 && !defaults.device_filter.smk37);
+        assert_eq!(defaults.accent, "blue");
         std::fs::remove_dir_all(&dir).ok();
     }
 }

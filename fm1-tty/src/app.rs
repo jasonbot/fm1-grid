@@ -1,13 +1,13 @@
 //! fm1-tty's state: the shared library/hardware/clock pieces from `fm1-performer` plus the
-//! TUI's own selection, focus, popup and note-merge state. Drawing lives in `ui.rs`,
-//! the event loop in `main.rs`.
+//! TUI's own selection, focus, filter, popup and MIDI-graph state. Drawing lives in
+//! `ui.rs`, the event loop in `main.rs`.
 
 use fm1_performer::clock::Clock;
 use fm1_performer::firmware_picker::{pick_of, FirmwarePick};
 use fm1_performer::hardware::{DeviceRow, FlashState, Hardware};
-use fm1_performer::library::{Firmware, FirmwareSource, HubStatus, Library, Status};
+use fm1_performer::library::{Firmware, FirmwareDevice, FirmwareSource, HubStatus, Library, Status};
 use fm1_performer::midi_keys::MidiKeys;
-use fm1_performer::routing::{Port, Routing};
+use fm1_performer::routing::{Endpoint, Port, Routing};
 use fm1_performer::store::Store;
 use ratatui::layout::Rect;
 use ratatui::widgets::ListState;
@@ -15,16 +15,6 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-/// MIDI note number of the panel's lowest key (the mirror of the midi_keys mapping:
-/// FM-1 key id 14 plays F3).
-const MIDI_F3: u8 = 53;
-/// The FM-1's note key ids run F3..G5.
-const KEY_F3: u8 = 14;
-const KEY_G5: u8 = 40;
-/// Note-on velocity the virtual keyboard sends.
-const VELOCITY: u8 = 100;
-/// How long a computer-key note lasts on terminals that report no key releases.
-const MOMENTARY: Duration = Duration::from_millis(250);
 /// How long a transient footer message stays up.
 const STATUS_TTL: Duration = Duration::from_secs(5);
 
@@ -32,7 +22,9 @@ const STATUS_TTL: Duration = Duration::from_secs(5);
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Focus {
     Library,
-    Keys,
+    Graph,
+    /// The library's filter field; printable keys edit the needle.
+    Filter,
 }
 
 /// A modal over the main screen; while one is up it gets every key.
@@ -43,19 +35,60 @@ pub enum Popup {
     /// The flash target picker: (selected row, (target name, is rescue target) rows,
     /// what to flash).
     FlashTarget(usize, Vec<(String, bool)>, FirmwarePick),
+    /// The library's device filter: the highlighted row (0 FM-1, 1 SMK-37).
+    DeviceFilter(usize),
+    /// The MIDI graph's connect menu: the source and the highlighted sink candidate.
+    GraphSinks(Port, usize),
+}
+
+/// Which device families the library lists, mirroring the GUI's device dropdown.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct DeviceFilter {
+    pub fm1: bool,
+    pub smk37: bool,
+}
+
+impl Default for DeviceFilter {
+    fn default() -> Self {
+        // FM-1 only, like the GUI.
+        Self { fm1: true, smk37: false }
+    }
+}
+
+impl DeviceFilter {
+    fn shows(self, device: FirmwareDevice) -> bool {
+        match device {
+            FirmwareDevice::Fm1 => self.fm1,
+            FirmwareDevice::Smk37 => self.smk37,
+        }
+    }
+}
+
+/// A row of the MIDI-graph panel, in draw order. Sources are always shown, linked or
+/// not; each source's links follow, then its always-there connect action.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum GraphRow {
+    Source(Port),
+    Link(Port, Port),
+    Connect(Port),
 }
 
 /// Mouse hit regions, refilled by every draw. Plain data; `ui.rs` writes, `main.rs`
 /// reads.
 #[derive(Default)]
 pub struct Regions {
-    /// The piano: (rect, key id), black keys first (they overlap the whites).
-    pub keys: Vec<(Rect, u8)>,
     /// The library list's inner area; the clicked row is `lib_offset + y − top`.
     pub lib_rows: Rect,
     pub lib_offset: usize,
+    /// The filter field and the device-filter field above the list.
+    pub lib_filter: Rect,
+    pub lib_devices: Rect,
     /// The "MIDI in" field: opens the keyboard selector.
     pub midi_field: Rect,
+    /// The graph rows: (rect, row index into `TuiApp::graph_rows`).
+    pub graph_rows: Vec<(Rect, usize)>,
+    /// The graph's scrolling list area (wheel events).
+    pub graph_list: Rect,
     /// The clock switch: starts/stops the metronome.
     pub metro_toggle: Rect,
     pub bpm_minus: Rect,
@@ -71,29 +104,35 @@ pub struct TuiApp {
     midi_keys: MidiKeys,
     store: Option<Store>,
     library: Option<Library>,
-    /// The library view from the last tick, in draw order.
+    /// The full library view from the last tick, in library order.
     pub firmwares: Vec<Firmware>,
+    /// The rows the filter and device selector leave: indices into `firmwares`, in
+    /// draw order. `sel` indexes this.
+    pub view: Vec<usize>,
     /// The live FM-1 units from the last tick.
     pub devices: Vec<DeviceRow>,
-    /// The selected library row.
+    /// The selected row in `view`.
     pub sel: usize,
     pub focus: Focus,
     pub popup: Option<Popup>,
-    /// Held note keys, all sources merged (what the piano paints).
-    pub held: [bool; 41],
-    /// Note keys this app has sent note-ons for (mouse + computer keys only; the
-    /// physical keyboard's bytes reach the units through the MIDI graph instead).
-    sent: [bool; 41],
-    mouse_key: Option<u8>,
-    kb_keys: HashSet<u8>,
-    /// Momentary note-offs for terminals without release events.
-    momentary: Vec<(u8, Instant)>,
-    /// Whether the terminal reports key releases (kitty protocol).
-    pub key_release: bool,
+    /// The library filter needle; space-separated tokens must all match.
+    pub filter: String,
+    pub device_filter: DeviceFilter,
+    /// The MIDI graph from the last tick: every endpoint and link.
+    pub endpoints: Vec<Endpoint>,
+    pub links: Vec<(Port, Port)>,
+    /// The highlighted graph row (an index into `graph_rows`).
+    pub graph_sel: usize,
+    /// The graph list's scroll state (the widget owns the offset).
+    pub graph_state: ListState,
     /// The MIDI keyboard port the user picked (the poller may still be opening it).
     want_midi: Option<String>,
-    /// Graph links this app created: (system source, device) port names.
+    /// Graph links this app created for the picked keyboard: (system source, device)
+    /// port names.
     linked: Vec<(String, String)>,
+    /// The (keyboard, device list) the auto-links were last reconciled for: a manual
+    /// graph edit sticks until one of those moves.
+    links_key: Option<(Option<String>, Vec<String>)>,
     /// A dismissed flash board stays down until the next flash starts.
     flash_dismissed: bool,
     /// The Download All toggle: sweeps run on toggle-on, on a hub swap and when a
@@ -151,11 +190,58 @@ fn deletable(firmware: &Firmware) -> bool {
         && !matches!(firmware.source, FirmwareSource::Builtin)
 }
 
+/// The filter box's match, as in the GUI: every space-separated token of the needle
+/// must appear as a case-insensitive substring of name, version, tags, byline or
+/// description.
+fn matches_filter(firmware: &Firmware, needle: &str) -> bool {
+    let needle = needle.to_lowercase();
+    let haystack = format!(
+        "{} {} {} {} {}",
+        firmware.name,
+        firmware.version,
+        firmware.tags.join(" "),
+        firmware.byline,
+        firmware.description
+    )
+    .to_lowercase();
+    needle
+        .split_whitespace()
+        .all(|token| haystack.contains(token))
+}
+
+/// Flatten the graph into draw rows: every source, its links (sorted by sink label so
+/// the row indices hold still), then its connect action. The cache keeps `main.rs`
+/// acting on the same rows the last frame drew.
+fn graph_rows(endpoints: &[Endpoint], links: &[(Port, Port)]) -> Vec<GraphRow> {
+    let label = |port: &Port| -> String {
+        endpoints
+            .iter()
+            .find(|endpoint| &endpoint.port == port)
+            .map_or_else(|| "gone".to_string(), |endpoint| endpoint.label.clone())
+    };
+    let mut sources: Vec<&Endpoint> = endpoints.iter().filter(|endpoint| endpoint.source).collect();
+    sources.sort_by_key(|endpoint| endpoint.label.clone());
+    let mut rows = Vec::new();
+    for source in sources {
+        rows.push(GraphRow::Source(source.port.clone()));
+        let mut sinks: Vec<&(Port, Port)> = links
+            .iter()
+            .filter(|(from, _)| from == &source.port)
+            .collect();
+        sinks.sort_by_key(|(_, sink)| label(sink));
+        for (_, sink) in sinks {
+            rows.push(GraphRow::Link(source.port.clone(), sink.clone()));
+        }
+        rows.push(GraphRow::Connect(source.port.clone()));
+    }
+    rows
+}
+
 impl TuiApp {
     /// Start the shared machinery: clock, MIDI graph, USB scanner, keyboard poller,
     /// store and library (the GUI's store directory, so downloads are shared). The
     /// hub catalog starts fetching in the background.
-    pub fn new(key_release: bool) -> Self {
+    pub fn new() -> Self {
         // No emulator panes here; the hardware module's USB targets carry the clock.
         let clock = Arc::new(Clock::start(1));
         let routing = Routing::start();
@@ -181,18 +267,20 @@ impl TuiApp {
             store,
             library,
             firmwares: Vec::new(),
+            view: Vec::new(),
             devices: Vec::new(),
             sel: 0,
             focus: Focus::Library,
             popup: None,
-            held: [false; 41],
-            sent: [false; 41],
-            mouse_key: None,
-            kb_keys: HashSet::new(),
-            momentary: Vec::new(),
-            key_release,
+            filter: String::new(),
+            device_filter: DeviceFilter::default(),
+            endpoints: Vec::new(),
+            links: Vec::new(),
+            graph_sel: 0,
+            graph_state: ListState::default(),
             want_midi: None,
             linked: Vec::new(),
+            links_key: None,
             flash_dismissed: false,
             download_all: false,
             rescue: false,
@@ -209,9 +297,9 @@ impl TuiApp {
         }
     }
 
-    /// The per-frame update: fold in finished downloads, track the devices, expire
-    /// momentary notes, send note changes, and keep the keyboard's graph links
-    /// matched to the units that are actually plugged in.
+    /// The per-frame update: fold in finished downloads, track the devices, refresh
+    /// the filter view and the graph snapshot, and keep the picked keyboard's graph
+    /// links matched to the units that are actually plugged in.
     pub fn tick(&mut self) {
         if let Some(library) = &mut self.library {
             library.pump_downloads();
@@ -221,11 +309,7 @@ impl TuiApp {
             .as_mut()
             .map(|library| library.list_clone())
             .unwrap_or_default();
-        self.sel = if self.firmwares.is_empty() {
-            0
-        } else {
-            self.sel.min(self.firmwares.len() - 1)
-        };
+        self.rebuild_view();
         self.devices = self.hardware.devices();
         // The rescue target list, swept at the scanner's own cadence.
         if self.rescue_at.elapsed() >= Duration::from_millis(500) {
@@ -233,16 +317,12 @@ impl TuiApp {
             self.rescue_ports = self.hardware.midi_ports();
         }
 
-        let now = Instant::now();
-        let (expired, pending): (Vec<_>, Vec<_>) =
-            self.momentary.drain(..).partition(|(_, at)| *at <= now);
-        self.momentary = pending;
-        for (id, _) in expired {
-            self.kb_keys.remove(&id);
-        }
-
-        self.sync_notes();
         self.reconcile_links();
+        self.endpoints = self.routing.endpoints();
+        self.links = self.routing.links();
+        let rows = self.graph_rows().len();
+        self.graph_sel = if rows == 0 { 0 } else { self.graph_sel.min(rows - 1) };
+
         if self
             .status
             .as_ref()
@@ -341,40 +421,18 @@ impl TuiApp {
         }
     }
 
-    /// Send note on/off for changed local (mouse/computer) keys to every connected
-    /// unit, and merge every source into the painted key state.
-    fn sync_notes(&mut self) {
-        let mut local = [false; 41];
-        for &id in &self.kb_keys {
-            local[id as usize] = true;
-        }
-        if let Some(id) = self.mouse_key {
-            local[id as usize] = true;
-        }
-        let midi = self.midi_keys.held();
-        for id in KEY_F3..=KEY_G5 {
-            let (now, was) = (local[id as usize], self.sent[id as usize]);
-            if now != was {
-                let note = id - KEY_F3 + MIDI_F3;
-                let message = if now {
-                    [0x90, note, VELOCITY]
-                } else {
-                    [0x80, note, 0]
-                };
-                for device in &self.devices {
-                    self.hardware.send(&device.name, &message);
-                }
-                self.sent[id as usize] = now;
-            }
-            self.held[id as usize] = local[id as usize] | midi[id as usize];
-        }
-    }
-
     /// The selected physical keyboard plays every connected unit: keep one graph link
     /// (system port → device) per live unit, adding and dropping as they come and go.
-    /// Only links this app created are ever touched.
+    /// Only links this app created are ever touched, and only when the pick or the
+    /// device list moves — a manual edit in the graph pane sticks otherwise.
     fn reconcile_links(&mut self) {
-        // Forget links the graph already pruned (their device went away).
+        let mut devices: Vec<String> = self.devices.iter().map(|device| device.name.clone()).collect();
+        devices.sort();
+        let key = (self.midi_keys.selected(), devices);
+        if self.links_key.as_ref() == Some(&key) {
+            return;
+        }
+        self.links_key = Some(key);
         let live = self.routing.links();
         self.linked.retain(|(source, sink)| {
             live.contains(&(Port::System(source.clone()), Port::Device(sink.clone())))
@@ -406,58 +464,159 @@ impl TuiApp {
         self.linked = want.into_iter().collect();
     }
 
-    // ---- keyboard input -------------------------------------------------------
+    // ---- library filter + selection --------------------------------------------
 
-    /// A note key went down (computer key or mouse).
-    pub fn note_down(&mut self, id: u8) {
-        if !(KEY_F3..=KEY_G5).contains(&id) {
-            return;
+    /// Rebuild the visible rows from the full library, the filter needle and the
+    /// device selector, and keep `sel` inside the result.
+    fn rebuild_view(&mut self) {
+        let needle = self.filter.trim();
+        self.view = self
+            .firmwares
+            .iter()
+            .enumerate()
+            .filter(|(_, firmware)| {
+                self.device_filter.shows(firmware.device) && matches_filter(firmware, needle)
+            })
+            .map(|(index, _)| index)
+            .collect();
+        self.sel = match self.view.len() {
+            0 => 0,
+            len => self.sel.min(len - 1),
+        };
+    }
+
+    /// Append a character to the filter needle (the filter field has the keyboard).
+    pub fn filter_push(&mut self, c: char) {
+        self.filter.push(c);
+        self.rebuild_view();
+    }
+
+    /// Remove the last character of the filter needle.
+    pub fn filter_backspace(&mut self) {
+        self.filter.pop();
+        self.rebuild_view();
+    }
+
+    /// Clear the filter needle.
+    pub fn filter_clear(&mut self) {
+        self.filter.clear();
+        self.rebuild_view();
+    }
+
+    /// The rows the filter leaves, in draw order.
+    pub fn visible(&self) -> impl Iterator<Item = &Firmware> {
+        self.view
+            .iter()
+            .filter_map(|&index| self.firmwares.get(index))
+    }
+
+    /// The device selector's label, as in the GUI.
+    pub fn device_filter_label(&self) -> String {
+        match (self.device_filter.fm1, self.device_filter.smk37) {
+            (true, true) => "FM-1 + SMK-37",
+            (true, false) => "FM-1",
+            (false, true) => "SMK-37",
+            (false, false) => "no devices",
         }
-        if self.kb_keys.insert(id) && !self.key_release {
-            // No release events on this terminal: ring the note briefly.
-            self.momentary.push((id, Instant::now() + MOMENTARY));
+        .to_string()
+    }
+
+    /// Toggle one row of the device selector: 0 is FM-1, 1 is SMK-37.
+    pub fn toggle_device_row(&mut self, row: usize) {
+        match row {
+            0 => self.device_filter.fm1 = !self.device_filter.fm1,
+            1 => self.device_filter.smk37 = !self.device_filter.smk37,
+            _ => return,
         }
+        self.rebuild_view();
     }
-
-    /// A note key went up (terminals with release events only).
-    pub fn note_up(&mut self, id: u8) {
-        self.kb_keys.remove(&id);
-        self.momentary.retain(|(held, _)| *held != id);
-    }
-
-    /// The mouse pressed (or dragged onto) a piano key; `None` on release.
-    pub fn mouse_note(&mut self, id: Option<u8>) {
-        self.mouse_key = id;
-    }
-
-    /// Whether the mouse is currently holding a piano key (drags only retarget then).
-    pub fn mouse_holding(&self) -> bool {
-        self.mouse_key.is_some()
-    }
-
-    /// Lift everything: on quit, so no note sticks on a unit.
-    pub fn release_all(&mut self) {
-        self.kb_keys.clear();
-        self.momentary.clear();
-        self.mouse_key = None;
-        self.sync_notes();
-    }
-
-    // ---- library ---------------------------------------------------------------
 
     /// Move the library selection (negative up).
     pub fn scroll(&mut self, delta: isize) {
-        if self.firmwares.is_empty() {
+        if self.view.is_empty() {
+            self.sel = 0;
             return;
         }
-        let last = self.firmwares.len() - 1;
+        let last = self.view.len() - 1;
         self.sel = (self.sel.saturating_add_signed(delta)).min(last);
     }
 
     /// The selected firmware, when there is one.
     fn selected(&self) -> Option<&Firmware> {
-        self.firmwares.get(self.sel)
+        self.view
+            .get(self.sel)
+            .and_then(|&index| self.firmwares.get(index))
     }
+
+    // ---- MIDI graph --------------------------------------------------------------
+
+    /// The graph's draw rows from the last tick's endpoint/link snapshot.
+    pub fn graph_rows(&self) -> Vec<GraphRow> {
+        graph_rows(&self.endpoints, &self.links)
+    }
+
+    /// An endpoint's display label ("gone" if it disappeared since the snapshot).
+    pub fn graph_source_label(&self, port: &Port) -> String {
+        self.endpoints
+            .iter()
+            .find(|endpoint| &endpoint.port == port)
+            .map_or_else(|| "gone".to_string(), |endpoint| endpoint.label.clone())
+    }
+
+    /// The sinks a source could still feed: every sink endpoint it has no link to.
+    pub fn graph_sinks(&self, source: &Port) -> Vec<(Port, String)> {
+        self.endpoints
+            .iter()
+            .filter(|endpoint| {
+                endpoint.sink
+                    && &endpoint.port != source
+                    && !self
+                        .links
+                        .iter()
+                        .any(|(from, sink)| from == source && sink == &endpoint.port)
+            })
+            .map(|endpoint| (endpoint.port.clone(), endpoint.label.clone()))
+            .collect()
+    }
+
+    /// Move the graph highlight (negative up).
+    pub fn graph_move(&mut self, delta: isize) {
+        let len = self.graph_rows().len();
+        if len == 0 {
+            self.graph_sel = 0;
+            return;
+        }
+        self.graph_sel = self
+            .graph_sel
+            .saturating_add_signed(delta)
+            .min(len - 1);
+    }
+
+    /// Do what a graph row offers: a link unroutes, a connect row opens the sink
+    /// picker, a source row just selects.
+    pub fn graph_activate(&mut self, index: usize) {
+        self.graph_sel = index;
+        match self.graph_rows().get(index).cloned() {
+            Some(GraphRow::Link(source, sink)) => self.routing.disconnect(source, sink),
+            Some(GraphRow::Connect(source)) => {
+                self.popup = Some(Popup::GraphSinks(source, 0));
+            }
+            Some(GraphRow::Source(_)) | None => {}
+        }
+    }
+
+    /// Connect the open graph popup's highlighted sink to its source.
+    pub fn confirm_graph_sink(&mut self, row: usize) {
+        let Some(Popup::GraphSinks(source, _)) = self.popup.clone() else {
+            return;
+        };
+        if let Some((sink, _)) = self.graph_sinks(&source).get(row).cloned() {
+            self.routing.connect(source, sink);
+        }
+        self.popup = None;
+    }
+
+    // ---- library ---------------------------------------------------------------
 
     /// Download the selected hub offer, or upgrade the selected entry when the
     /// hub carries a newer version (the newer package lands under the same name).
@@ -642,8 +801,9 @@ impl TuiApp {
         }
     }
 
-    /// Choose the physical MIDI keyboard (None for off). The notes light the piano at
-    /// once; the graph links land on the next ticks once the port is open.
+    /// Choose the physical MIDI keyboard (None for off). Its notes are routed to
+    /// every connected unit; the graph links land on the next ticks once the port is
+    /// open.
     pub fn select_midi(&mut self, port: Option<String>) {
         self.want_midi = port.clone();
         self.midi_keys.select(port);
@@ -685,14 +845,6 @@ impl TuiApp {
     /// The current transient message, if fresh.
     pub fn status(&self) -> Option<&str> {
         self.status.as_ref().map(|(message, _)| message.as_str())
-    }
-}
-
-impl Drop for TuiApp {
-    /// Lift every note this app is holding, so nothing sticks on a unit. (The clock's
-    /// own Drop sends MIDI Stop.)
-    fn drop(&mut self) {
-        self.release_all();
     }
 }
 
@@ -738,5 +890,70 @@ mod tests {
         // Not at hand: downloading or missing.
         assert!(!deletable(&firmware(file(), Status::Downloading)));
         assert!(!deletable(&firmware(installed(), Status::Missing)));
+    }
+
+    /// The filter is space-separated tokens, each a case-insensitive substring of the
+    /// row's searchable text; every token must hit.
+    #[test]
+    fn filter_matches_all_tokens_as_substrings() {
+        let mut felucca = firmware(FirmwareSource::Builtin, Status::Available);
+        felucca.name = "Felucca".to_string();
+        felucca.version = "1.2".to_string();
+        felucca.tags = vec!["groove".to_string(), "dev".to_string()];
+        felucca.byline = "author".to_string();
+        assert!(matches_filter(&felucca, ""));
+        assert!(matches_filter(&felucca, "fel gro"));
+        assert!(matches_filter(&felucca, "GROOVE Dev 1.2"));
+        assert!(matches_filter(&felucca, "author"));
+        assert!(!matches_filter(&felucca, "fel zzz"));
+    }
+
+    /// The device selector is a hard filter, FM-1 only by default like the GUI.
+    #[test]
+    fn device_filter_defaults_to_fm1_only() {
+        let filter = DeviceFilter::default();
+        assert!(filter.shows(FirmwareDevice::Fm1));
+        assert!(!filter.shows(FirmwareDevice::Smk37));
+    }
+
+    /// Every source row gets its links and a connect row; sources and sinks sort by
+    /// label so the row indices hold still.
+    #[test]
+    fn graph_rows_list_links_and_connect_actions() {
+        let keyboard = Port::System("kb".to_string());
+        let unit = Port::Device("fm1".to_string());
+        let out = Port::System("out".to_string());
+        let endpoints = vec![
+            Endpoint {
+                port: out.clone(),
+                label: "Out".to_string(),
+                source: false,
+                sink: true,
+            },
+            Endpoint {
+                port: unit.clone(),
+                label: "Unit".to_string(),
+                source: true,
+                sink: true,
+            },
+            Endpoint {
+                port: keyboard.clone(),
+                label: "Keyboard".to_string(),
+                source: true,
+                sink: false,
+            },
+        ];
+        let links = vec![(keyboard.clone(), unit.clone())];
+        let rows = graph_rows(&endpoints, &links);
+        assert_eq!(
+            rows,
+            vec![
+                GraphRow::Source(keyboard.clone()),
+                GraphRow::Link(keyboard.clone(), unit.clone()),
+                GraphRow::Connect(keyboard),
+                GraphRow::Source(unit.clone()),
+                GraphRow::Connect(unit),
+            ]
+        );
     }
 }

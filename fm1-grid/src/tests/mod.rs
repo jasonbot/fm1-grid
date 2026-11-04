@@ -9,9 +9,9 @@ use crate::app::GridApp;
 use gpui_kit::base::Root;
 use gpui_kit::test::{TestEventExt, TestWindowExt};
 use gpui_kit::{
-    App, AppContext, Bounds, Entity, Focusable, InputEvent, KeyDownEvent, KeyUpEvent, Keystroke,
-    Point, ScrollDelta, TestAppContext, Window, WindowBounds, WindowHandle, WindowOptions,
-    open_window, point, px, size,
+    open_window, point, px, size, App, AppContext, Bounds, Entity, Focusable, InputEvent,
+    KeyDownEvent, KeyUpEvent, Keystroke, Point, ScrollDelta, TestAppContext, Window, WindowBounds,
+    WindowHandle, WindowOptions,
 };
 use std::time::Duration;
 
@@ -86,7 +86,10 @@ fn sidebar_grows_with_window(cx: &mut TestAppContext) {
         let app = app.read(cx);
         (app.sidebar_size.0, app.sidebar_scale)
     });
-    assert!(sidebar_w > crate::theme::SIDEBAR_INITIAL, "sidebar width {sidebar_w}");
+    assert!(
+        sidebar_w > crate::theme::SIDEBAR_INITIAL,
+        "sidebar width {sidebar_w}"
+    );
     assert_eq!(scale, 4);
 }
 
@@ -118,7 +121,8 @@ fn boots_selects_powers(cx: &mut TestAppContext) {
     let mut framed = false;
     for _ in 0..40 {
         std::thread::sleep(Duration::from_millis(100));
-        cx.background_executor.advance_clock(Duration::from_millis(100));
+        cx.background_executor
+            .advance_clock(Duration::from_millis(100));
         cx.run_until_parked();
         framed = cx.update(|cx| app.read(cx).frames[2].is_some());
         if framed {
@@ -144,7 +148,8 @@ fn boots_selects_powers(cx: &mut TestAppContext) {
         window.click("pane-power", cx);
     })
     .unwrap();
-    cx.background_executor.advance_clock(Duration::from_millis(100));
+    cx.background_executor
+        .advance_clock(Duration::from_millis(100));
     cx.run_until_parked();
     cx.update_window(window.into(), |_, window, cx| {
         window.click(("tab", 1usize), cx); // the Devices tab
@@ -248,10 +253,7 @@ fn tempo_slider_syncs(cx: &mut TestAppContext) {
     cx.update_window(window.into(), |_, window, cx| {
         window.render_frame(cx);
         let track = window.find("slider-bar-container").bounds();
-        let at = point(
-            track.left() + track.size.width * 0.5,
-            track.center().y,
-        );
+        let at = point(track.left() + track.size.width * 0.5, track.center().y);
         window.pointer_move(at, None, cx);
         window.pointer_down(at, gpui_kit::MouseButton::Left, cx);
         window.pointer_up(at, gpui_kit::MouseButton::Left, cx);
@@ -314,7 +316,10 @@ fn panel_and_keys_follow_emulator_tab(cx: &mut TestAppContext) {
     // Power pane 1 (the default active pane) so held keys have somewhere to go.
     cx.update_window(window.into(), |_, window, cx| {
         window.render_frame(cx);
-        assert!(window.find("fm1-panel").visible(), "panel on the Emulator tab");
+        assert!(
+            window.find("fm1-panel").visible(),
+            "panel on the Emulator tab"
+        );
         assert!(window.find("midi-clock").visible(), "metronome is global");
         window.click(("slot-card", 0usize), cx);
         window.click("pane-power", cx);
@@ -323,7 +328,8 @@ fn panel_and_keys_follow_emulator_tab(cx: &mut TestAppContext) {
     let mut running = false;
     for _ in 0..40 {
         std::thread::sleep(Duration::from_millis(100));
-        cx.background_executor.advance_clock(Duration::from_millis(100));
+        cx.background_executor
+            .advance_clock(Duration::from_millis(100));
         cx.run_until_parked();
         running = cx.update(|cx| app.read(cx).slots[0].handle.is_some());
         if running {
@@ -344,7 +350,10 @@ fn panel_and_keys_follow_emulator_tab(cx: &mut TestAppContext) {
     cx.update_window(window.into(), |_, window, cx| {
         window.click(("tab", 1usize), cx);
         window.render_frame(cx);
-        assert!(window.try_find("fm1-panel").is_none(), "panel stays on the Emulator tab");
+        assert!(
+            window.try_find("fm1-panel").is_none(),
+            "panel stays on the Emulator tab"
+        );
         assert!(window.find("midi-clock").visible(), "metronome is global");
     })
     .unwrap();
@@ -368,21 +377,28 @@ fn panel_and_keys_follow_emulator_tab(cx: &mut TestAppContext) {
                 "keys must not play on tab {tab}"
             );
         });
-        cx.update_window(window.into(), |_, window, cx| send_key(window, cx, "a", false))
-            .unwrap();
+        cx.update_window(window.into(), |_, window, cx| {
+            send_key(window, cx, "a", false)
+        })
+        .unwrap();
     }
 
     // Back on the Emulator tab the panel returns and keys play again.
     cx.update_window(window.into(), |_, window, cx| {
         window.click(("tab", 0usize), cx);
         window.render_frame(cx);
-        assert!(window.find("fm1-panel").visible(), "panel returns with the tab");
+        assert!(
+            window.find("fm1-panel").visible(),
+            "panel returns with the tab"
+        );
         send_key(window, cx, "a", true);
     })
     .unwrap();
     cx.update(|cx| assert!(app.read(cx).held.iter().any(|&down| down)));
-    cx.update_window(window.into(), |_, window, cx| send_key(window, cx, "a", false))
-        .unwrap();
+    cx.update_window(window.into(), |_, window, cx| {
+        send_key(window, cx, "a", false)
+    })
+    .unwrap();
     cx.update(|cx| assert!(app.read(cx).held.iter().all(|&down| !down)));
 }
 
@@ -390,7 +406,7 @@ fn panel_and_keys_follow_emulator_tab(cx: &mut TestAppContext) {
 /// hides until the colour changes again.
 #[test]
 fn health_dot_lingers_then_hides() {
-    use crate::app::{DOT_LINGER, Health, SlotHealth};
+    use crate::app::{Health, SlotHealth, DOT_LINGER};
 
     let mut health = SlotHealth::default();
     assert!(!health.shown, "green at boot stays hidden");
@@ -406,7 +422,10 @@ fn health_dot_lingers_then_hides() {
     assert!(health.track(0, true), "the linger expiring hides the dot");
     assert!(!health.shown);
 
-    assert!(health.track(30, true), "a colour change shows the dot again");
+    assert!(
+        health.track(30, true),
+        "a colour change shows the dot again"
+    );
     assert!(health.shown && health.color == Health::Red);
     assert!(health.track(0, false), "powering off hides the dot at once");
     assert!(!health.shown);
@@ -429,7 +448,8 @@ fn grid_snaps_half_size(cx: &mut TestAppContext) {
     .unwrap();
     // The 16 ms pump snaps the scale from the recorded grid size.
     for _ in 0..20 {
-        cx.background_executor.advance_clock(Duration::from_millis(100));
+        cx.background_executor
+            .advance_clock(Duration::from_millis(100));
         cx.run_until_parked();
         if cx.update(|cx| app.read(cx).grid_scale) == 0.5 {
             return;
@@ -460,28 +480,31 @@ fn pin_cycle(cx: &mut TestAppContext) {
     .unwrap();
     for _ in 0..10 {
         std::thread::sleep(Duration::from_millis(100));
-        cx.background_executor.advance_clock(Duration::from_millis(100));
+        cx.background_executor
+            .advance_clock(Duration::from_millis(100));
         cx.run_until_parked();
         if cx.update(|cx| app.read(cx).slots[0].handle.is_some()) {
             break;
         }
     }
     // Pinning swaps the combobox for the firmware's name — the row must not jump.
-    let row_h = cx.update_window(window.into(), |_, window, cx| {
-        window.render_frame(cx);
-        window.find("pane-attrs").bounds().size.height
-    })
-    .unwrap();
+    let row_h = cx
+        .update_window(window.into(), |_, window, cx| {
+            window.render_frame(cx);
+            window.find("pane-attrs").bounds().size.height
+        })
+        .unwrap();
     cx.update_window(window.into(), |_, window, cx| {
         window.click(("pin", 0usize), cx);
     })
     .unwrap();
     cx.update(|cx| assert!(app.read(cx).slots[0].pinned, "running pane pins"));
-    let pinned_h = cx.update_window(window.into(), |_, window, cx| {
-        window.render_frame(cx);
-        window.find("pane-attrs").bounds().size.height
-    })
-    .unwrap();
+    let pinned_h = cx
+        .update_window(window.into(), |_, window, cx| {
+            window.render_frame(cx);
+            window.find("pane-attrs").bounds().size.height
+        })
+        .unwrap();
     assert!(
         (row_h - pinned_h).abs() < px(1.0),
         "the attributes row jumps on pin: {row_h} -> {pinned_h}"
@@ -516,7 +539,8 @@ fn pin_cycle(cx: &mut TestAppContext) {
     let mut framed = false;
     for _ in 0..30 {
         std::thread::sleep(Duration::from_millis(100));
-        cx.background_executor.advance_clock(Duration::from_millis(100));
+        cx.background_executor
+            .advance_clock(Duration::from_millis(100));
         cx.run_until_parked();
         framed = cx.update(|cx| app.read(cx).frames[0].is_some());
         if framed {
@@ -582,7 +606,11 @@ fn slot_records_restore(cx: &mut TestAppContext) {
         let app = app2.read(cx);
         let store = app.store.as_ref().expect("a store");
         assert!(
-            !store.list_blobs(None).unwrap().iter().any(|p| p == "slot-0.flash"),
+            !store
+                .list_blobs(None)
+                .unwrap()
+                .iter()
+                .any(|p| p == "slot-0.flash"),
             "unpin left the flash blob behind"
         );
         let record: serde_json::Value = store.fetch_object("slot-0").unwrap();
@@ -741,7 +769,10 @@ fn library_tab_lists(cx: &mut TestAppContext) {
         window.click("hub-download-all", cx);
         assert!(app.read(cx).download_all, "the toggle should turn on");
         window.click("hub-download-all", cx);
-        assert!(!app.read(cx).download_all, "the toggle should turn back off");
+        assert!(
+            !app.read(cx).download_all,
+            "the toggle should turn back off"
+        );
         // Nothing to remove on a builtin.
         assert!(window.try_find("lib-remove-SLOOP").is_none());
 
@@ -752,7 +783,10 @@ fn library_tab_lists(cx: &mut TestAppContext) {
         assert!(up > bottom, "pageup should scroll up: {bottom} -> {up}");
         window.press("pagedown", cx);
         let down = app.read(cx).lib_scroll.offset().y;
-        assert!(down < up, "pagedown should scroll back down: {up} -> {down}");
+        assert!(
+            down < up,
+            "pagedown should scroll back down: {up} -> {down}"
+        );
 
         // The filter box narrows the list (back to the top first — the list was
         // scrolled to the bottom above).
@@ -811,7 +845,9 @@ fn library_scrolls_to_downloaded(cx: &mut TestAppContext) {
     .unwrap();
     // What the Download button records when the download starts.
     cx.update(|cx| {
-        app.update(cx, |app, _| app.lib_scroll_to = Some("faked-25".to_string()));
+        app.update(cx, |app, _| {
+            app.lib_scroll_to = Some("faked-25".to_string())
+        });
     });
     cx.update_window(window.into(), |_, window, cx| {
         window.render_frame(cx);
@@ -845,9 +881,7 @@ fn library_scrolls_to_downloaded(cx: &mut TestAppContext) {
 fn library_tag_pills_toggle_filter(cx: &mut TestAppContext) {
     let _guard = ui_lock();
     let (window, app) = open_app(cx);
-    let filter_text = |app: &GridApp, cx: &App| {
-        app.lib_form.filter.read(cx).value().to_string()
-    };
+    let filter_text = |app: &GridApp, cx: &App| app.lib_form.filter.read(cx).value().to_string();
     let dev_pill = ("lib-tag", crate::library_tab::pill_id("Felucca", "dev"));
     let groove_pill = ("lib-tag", crate::library_tab::pill_id("SLOOP", "groove"));
 
@@ -912,11 +946,9 @@ fn library_favorite_toggles(cx: &mut TestAppContext) {
     use crate::library_tab::pill_id;
     let _guard = ui_lock();
     let (window, app) = open_app(cx);
-    let filter_text = |app: &GridApp, cx: &App| {
-        app.lib_form.filter.read(cx).value().to_string()
-    };
+    let filter_text = |app: &GridApp, cx: &App| app.lib_form.filter.read(cx).value().to_string();
     let fav_key = || crate::library_tab::favorite_key("Felucca");
-    let record = |app: &GridApp, cx: &App| {
+    let record = |app: &GridApp, _cx: &App| {
         app.store
             .as_ref()
             .expect("a store")
@@ -1011,7 +1043,10 @@ fn settings_theme_and_appearance(cx: &mut TestAppContext) {
     .unwrap();
     cx.update(|cx| assert_eq!(app.read(cx).accent, "blue"));
     cx.update(|cx| {
-        assert!(Theme::global(cx).is_dark(), "the dark override should apply");
+        assert!(
+            Theme::global(cx).is_dark(),
+            "the dark override should apply"
+        );
         assert_eq!(app.read(cx).appearance, Appearance::Dark);
     });
 
@@ -1049,7 +1084,9 @@ fn settings_theme_and_appearance(cx: &mut TestAppContext) {
     // Before leaving: Influenza computes from the accent, not from the registry.
     // Pick it, re-render (which enables the swatch row) and choose Red by click.
     cx.update_window(window.into(), |_, _window, cx| {
-        app.update(cx, |app, cx| app.set_theme_family(crate::theme::INFLUENZA, cx));
+        app.update(cx, |app, cx| {
+            app.set_theme_family(crate::theme::INFLUENZA, cx)
+        });
     })
     .unwrap();
     cx.update_window(window.into(), |_, window, cx| {
@@ -1078,7 +1115,9 @@ fn settings_theme_and_appearance(cx: &mut TestAppContext) {
 
     // Meltysand recomputes from the same accent.
     cx.update_window(window.into(), |_, _window, cx| {
-        app.update(cx, |app, cx| app.set_theme_family(crate::theme::MELTYSAND, cx));
+        app.update(cx, |app, cx| {
+            app.set_theme_family(crate::theme::MELTYSAND, cx)
+        });
     })
     .unwrap();
     cx.update(|cx| {
@@ -1291,7 +1330,8 @@ fn panel_resizes_with_window(cx: &mut TestAppContext) {
             .collect();
         for (i, a) in buttons.iter().enumerate() {
             for (j, b) in buttons.iter().enumerate().skip(i + 1) {
-                let overlap = f32::from(a.origin.x) < f32::from(b.origin.x) + f32::from(b.size.width)
+                let overlap = f32::from(a.origin.x)
+                    < f32::from(b.origin.x) + f32::from(b.size.width)
                     && f32::from(b.origin.x) < f32::from(a.origin.x) + f32::from(a.size.width)
                     && f32::from(a.origin.y) < f32::from(b.origin.y) + f32::from(b.size.height)
                     && f32::from(b.origin.y) < f32::from(a.origin.y) + f32::from(a.size.height);
@@ -1347,7 +1387,9 @@ fn library_device_filter_and_favorite_glyph(cx: &mut TestAppContext) {
     cx.update_window(window.into(), |_, window, cx| {
         window.render_frame(cx);
         assert!(window.try_find("lib-flash-Felucca").is_none());
-        assert!(window.try_find(("lib-tag", pill_id("Felucca", "☆"))).is_none());
+        assert!(window
+            .try_find(("lib-tag", pill_id("Felucca", "☆")))
+            .is_none());
     })
     .unwrap();
 
@@ -1381,7 +1423,9 @@ fn library_device_filter_and_favorite_glyph(cx: &mut TestAppContext) {
         assert!(window
             .find(("lib-tag", pill_id("Felucca", NO_THANKS_GLYPH)))
             .visible());
-        assert!(window.try_find(("lib-tag", pill_id("Felucca", "★"))).is_none());
+        assert!(window
+            .try_find(("lib-tag", pill_id("Felucca", "★")))
+            .is_none());
         assert!(window.find("lib-fav-glyph-Felucca").visible());
     })
     .unwrap();

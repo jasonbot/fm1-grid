@@ -50,9 +50,12 @@ listing also folds in [fm1-editor.com's firmware page](https://fm1-editor.com/fi
 [Reverbose's SMK-37 list](https://reverbose.com/h/m-vave/smk-37) and
 [mutant.cloud](https://mutant.cloud/):
 entries the hub lacks appear with their own links, and entries several sites carry get
-the combined tags and the newer side's version and download. SMK-37 firmware comes
-from mutant.cloud and Reverbose's SMK-37 list. The hub's own SMK-37 page only links
-to each maker's installer, so the app has no package to download there. Each SMK-37
+the combined tags and the newer side's version and download. Two rows count as the
+same firmware when their names match after ignoring case and punctuation, or when one
+name contains the other, as long as both credit the same author (again ignoring case).
+SMK-37 firmware comes from mutant.cloud and Reverbose's SMK-37 list. The hub's own
+SMK-37 page only links to each maker's installer, so the app has no package to
+download there. Each SMK-37
 row carries a tag naming the model it is built for — `SMK-37 Pro`, `SMK-37 Elite` or
 `MKE-P37` — and when one firmware ships one package per model, the model is added to
 the row's name so the builds stay apart. Computer-side tools
@@ -239,10 +242,11 @@ The screen has four parts:
   notes are forwarded to every connected FM-1.
 * **Library** — the firmware list, same as the GUI's Library tab: what came with the
   app, what you imported, and (online) what the Firmware Hub, fm1-editor.com,
-  Reverbose and mutant.cloud offer.
+  Reverbose and mutant.cloud offer. Each entry takes two lines: the name, version and
+  status on the first, then as much of its description as fits in dim text.
   * `/` focuses the filter box above the list; type any words and every row whose
-    name, version, tags, byline or description contains all of them stays. `Enter` or
-    `Esc` hands the keyboard back to the list, `Ctrl-U` clears.
+    name, version, tags, byline or description contains all of them (case-insensitive)
+    stays. `Enter` or `Esc` hands the keyboard back to the list, `Ctrl-U` clears.
   * `v` opens the **device selector**: FM-1 is shown by default and SMK-37 is not,
     exactly like the GUI. Toggle either row with `Enter`; the field shows the current
     choice.
@@ -313,7 +317,8 @@ scripts/deploy-devterm.sh fm1-tty --no-smoke
 DEVTERM_HOST=devterm-a04 DEVTERM_PASS=secret scripts/deploy-devterm.sh fm1-tty
 ```
 
-It needs podman and sshpass; it builds the arm64 toolchain container itself.
+It needs podman (plus sshpass when `DEVTERM_PASS` is set); it builds the arm64
+toolchain container itself.
 
 The firmware images are unmodified packages from
 [The FM-1 Firmware Hub](https://thefirmwarehub.com/), M-VAVE and the firmware authors.

@@ -77,7 +77,8 @@ pub enum GraphRow {
 /// reads.
 #[derive(Default)]
 pub struct Regions {
-    /// The library list's inner area; the clicked row is `lib_offset + y − top`.
+    /// The library list's inner area; each item is two lines, so the clicked item is
+    /// `lib_offset + (y − top) / 2`.
     pub lib_rows: Rect,
     pub lib_offset: usize,
     /// The filter field and the device-filter field above the list.
@@ -901,10 +902,13 @@ mod tests {
         felucca.version = "1.2".to_string();
         felucca.tags = vec!["groove".to_string(), "dev".to_string()];
         felucca.byline = "author".to_string();
+        felucca.description = "A live GROOVEBOX".to_string();
         assert!(matches_filter(&felucca, ""));
         assert!(matches_filter(&felucca, "fel gro"));
         assert!(matches_filter(&felucca, "GROOVE Dev 1.2"));
         assert!(matches_filter(&felucca, "author"));
+        assert!(matches_filter(&felucca, "AUTHOR"));
+        assert!(matches_filter(&felucca, "a LIVE groovebox"));
         assert!(!matches_filter(&felucca, "fel zzz"));
     }
 

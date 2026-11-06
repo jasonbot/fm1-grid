@@ -286,7 +286,7 @@ fn library(frame: &mut Frame, app: &mut TuiApp, area: Rect) {
     let width = list_area.width as usize;
     let items: Vec<ListItem> = app
         .visible()
-        .map(|firmware| ListItem::new(library_row(app, firmware, width)))
+        .map(|firmware| library_row(firmware, app.download_percent(&firmware.name), width))
         .collect();
     let list = List::new(items)
         .highlight_style(Style::default().add_modifier(Modifier::REVERSED));
@@ -297,8 +297,9 @@ fn library(frame: &mut Frame, app: &mut TuiApp, area: Rect) {
     app.regions.lib_offset = app.list_state.offset();
 }
 
-/// One library row: name and version, the byline, then a right-aligned status pill.
-fn library_row(app: &TuiApp, firmware: &Firmware, width: usize) -> Line<'static> {
+/// One library row, two lines: name, version, byline and the right-aligned status
+/// pill; then as much of the description as the width holds, in dim text.
+fn library_row(firmware: &Firmware, percent: Option<u32>, width: usize) -> ListItem<'static> {
     let left = format!(" {} {}", firmware.name, firmware.version);
     let byline = if firmware.byline.is_empty() {
         String::new()
@@ -306,7 +307,7 @@ fn library_row(app: &TuiApp, firmware: &Firmware, width: usize) -> Line<'static>
         format!("  {}", firmware.byline)
     };
     let mut pill = match firmware.status {
-        Status::Downloading => match app.download_percent(&firmware.name) {
+        Status::Downloading => match percent {
             Some(pct) => format!("{pct}%"),
             None => "downloading".to_string(),
         },
@@ -333,11 +334,16 @@ fn library_row(app: &TuiApp, firmware: &Firmware, width: usize) -> Line<'static>
         },
     };
     let pad = width.saturating_sub(cols(&left) + cols(&byline) + cols(&pill) + 1);
-    Line::from(vec![
-        bold(left),
-        dim(byline),
-        dim(" ".repeat(pad)),
-        Span::styled(pill, Style::default().fg(pill_color)),
+    // Source descriptions can hold paragraph breaks; a list line can't.
+    let description = firmware.description.split_whitespace().collect::<Vec<_>>().join(" ");
+    ListItem::new(vec![
+        Line::from(vec![
+            bold(left),
+            dim(byline),
+            dim(" ".repeat(pad)),
+            Span::styled(pill, Style::default().fg(pill_color)),
+        ]),
+        Line::from(dim(format!(" {description}"))),
     ])
 }
 
@@ -571,4 +577,43 @@ fn flash_modal(frame: &mut Frame, board: &FlashState) {
         .collect();
     frame.render_widget(Paragraph::new(tail), chunks[2]);
     frame.render_widget(Paragraph::new(dim("Esc close")), chunks[3]);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ratatui::buffer::Buffer;
+    use ratatui::widgets::{ListState, StatefulWidget};
+
+    fn firmware(description: &str) -> Firmware {
+        Firmware {
+            name: "Felucca".to_string(),
+            byline: "author".to_string(),
+            version: "1.2".to_string(),
+            description: description.to_string(),
+            tags: Vec::new(),
+            device: FirmwareDevice::Fm1,
+            upgradable: false,
+            status: Status::Available,
+            website: None,
+            source_url: None,
+            source: FirmwareSource::Builtin,
+        }
+    }
+
+    #[test]
+    fn library_row_puts_the_description_on_a_second_dim_line() {
+        let item = library_row(&firmware(&"x".repeat(100)), None, 40);
+        assert_eq!(item.height(), 2);
+
+        let area = Rect::new(0, 0, 40, 2);
+        let mut buf = Buffer::empty(area);
+        let mut state = ListState::default();
+        StatefulWidget::render(List::new([item]), area, &mut buf, &mut state);
+
+        let text = |y: u16| (0..40).map(|x| buf[(x, y)].symbol()).collect::<String>();
+        assert!(text(0).contains("Felucca 1.2"));
+        assert_eq!(text(1), format!(" {}", "x".repeat(39)));
+        assert_eq!(buf[(0, 1)].fg, DIM);
+    }
 }

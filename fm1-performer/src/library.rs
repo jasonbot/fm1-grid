@@ -843,9 +843,10 @@ fn without_device(key: &str) -> &str {
 /// Whether two entries name the same firmware. Equal name keys always match — but
 /// only for the same device: most projects ship an FM-1 and an SMK-37 build under
 /// one name, and merging those would lose one build and risk handing the other's
-/// row the wrong package. Keys differing only by a trailing device token match only
-/// when the authors agree — "OPX Solo" is not "OPX", and two projects can share a
-/// stem.
+/// row the wrong package. Other spellings match when the authors agree
+/// (case-insensitively) and, with device tokens stripped, one key is the other or a
+/// substring of it — "Purple Monkey FM-1" and "PurpleMonkey", but not "Tuna FM-1"
+/// from a different author.
 fn same_firmware(a: &Firmware, b: &Firmware) -> bool {
     if a.device != b.device {
         return false;
@@ -854,9 +855,18 @@ fn same_firmware(a: &Firmware, b: &Firmware) -> bool {
     if ka == kb {
         return true;
     }
-    !a.byline.trim().is_empty()
-        && a.byline.trim().eq_ignore_ascii_case(b.byline.trim())
-        && without_device(&ka) == without_device(&kb)
+    if !same_author(&a.byline, &b.byline) {
+        return false;
+    }
+    let (ba, bb) = (without_device(&ka), without_device(&kb));
+    ba == bb
+        || (!ba.is_empty() && !bb.is_empty() && (ba.contains(bb) || bb.contains(ba)))
+}
+
+/// Author names compare case-insensitively; a blank author never identifies a row.
+fn same_author(a: &str, b: &str) -> bool {
+    let a = a.trim();
+    !a.is_empty() && a.to_lowercase() == b.trim().to_lowercase()
 }
 
 /// Fold an additive listing into the hub's. The hub is the source of truth: its
@@ -1370,14 +1380,14 @@ mod tests {
     }
 
     #[test]
-    fn merge_name_variants_respect_distinct_firmwares() {
+    fn merge_folds_substring_name_variants_by_the_same_author() {
         let hub = vec![
             hub_offer("OPX", "0.2.0", "opx.fwsc"),
             hub_offer("X0X", "1.1.0", "x0x.fwsc"),
             hub_offer("Tuna", "1.0", "tuna.fwsc"),
         ];
-        // "OPX Solo" grows the name by a word, "X0X-RMX" by a suffix: distinct
-        // firmwares by the same author, and neither is a device token.
+        // "OPX Solo" and "X0X-RMX" grow the name by a word or suffix: by the same
+        // author they are spelling variants now.
         let solo = hub_offer("OPX Solo", "0.2.0", "ignored.fwsc");
         let rmx = hub_offer("X0X-RMX", "1.1.0", "ignored.fwsc");
         // A device-suffix spelling from a different author is someone else's
@@ -1385,7 +1395,36 @@ mod tests {
         let mut other = hub_offer("Tuna FM-1", "1.0", "ignored.fwsc");
         other.byline = "another author".to_string();
         let merged = merge_listings(hub, vec![solo, rmx, other]);
-        assert_eq!(merged.len(), 6);
+        assert_eq!(merged.len(), 4);
+        assert!(merged.iter().any(|f| f.name == "OPX"));
+        assert!(merged.iter().any(|f| f.name == "X0X"));
+        assert!(merged.iter().any(|f| f.name == "Tuna"));
+        assert!(merged.iter().any(|f| f.name == "Tuna FM-1"));
+        assert!(!merged.iter().any(|f| f.name == "OPX Solo"));
+        assert!(!merged.iter().any(|f| f.name == "X0X-RMX"));
+    }
+
+    #[test]
+    fn same_firmware_matches_substrings_only_for_the_same_author() {
+        let hub = hub_offer("OPX", "0.2.0", "opx.fwsc");
+        let mut extended = hub_offer("OPX Solo", "0.2.0", "ignored.fwsc");
+        assert!(same_firmware(&hub, &extended));
+        // Authors compare case-insensitively, Unicode included.
+        extended.byline = "HUB AUTHOR".to_string();
+        assert!(same_firmware(&hub, &extended));
+        let mut unicode = hub_offer("Felucca Salt", "0.9", "ignored.fwsc");
+        unicode.byline = "HÜGELTON INSTRUMENTS".to_string();
+        let mut base = hub_offer("Felucca", "1.8", "felucca.fwsc");
+        base.byline = "Hügelton Instruments".to_string();
+        assert!(same_firmware(&base, &unicode));
+        // Either direction, and a different author keeps them apart.
+        let mut long = hub_offer("SLOOP Floyd FM", "2.4", "ignored.fwsc");
+        long.byline = "ISOD89".to_string();
+        let mut short = hub_offer("SLOOP", "2.8.5", "sloop.fwsc");
+        short.byline = "isod89".to_string();
+        assert!(same_firmware(&long, &short));
+        extended.byline = "someone else".to_string();
+        assert!(!same_firmware(&hub, &extended));
     }
 
     #[test]

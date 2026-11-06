@@ -341,7 +341,8 @@ fn on_mouse(app: &mut app::TuiApp, mouse: ratatui::crossterm::event::MouseEvent)
             } else if app.regions.bpm_plus.contains(at) {
                 app.bump_bpm(1);
             } else if app.regions.lib_rows.contains(at) {
-                let row = app.regions.lib_offset + (mouse.row - app.regions.lib_rows.y) as usize;
+                let line = (mouse.row - app.regions.lib_rows.y) as usize;
+                let row = app.regions.lib_offset + line / 2;
                 if row < app.view.len() {
                     app.sel = row;
                 }

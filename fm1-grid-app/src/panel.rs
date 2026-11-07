@@ -25,6 +25,8 @@ const WHITE_KEY_DEPTH: f32 = 10.0;
 const KEY_LED_INSET: f32 = 0.36;
 const KEY_LED_TOP: f32 = 1.0;
 const KEY_LED_HEIGHT: f32 = 45.0;
+const WHITE_LED_TRIM: f32 = 6.0;
+const BLACK_LED_TRIM: f32 = 8.0;
 const KEY_LED_RADIUS: f32 = 6.0;
 /// The unpressed window sits a little higher; pressing sinks it.
 const KEY_LED_DEPTH: f32 = 3.0;
@@ -143,14 +145,22 @@ fn strip_colors(fill: Hsla, dark: bool) -> (Hsla, Hsla) {
 /// The small membrane window near the top of a key. Up, it is a shade off the
 /// key, like an unpowered LED behind the membrane; pressed, it glows with the
 /// accent and sinks a couple of pixels. Dark themes reverse the shade direction.
-fn led_window(fill: Hsla, glow: Hsla, border: Hsla, pressed: bool, dark: bool) -> AnyElement {
+fn led_window(
+    fill: Hsla,
+    glow: Hsla,
+    border: Hsla,
+    pressed: bool,
+    dark: bool,
+    height: f32,
+) -> AnyElement {
     let top = if pressed { KEY_LED_TOP + KEY_LED_DEPTH } else { KEY_LED_TOP };
+    let border = mix_hsla(border, fill, 0.5);
     let window = div()
         .absolute()
         .left(relative(KEY_LED_INSET))
         .right(relative(KEY_LED_INSET))
         .top(px(top))
-        .h(px(KEY_LED_HEIGHT))
+        .h(px(height))
         .rounded(px(KEY_LED_RADIUS))
         .overflow_hidden();
     if !pressed {
@@ -600,7 +610,14 @@ impl GridApp {
                     cx.notify();
                 }),
             )
-            .child(led_window(key_fill, colors.lit, colors.white_edge, pressed, colors.dark))
+            .child(led_window(
+                key_fill,
+                colors.lit,
+                colors.white_edge,
+                pressed,
+                colors.dark,
+                KEY_LED_HEIGHT - WHITE_LED_TRIM,
+            ))
             .child(
                 v_flex()
                     .size_full()
@@ -690,7 +707,14 @@ impl GridApp {
                     .flex()
                     .items_center()
                     .justify_center()
-                    .child(led_window(fill, colors.lit, colors.black_edge, pressed, colors.dark))
+                    .child(led_window(
+                        fill,
+                        colors.lit,
+                        colors.black_edge,
+                        pressed,
+                        colors.dark,
+                        KEY_LED_HEIGHT - BLACK_LED_TRIM,
+                    ))
                     .child(
                         div()
                             .text_size(px(14.0))

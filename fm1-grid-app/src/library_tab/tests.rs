@@ -210,6 +210,24 @@
     }
 
     #[test]
+    pub(super) fn flash_targets_match_the_package_model() {
+        use super::flash::unit_accepts;
+        let mut smk = firmware("SLOOP Pro", &["SMK-37 Pro"]);
+        smk.device = FirmwareDevice::Smk37;
+        assert!(unit_accepts(&smk, Some("SMK-37 Pro_016")));
+        assert!(unit_accepts(&smk, Some("STARRYKEY-37 PLAY_014")));
+        assert!(!unit_accepts(&smk, Some("SMK-37 Elite_016")));
+        assert!(!unit_accepts(&smk, Some("FM-1_916")));
+        assert!(!unit_accepts(&smk, None));
+        // Custom SMK firmware takes the family.
+        assert!(unit_accepts(&smk, Some("SMK-37 Elite_900")));
+
+        let fm1 = firmware("Felucca", &[]);
+        assert!(unit_accepts(&fm1, Some("FM-1_916")));
+        assert!(!unit_accepts(&fm1, Some("SMK-37 Pro_016")));
+    }
+
+    #[test]
     pub(super) fn available_smk_rows_can_flash() {
         use fm1_performer::firmware_picker::pick_of;
         let mut firmware = firmware("Smk Thing", &[]);

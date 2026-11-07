@@ -5,5 +5,6 @@
 pub mod clock;
 pub mod keys;
 pub mod midi_keys;
+pub mod package;
 pub mod routing;
 pub mod store;

@@ -1,35 +1,5 @@
     use super::*;
 
-    fn package(identity: &str, blocks: usize) -> Vec<u8> {
-        let mut fwsc = vec![0xAA; (blocks + 1) * PKG_BLOCK + 64];
-        for i in 0..blocks {
-            let marker = i
-                .checked_sub(identity.len())
-                .map_or_else(
-                    || identity.as_bytes()[i].wrapping_add(i as u8).wrapping_add(1),
-                    |_| 0x7D,
-                );
-            fwsc[i * PKG_BLOCK + PKG_KEEP] = marker;
-        }
-        fwsc[blocks * PKG_BLOCK + PKG_KEEP] = 0xFF;
-        fwsc
-    }
-
-    #[test]
-    fn package_layout_reads_twenty_and_thirty_six_block_files() {
-        // FM-1 and most custom builds: 20 blocks.
-        let fm1 = package("FM-1_916", 20);
-        assert_eq!(pkg_blocks(&fm1), 20);
-        assert_eq!(product_of(&fm1).as_deref(), Some("FM-1_916"));
-        assert_eq!(logical_image(&fm1).len(), fm1.len() - 20);
-
-        // M-VAVE's stock SMK-37 v016: 36 blocks (14 characters + 22 markers).
-        let smk = package("SMK-37 Pro_016", 36);
-        assert_eq!(pkg_blocks(&smk), 36);
-        assert_eq!(product_of(&smk).as_deref(), Some("SMK-37 Pro_016"));
-        assert_eq!(logical_image(&smk).len(), smk.len() - 36);
-    }
-
     #[test]
     fn loader_wait_can_stay_on_the_original_usb_path() {
         assert!(usb_matches(Some("1-2.4"), Some("1-2.4")));

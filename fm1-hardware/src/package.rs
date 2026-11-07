@@ -1,8 +1,3 @@
-/// is a marker. Stock SMK-37 v016 packages interleave 36.
-pub(crate) const PKG_BLOCKS: usize = 20;
-pub(crate) const PKG_BLOCK: usize = 0x30;
-pub(crate) const PKG_KEEP: usize = 0x2F;
-
 /// Known product strings and the firmwares that report them (thefirmwarehub.com's
 /// catalogue, October 2026). Several projects share one product string; a single exact
 /// hit gets a friendly name, a shared one shows how many firmwares it could be.
@@ -138,44 +133,4 @@ pub(crate) fn friendly(text: &str) -> String {
     format!("firmware {text}")
 }
 
-/// The number of interleaved 48-byte blocks at the start of a package. FM-1 and
-/// most custom builds use 20; M-VAVE's stock SMK-37 v016 uses 36 (14 identity
-/// characters plus 22 `0x7D` markers). The first byte after the interleave is not a
-/// marker, and every stock FM-1 package carries `0xFF` there, so counting while the
-/// marker is `0x7D` finds the real end.
-pub(crate) fn pkg_blocks(fwsc: &[u8]) -> usize {
-    let mut blocks = PKG_BLOCKS;
-    while blocks * PKG_BLOCK + PKG_KEEP < fwsc.len()
-        && fwsc[blocks * PKG_BLOCK + PKG_KEEP] == 0x7D
-    {
-        blocks += 1;
-    }
-    blocks
-}
-
-/// The package identity ("FM-1_916"): the marker byte after each interleaved block.
-/// None when the file is not an FM-1/SMK package.
-pub(crate) fn product_of(fwsc: &[u8]) -> Option<String> {
-    if fwsc.len() < PKG_BLOCKS * PKG_BLOCK {
-        return None;
-    }
-    let mut s = String::new();
-    for i in 0..pkg_blocks(fwsc) {
-        let m = fwsc[i * PKG_BLOCK + PKG_KEEP];
-        if m != 0x7D {
-            s.push((m.wrapping_sub(i as u8).wrapping_sub(1)) as char);
-        }
-    }
-    (!s.is_empty()).then_some(s)
-}
-
-/// The image the device pulls during an update: the package without its marker bytes.
-pub(crate) fn logical_image(fwsc: &[u8]) -> Vec<u8> {
-    let blocks = pkg_blocks(fwsc);
-    let mut out = Vec::with_capacity(fwsc.len().saturating_sub(blocks));
-    for i in 0..blocks {
-        out.extend_from_slice(&fwsc[i * PKG_BLOCK..i * PKG_BLOCK + PKG_KEEP]);
-    }
-    out.extend_from_slice(&fwsc[blocks * PKG_BLOCK..]);
-    out
-}
+pub(crate) use fm1_base::package::{logical_image, product_of};

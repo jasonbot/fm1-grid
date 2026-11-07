@@ -212,7 +212,7 @@ pub(crate) fn scan(
         if known {
             continue;
         }
-        let Some(link) = open_link(&name, router) else {
+        let Some(link) = open_link(&name, router, false) else {
             continue; // busy: another app (or the browser flasher) has it
         };
         let Some(identity) = probe(&link) else {
@@ -250,7 +250,7 @@ pub(crate) fn scan(
 /// port of the same name, falling back to the only output there is (the hub's rule).
 /// The returned link is not registered anywhere: the caller decides whether it joins
 /// the MIDI graph (the scanner does) or stays a private flash channel (rescue does).
-pub(crate) fn open_link(name: &str, router: &Routing) -> Option<Arc<DeviceLink>> {
+pub(crate) fn open_link(name: &str, router: &Routing, fallback: bool) -> Option<Arc<DeviceLink>> {
     let (lookup_in, lookup_out) = (
         MidiInput::new("fm1-grid-scan").ok()?,
         MidiOutput::new("fm1-grid-scan").ok()?,
@@ -263,7 +263,7 @@ pub(crate) fn open_link(name: &str, router: &Routing) -> Option<Arc<DeviceLink>>
     let out_port = out_ports
         .iter()
         .find(|port| lookup_out.port_name(port).is_ok_and(|n| n == name))
-        .or_else(|| (out_ports.len() == 1).then_some(&out_ports[0]))?
+        .or_else(|| (fallback && out_ports.len() == 1).then_some(&out_ports[0]))?
         .clone();
 
     let queue: Queue = Arc::new(Mutex::new(VecDeque::new()));

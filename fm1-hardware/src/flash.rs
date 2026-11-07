@@ -210,12 +210,6 @@ pub(crate) fn flash_flow(
         .as_deref()
         .and_then(|text| text.split_once('_'))
         .map(|(model, _)| model.to_string());
-    fn strip_ota(text: &str) -> &str {
-        text.strip_prefix("ota-")
-            .or_else(|| text.strip_prefix("OTA-"))
-            .unwrap_or(text)
-    }
-
     if !is_ota {
         // Step 1: the running firmware verifies the package and stages the loader.
         publish(flash, board, "checking the device's firmware…", None);

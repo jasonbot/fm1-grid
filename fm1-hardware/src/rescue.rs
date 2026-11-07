@@ -96,7 +96,7 @@ fn rescue_flow(
         return Err("not an FM-1 package: no product identity in the file".to_string());
     };
     let image = logical_image(&bytes);
-    let Some(link) = open_link(name, router) else {
+    let Some(link) = open_link(name, router, true) else {
         return Err(format!("could not open {name}: another program has the port"));
     };
     publish(&flash, board, "sending the UPGRADE command…", None);
@@ -125,7 +125,7 @@ fn rescue_flow(
                         .to_string(),
                 );
             };
-            let Some(loader) = open_link(&loader_name, router) else {
+            let Some(loader) = open_link(&loader_name, router, true) else {
                 return Err(format!(
                     "the update loader ({loader_name}) could not be opened: replug and \
                      press Flash again to resume"
@@ -181,7 +181,7 @@ fn rescue_flow(
              replug if it stays dark"
         ));
     };
-    let text = open_link(&back_name, router).and_then(|link| probe(&link));
+    let text = open_link(&back_name, router, true).and_then(|link| probe(&link));
     match text.as_deref() {
         Some(text) if text == product => Ok((product.to_string(), back_name)),
         Some(text) => Err(format!(

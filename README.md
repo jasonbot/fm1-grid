@@ -96,8 +96,8 @@ list from the top and moves past an item that fails (the item gets one retry whe
 you flip the toggle off and on, or reload). It is not a poll loop: a sweep runs when
 you turn it on, when the online listing refreshes, and when a download finishes,
 then it parks. Left on when you quit, it resumes when the app starts and the first
-catalog lands. The bottom form imports a
-firmware file with a name, version and description.
+catalog lands. The bottom form imports a firmware file with a name, version and
+description; the package's own identity sets the device family and SMK model.
 
 ![Screenshot](./screenshot/screen.png)
 

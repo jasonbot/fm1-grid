@@ -153,6 +153,19 @@ impl Store {
     }
 
 
+    /// A lock file for read-modify-write users. The caller flocks it on Unix; the
+    /// file itself is all a non-Unix build needs.
+    pub fn lock_file(&self, name: &str) -> Result<std::fs::File, String> {
+        let dir = self.root.join("objects");
+        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+        std::fs::OpenOptions::new()
+            .create(true)
+            .read(true)
+            .write(true)
+            .open(dir.join(format!(".{name}.lock")))
+            .map_err(|e| format!("lock {name}: {e}"))
+    }
+
     pub fn store_object<T: Serialize>(&self, path: &str, object: &T) -> Result<(), String> {
         let file = self.object_file(path)?;
         let json = serde_json::to_vec_pretty(object).map_err(|e| e.to_string())?;

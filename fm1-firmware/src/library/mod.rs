@@ -485,14 +485,29 @@ impl Library {
         version: &str,
         description: &str,
     ) {
-        self.stored.retain(|f| f.name != name);
+        // The package itself names the keyboard model; the form only asks for the
+        // display name, version and description.
+        let product = std::fs::read(path)
+            .ok()
+            .and_then(|bytes| fm1_base::package::product_of(&bytes));
+        let device = product
+            .as_deref()
+            .map_or(FirmwareDevice::Fm1, crate::sources::parse_device);
+        let variant = product.as_deref().and_then(crate::sources::parse_variant);
+        let mut tags = vec!["source:file".to_string()];
+        if let Some(variant) = variant {
+            tags.push(variant.to_string());
+        }
+        // Replace only the same model; an FM-1 file and an SMK file may share a name.
+        self.stored
+            .retain(|f| !(f.name == name && f.device == device && f.variant() == variant));
         self.stored.push(Firmware {
             name: name.to_string(),
             byline: String::new(),
             version: version.to_string(),
             description: description.to_string(),
-            tags: vec!["source:file".to_string()],
-            device: FirmwareDevice::Fm1,
+            tags,
+            device,
             website: None,
             source_url: None,
             upgradable: false,

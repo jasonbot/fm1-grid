@@ -3,6 +3,8 @@
 //! while each keeps its own session record for everything else.
 
 use serde::{Deserialize, Serialize};
+#[cfg(unix)]
+use std::os::unix::io::AsRawFd;
 
 use fm1_base::clock::{DEFAULT_BPM, MAX_BPM, MIN_BPM};
 use fm1_base::store::Store;
@@ -86,6 +88,7 @@ impl Shared {
         if !dirty.any() {
             return;
         }
+        let _lock = lock(store);
         let mut record = store
             .fetch_object::<Self>(SHARED_OBJECT)
             .unwrap_or_else(|_| Self::migrate(Some(store)));
@@ -104,6 +107,21 @@ impl Shared {
             eprintln!("fm1 session: {e}");
         }
     }
+}
+
+/// Serialise the read-modify-write between the GUI and the TUI. The lock file stays
+/// on disk; the OS drops the lock when this handle closes.
+fn lock(store: &Store) -> Option<std::fs::File> {
+    let file = store.lock_file("shared").ok()?;
+    #[cfg(unix)]
+    {
+        // A failed lock is not fatal: the write proceeds unlocked rather than
+        // dropping the user's change.
+        unsafe {
+            libc::flock(file.as_raw_fd(), libc::LOCK_EX);
+        }
+    }
+    Some(file)
 }
 
 #[cfg(test)]

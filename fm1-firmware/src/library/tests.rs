@@ -48,6 +48,42 @@
         std::fs::remove_dir_all(dir).ok();
     }
 
+    fn write_package(path: &std::path::Path, identity: &str) {
+        let blocks = 20;
+        let mut bytes = vec![0xAA; (blocks + 1) * 0x30 + 16];
+        for i in 0..blocks {
+            bytes[i * 0x30 + 0x2F] = if i < identity.len() {
+                identity.as_bytes()[i].wrapping_add(i as u8).wrapping_add(1)
+            } else {
+                0x7D
+            };
+        }
+        bytes[blocks * 0x30 + 0x2F] = 0xFF;
+        std::fs::write(path, bytes).unwrap();
+    }
+
+    #[test]
+    fn import_reads_the_model_from_the_package() {
+        let (store, dir) = temp_store("import-model");
+        let mut library = Library::load(&store);
+        let file = dir.join("smk.fwsc");
+        write_package(&file, "SMK-37 Pro_900");
+        library.import_file(file.to_str().unwrap(), "Sloop Pro", "2.8.5", "smk");
+        let entry = library.stored.iter().find(|f| f.name == "Sloop Pro").unwrap();
+        assert_eq!(entry.device, FirmwareDevice::Smk37);
+        assert_eq!(entry.variant(), Some("SMK-37 Pro"));
+        assert!(crate::filter::DeviceFilter::Smk37Pro.shows(entry));
+
+        // The same name for an FM-1 package is a different row.
+        write_package(&file, "FM-1_916");
+        library.import_file(file.to_str().unwrap(), "Sloop Pro", "2.8.5", "fm1");
+        assert_eq!(
+            library.stored.iter().filter(|f| f.name == "Sloop Pro").count(),
+            2
+        );
+        std::fs::remove_dir_all(dir).ok();
+    }
+
     #[test]
     fn missing_file_is_missing() {
         let (store, dir) = temp_store("missing");

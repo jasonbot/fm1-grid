@@ -23,10 +23,7 @@ pub(crate) fn same_model(device_model: &str, package_model: &str) -> bool {
 /// model (a Starrykey counts as an SMK-37 Pro); custom firmware (versions 7xx/9xx)
 /// accepts any SMK model. FM-1 and SMK never cross.
 pub fn package_fits(current: &str, product: &str) -> bool {
-    let current = current
-        .strip_prefix("ota-")
-        .or_else(|| current.strip_prefix("OTA-"))
-        .unwrap_or(current);
+    let current = strip_ota(current);
     let (device_model, device_version) = current.split_once('_').unwrap_or((current, ""));
     let (package_model, _) = product.split_once('_').unwrap_or((product, ""));
     if same_model(device_model, package_model) {
@@ -37,13 +34,17 @@ pub fn package_fits(current: &str, product: &str) -> bool {
         && !device_version.starts_with('0')
 }
 
+/// The identity without an update-loader prefix.
+pub(crate) fn strip_ota(text: &str) -> &str {
+    text.strip_prefix("ota-")
+        .or_else(|| text.strip_prefix("OTA-"))
+        .unwrap_or(text)
+}
+
 /// The keyboard model an identity names, for UI labels. The Donner Starrykey
 /// reports its own name but runs the SMK-37 Pro build, so it shows as SMK-37 Pro.
 pub fn device_type(identity: &str) -> Option<&'static str> {
-    let identity = identity
-        .strip_prefix("ota-")
-        .or_else(|| identity.strip_prefix("OTA-"))
-        .unwrap_or(identity);
+    let identity = strip_ota(identity);
     let (model, _) = identity.split_once('_').unwrap_or((identity, ""));
     if model.eq_ignore_ascii_case("FM-1") {
         Some("FM-1")

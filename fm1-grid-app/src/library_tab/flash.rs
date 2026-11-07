@@ -1,7 +1,21 @@
 use super::*;
 use fm1_performer::hardware::device_type;
 
+/// Whether a live unit can take this package. A plain/unknown unit never matches.
+pub(super) fn unit_accepts(firmware: &Firmware, identity: Option<&str>) -> bool {
+let package_model = match firmware.device {
+    FirmwareDevice::Fm1 => Some("FM-1"),
+    FirmwareDevice::Smk37 => firmware.variant(),
+};
+package_model.is_none_or(|model| {
+    identity.is_some_and(|identity| {
+        fm1_performer::hardware::package_fits(identity, &format!("{model}_0"))
+    })
+})
+}
+
 impl GridApp {
+
     /// The Flash To… dropdown: live flashable units, then powered-off unpinned panes.
     pub(super) fn flash_to_menu(
         &mut self,
@@ -11,25 +25,11 @@ impl GridApp {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let name = firmware.name.clone();
-        let package_model = match firmware.device {
-            FirmwareDevice::Fm1 => Some("FM-1"),
-            FirmwareDevice::Smk37 => firmware.variant(),
-        };
         let units: Vec<(String, Option<&'static str>)> = self
             .hardware
             .devices()
             .iter()
-            .filter(|row| {
-                row.flash.is_none()
-                    && package_model.is_none_or(|model| {
-                        row.identity.as_deref().is_some_and(|identity| {
-                            fm1_performer::hardware::package_fits(
-                                identity,
-                                &format!("{model}_0"),
-                            )
-                        })
-                    })
-            })
+            .filter(|row| row.flash.is_none() && unit_accepts(firmware, row.identity.as_deref()))
             .map(|row| (row.name.clone(), row.identity.as_deref().and_then(device_type)))
             .collect();
         let slots: Vec<usize> = (0..fm1_performer::MAX_SLOTS)

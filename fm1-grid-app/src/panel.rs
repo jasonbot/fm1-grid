@@ -26,11 +26,9 @@ const KEY_LED_INSET: f32 = 0.36;
 const KEY_LED_TOP: f32 = 1.0;
 const KEY_LED_HEIGHT: f32 = 45.0;
 const KEY_LED_RADIUS: f32 = 6.0;
-const KEY_LED_RINGS: usize = 4;
 /// The unpressed window sits a little higher; pressing sinks it.
 const KEY_LED_DEPTH: f32 = 3.0;
 const KEY_LED_FILL_ALPHA: f32 = 0.16;
-const KEY_LED_EDGE_ALPHA: f32 = 0.55;
 /// The lit lip just above a white key's shade strip.
 const WHITE_KEY_LIP: f32 = 2.0;
 const BLACK_KEY_DEPTH: f32 = 6.0;
@@ -48,6 +46,8 @@ const PANEL_MIN_W: f32 = 320.0;
 /// and the lit/accent colours are the theme's own (primary for held keys, warning
 /// for amber LEDs, success for the play LED).
 struct PanelColors {
+    /// Dark theme: reverse the key shading.
+    dark: bool,
     bed: Hsla,
     button: Hsla,
     button_hover: Hsla,
@@ -86,6 +86,7 @@ fn panel_colors(
 ) -> PanelColors {
     let bg = theme.background;
     let mut colors = PanelColors {
+        dark: theme.is_dark(),
         bed: Hsla {
             l: bg.l.min(0.16),
             s: (bg.s * 0.85).clamp(0.0, 1.0),
@@ -127,19 +128,22 @@ enum KnobTarget {
     Enc(u8),
 }
 
-/// The two gradient ends for a key's bottom strip: a little darker than the key at
-/// the top, a little lighter at the bottom.
-fn strip_colors(fill: Hsla) -> (Hsla, Hsla) {
-    (
-        Hsla { l: (fill.l - 0.07).max(0.0), ..fill },
-        Hsla { l: (fill.l + 0.07).min(1.0), ..fill },
-    )
+/// The two gradient ends for a key's bottom strip, top then bottom. In a light
+/// theme the top is darker; a dark theme reverses the light direction.
+fn strip_colors(fill: Hsla, dark: bool) -> (Hsla, Hsla) {
+    let darker = Hsla { l: (fill.l - 0.07).max(0.0), ..fill };
+    let lighter = Hsla { l: (fill.l + 0.07).min(1.0), ..fill };
+    if dark {
+        (lighter, darker)
+    } else {
+        (darker, lighter)
+    }
 }
 
-/// The small membrane window near the top of a key. Up, it is a shade darker
-/// than the key, like an unpowered LED behind the membrane; pressed, it glows
-/// with the accent and sinks a couple of pixels.
-fn led_window(fill: Hsla, glow: Hsla, pressed: bool) -> AnyElement {
+/// The small membrane window near the top of a key. Up, it is a shade off the
+/// key, like an unpowered LED behind the membrane; pressed, it glows with the
+/// accent and sinks a couple of pixels. Dark themes reverse the shade direction.
+fn led_window(fill: Hsla, glow: Hsla, border: Hsla, pressed: bool, dark: bool) -> AnyElement {
     let top = if pressed { KEY_LED_TOP + KEY_LED_DEPTH } else { KEY_LED_TOP };
     let window = div()
         .absolute()
@@ -150,27 +154,17 @@ fn led_window(fill: Hsla, glow: Hsla, pressed: bool) -> AnyElement {
         .rounded(px(KEY_LED_RADIUS))
         .overflow_hidden();
     if !pressed {
-        return window.bg(strip_colors(fill).0).into_any_element();
+        return window
+            .bg(strip_colors(fill, dark).0)
+            .border_1()
+            .border_color(border)
+            .into_any_element();
     }
-    let mut window = window.bg(Hsla { a: KEY_LED_FILL_ALPHA, ..glow });
-    for ring in 0..KEY_LED_RINGS {
-        let t = ring as f32 / KEY_LED_RINGS as f32;
-        let alpha =
-            KEY_LED_EDGE_ALPHA + (KEY_LED_FILL_ALPHA - KEY_LED_EDGE_ALPHA) * t;
-        let inset = ring as f32;
-        window = window.child(
-            div()
-                .absolute()
-                .left(px(inset))
-                .right(px(inset))
-                .top(px(inset))
-                .bottom(px(inset))
-                .rounded(px((KEY_LED_RADIUS - inset).max(0.0)))
-                .border_1()
-                .border_color(Hsla { a: alpha, ..glow }),
-        );
-    }
-    window.into_any_element()
+    window
+        .bg(Hsla { a: KEY_LED_FILL_ALPHA, ..glow })
+        .border_1()
+        .border_color(border)
+        .into_any_element()
 }
 
 /// The strip's drawn height in each state.
@@ -178,10 +172,11 @@ fn strip_height(height: f32, pressed: bool) -> f32 {
     if pressed { height / 2.0 } else { height }
 }
 
-/// The key's bottom strip. Pressed, it is half as high and solid dark; otherwise it
-/// is the full depth with a top-dark to bottom-light gradient.
-fn key_strip(fill: Hsla, pressed: bool, height: f32) -> AnyElement {
-    let (dark, light) = strip_colors(fill);
+/// The key's bottom strip. Pressed, it is half as high and solid at the top shade;
+/// otherwise it is the full depth with a top-to-bottom gradient. Dark themes reverse
+/// the light direction.
+fn key_strip(fill: Hsla, pressed: bool, height: f32, dark: bool) -> AnyElement {
+    let (top, bottom) = strip_colors(fill, dark);
     let height = strip_height(height, pressed);
     let strip = div()
         .absolute()
@@ -190,13 +185,13 @@ fn key_strip(fill: Hsla, pressed: bool, height: f32) -> AnyElement {
         .bottom_0()
         .h(px(height));
     if pressed {
-        strip.bg(dark).into_any_element()
+        strip.bg(top).into_any_element()
     } else {
         strip
             .bg(linear_gradient(
                 180.,
-                linear_color_stop(dark, 0.),
-                linear_color_stop(light, 1.),
+                linear_color_stop(top, 0.),
+                linear_color_stop(bottom, 1.),
             ))
             .into_any_element()
     }
@@ -585,7 +580,7 @@ impl GridApp {
             (colors.white, colors.white_ink, colors.white_note)
         };
         let depth = strip_height(WHITE_KEY_DEPTH, pressed);
-        let lip = strip_colors(key_fill).1;
+        let lip = strip_colors(key_fill, colors.dark).1;
         div()
             .id(("panel-key", id as usize))
             .flex_1()
@@ -605,7 +600,7 @@ impl GridApp {
                     cx.notify();
                 }),
             )
-            .child(led_window(key_fill, colors.lit, pressed))
+            .child(led_window(key_fill, colors.lit, colors.white_edge, pressed, colors.dark))
             .child(
                 v_flex()
                     .size_full()
@@ -636,7 +631,7 @@ impl GridApp {
                     .h(px(WHITE_KEY_LIP))
                     .bg(lip),
             )
-            .child(key_strip(key_fill, pressed, WHITE_KEY_DEPTH))
+            .child(key_strip(key_fill, pressed, WHITE_KEY_DEPTH, colors.dark))
     }
 
     /// A black piano key, overlapping the white row: the theme's dark steps, the
@@ -695,14 +690,14 @@ impl GridApp {
                     .flex()
                     .items_center()
                     .justify_center()
-                    .child(led_window(fill, colors.lit, pressed))
+                    .child(led_window(fill, colors.lit, colors.black_edge, pressed, colors.dark))
                     .child(
                         div()
                             .text_size(px(14.0))
                             .text_color(ink)
                             .child(hint),
                     )
-                    .child(key_strip(fill, pressed, BLACK_KEY_DEPTH)),
+                    .child(key_strip(fill, pressed, BLACK_KEY_DEPTH, colors.dark)),
             )
     }
 }
@@ -725,15 +720,20 @@ mod tests {
         let theme = Theme::default();
         let colors = panel_colors(&theme, None);
         for fill in [colors.white, colors.black, colors.lit] {
-            let (dark, light) = strip_colors(fill);
-            assert!(dark.l <= fill.l, "top of the strip is not lighter than the key");
-            assert!(light.l >= fill.l, "bottom of the strip is not darker than the key");
-            assert_eq!(dark.h, fill.h);
-            assert_eq!(light.h, fill.h);
+            let (top, bottom) = strip_colors(fill, false);
+            assert!(top.l <= fill.l, "light theme: the top is not darker");
+            assert!(bottom.l >= fill.l, "light theme: the bottom is not lighter");
+            assert_eq!(top.h, fill.h);
+            assert_eq!(bottom.h, fill.h);
+            let (top, bottom) = strip_colors(fill, true);
+            assert!(top.l >= fill.l, "dark theme: the top is not lighter");
+            assert!(bottom.l <= fill.l, "dark theme: the bottom is not darker");
         }
         for fill in [colors.white, colors.black] {
-            let (dark, light) = strip_colors(fill);
-            assert!(dark.l < fill.l && light.l > fill.l);
+            let (top, bottom) = strip_colors(fill, false);
+            assert!(top.l < fill.l && bottom.l > fill.l);
+            let (top, bottom) = strip_colors(fill, true);
+            assert!(top.l > fill.l && bottom.l < fill.l);
         }
     }
 

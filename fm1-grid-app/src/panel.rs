@@ -12,6 +12,7 @@ use fm1_performer::keys::{
 use crate::theme::mix_hsla;
 use gpui_kit::base::{ElementExt, v_flex};
 use gpui_kit::component::ActiveTheme;
+use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 
 const KEY_HEIGHT: f32 = 120.0;
@@ -20,6 +21,10 @@ const KEY_COMPACT_LOSS: f32 = 32.0;
 const KEY_MARGIN: f32 = 6.0;
 /// The shaded depth strip at the bottom of each key.
 const WHITE_KEY_DEPTH: f32 = 10.0;
+/// How far a pressed key's accent edge fades into the key face.
+const KEY_PRESS_FRINGE: f32 = 8.0;
+/// The accent opacity at the very edge of a pressed key.
+const KEY_PRESS_FRINGE_ALPHA: f32 = 0.8;
 /// The lit lip just above a white key's shade strip.
 const WHITE_KEY_LIP: f32 = 2.0;
 const BLACK_KEY_DEPTH: f32 = 6.0;
@@ -123,6 +128,74 @@ fn strip_colors(fill: Hsla) -> (Hsla, Hsla) {
         Hsla { l: (fill.l - 0.07).max(0.0), ..fill },
         Hsla { l: (fill.l + 0.07).min(1.0), ..fill },
     )
+}
+
+/// A pressed key keeps its normal face and gets a soft accent fringe on the edges,
+/// like the vignette on the unselected grid screens.
+fn press_fringe(color: Hsla) -> AnyElement {
+    let edge = Hsla { a: KEY_PRESS_FRINGE_ALPHA, ..color };
+    let clear = Hsla { a: 0.0, ..color };
+    div()
+        .absolute()
+        .left_0()
+        .right_0()
+        .top_0()
+        .bottom_0()
+        .rounded(px(1.0))
+        .overflow_hidden()
+        .child(
+            div()
+                .absolute()
+                .left_0()
+                .right_0()
+                .top_0()
+                .h(px(KEY_PRESS_FRINGE))
+                .bg(linear_gradient(
+                    180.,
+                    linear_color_stop(edge, 0.),
+                    linear_color_stop(clear, 1.),
+                )),
+        )
+        .child(
+            div()
+                .absolute()
+                .left_0()
+                .right_0()
+                .bottom_0()
+                .h(px(KEY_PRESS_FRINGE))
+                .bg(linear_gradient(
+                    180.,
+                    linear_color_stop(clear, 0.),
+                    linear_color_stop(edge, 1.),
+                )),
+        )
+        .child(
+            div()
+                .absolute()
+                .left_0()
+                .top_0()
+                .bottom_0()
+                .w(px(KEY_PRESS_FRINGE))
+                .bg(linear_gradient(
+                    90.,
+                    linear_color_stop(edge, 0.),
+                    linear_color_stop(clear, 1.),
+                )),
+        )
+        .child(
+            div()
+                .absolute()
+                .right_0()
+                .top_0()
+                .bottom_0()
+                .w(px(KEY_PRESS_FRINGE))
+                .bg(linear_gradient(
+                    90.,
+                    linear_color_stop(clear, 0.),
+                    linear_color_stop(edge, 1.),
+                )),
+        )
+        .into_any_element()
 }
 
 /// The strip's drawn height in each state.
@@ -523,20 +596,19 @@ impl GridApp {
     /// A white piano key: the theme's light step at rest, the theme's accent while
     /// held; hint in the middle, note name at the bottom.
     fn white_key(&self, cx: &mut Context<Self>, id: u8, colors: &PanelColors) -> impl IntoElement {
-        let lit =
-            self.held[id as usize] || self.leds[id as usize] > 0.04 || self.panel_down[id as usize];
+        let pressed = self.held[id as usize] || self.panel_down[id as usize];
+        let lit = pressed || self.leds[id as usize] > 0.04;
         let note = PANEL_KEYS
             .iter()
             .find(|(key, _, _)| *key == id)
             .map(|(_, note, _)| *note)
             .unwrap_or("");
         let hint = panel_key_hint(id);
-        let (key_fill, ink, note_ink) = if lit {
+        let (key_fill, ink, note_ink) = if lit && !pressed {
             (colors.lit, colors.lit_ink, colors.lit_ink)
         } else {
             (colors.white, colors.white_ink, colors.white_note)
         };
-        let pressed = self.held[id as usize] || self.panel_down[id as usize];
         let depth = strip_height(WHITE_KEY_DEPTH, pressed);
         let lip = strip_colors(key_fill).1;
         div()
@@ -558,6 +630,7 @@ impl GridApp {
                     cx.notify();
                 }),
             )
+            .when(pressed, |this| this.child(press_fringe(colors.lit)))
             .child(
                 v_flex()
                     .size_full()
@@ -604,15 +677,14 @@ impl GridApp {
         height: f32,
         colors: &PanelColors,
     ) -> impl IntoElement {
-        let lit =
-            self.held[id as usize] || self.leds[id as usize] > 0.04 || self.panel_down[id as usize];
+        let pressed = self.held[id as usize] || self.panel_down[id as usize];
+        let lit = pressed || self.leds[id as usize] > 0.04;
         let hint = panel_key_hint(id);
-        let (fill, ink) = if lit {
+        let (fill, ink) = if lit && !pressed {
             (colors.lit, colors.lit_ink)
         } else {
             (colors.black, colors.black_ink)
         };
-        let pressed = self.held[id as usize] || self.panel_down[id as usize];
         div()
             .absolute()
             .left(px(x))
@@ -648,6 +720,7 @@ impl GridApp {
                     .flex()
                     .items_center()
                     .justify_center()
+                    .when(pressed, |this| this.child(press_fringe(colors.lit)))
                     .child(
                         div()
                             .text_size(px(14.0))

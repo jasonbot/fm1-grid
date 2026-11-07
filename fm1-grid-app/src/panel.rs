@@ -22,9 +22,9 @@ const KEY_MARGIN: f32 = 6.0;
 /// The shaded depth strip at the bottom of each key.
 const WHITE_KEY_DEPTH: f32 = 10.0;
 /// How far a pressed key's accent edge fades into the key face.
-const KEY_PRESS_FRINGE: f32 = 8.0;
+const KEY_PRESS_FRINGE: f32 = 6.0;
 /// The accent opacity at the very edge of a pressed key.
-const KEY_PRESS_FRINGE_ALPHA: f32 = 0.8;
+const KEY_PRESS_FRINGE_ALPHA: f32 = 0.35;
 /// The lit lip just above a white key's shade strip.
 const WHITE_KEY_LIP: f32 = 2.0;
 const BLACK_KEY_DEPTH: f32 = 6.0;

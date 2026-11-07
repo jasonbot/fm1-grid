@@ -18,6 +18,9 @@ const KEY_HEIGHT: f32 = 120.0;
 /// What the compact keyboard sheds when the window is too short for the full stack.
 const KEY_COMPACT_LOSS: f32 = 32.0;
 const KEY_MARGIN: f32 = 6.0;
+/// The shaded depth strip at the bottom of each key.
+const WHITE_KEY_DEPTH: f32 = 10.0;
+const BLACK_KEY_DEPTH: f32 = 6.0;
 /// The panel's height above the key bed: header, control rows and margins.
 const PANEL_CONTROLS_H: f32 = 156.0;
 const GROUP_HEIGHT: f32 = 24.0;
@@ -109,6 +112,39 @@ fn panel_colors(
 enum KnobTarget {
     Master,
     Enc(u8),
+}
+
+/// The two gradient ends for a key's bottom strip: a little darker than the key at
+/// the top, a little lighter at the bottom.
+fn strip_colors(fill: Hsla) -> (Hsla, Hsla) {
+    (
+        Hsla { l: (fill.l - 0.07).max(0.0), ..fill },
+        Hsla { l: (fill.l + 0.07).min(1.0), ..fill },
+    )
+}
+
+/// The key's bottom strip. Pressed, it is half as high and solid dark; otherwise it
+/// is the full depth with a top-dark to bottom-light gradient.
+fn key_strip(fill: Hsla, pressed: bool, height: f32) -> AnyElement {
+    let (dark, light) = strip_colors(fill);
+    let height = if pressed { height / 2.0 } else { height };
+    let strip = div()
+        .absolute()
+        .left_0()
+        .right_0()
+        .bottom_0()
+        .h(px(height));
+    if pressed {
+        strip.bg(dark).into_any_element()
+    } else {
+        strip
+            .bg(linear_gradient(
+                180.,
+                linear_color_stop(dark, 0.),
+                linear_color_stop(light, 1.),
+            ))
+            .into_any_element()
+    }
 }
 
 impl GridApp {
@@ -493,11 +529,13 @@ impl GridApp {
         } else {
             (colors.white, colors.white_ink, colors.white_note)
         };
+        let pressed = self.held[id as usize] || self.panel_down[id as usize];
         div()
             .id(("panel-key", id as usize))
             .flex_1()
             .min_w_0()
             .h_full()
+            .relative()
             .rounded(px(1.0))
             .bg(key_fill)
             .border_1()
@@ -514,6 +552,7 @@ impl GridApp {
             .child(
                 v_flex()
                     .size_full()
+                    .pb(px(WHITE_KEY_DEPTH))
                     .items_center()
                     .child(
                         div().flex_1().flex().items_center().child(
@@ -531,6 +570,7 @@ impl GridApp {
                             .child(note),
                     ),
             )
+            .child(key_strip(key_fill, pressed, WHITE_KEY_DEPTH))
     }
 
     /// A black piano key, overlapping the white row: the theme's dark steps, the
@@ -554,6 +594,7 @@ impl GridApp {
         } else {
             (colors.black, colors.black_ink)
         };
+        let pressed = self.held[id as usize] || self.panel_down[id as usize];
         div()
             .absolute()
             .left(px(x))
@@ -582,9 +623,18 @@ impl GridApp {
             )
             .child(
                 div()
-                    .text_size(px(14.0))
-                    .text_color(ink)
-                    .child(hint),
+                    .size_full()
+                    .relative()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .child(
+                        div()
+                            .text_size(px(14.0))
+                            .text_color(ink)
+                            .child(hint),
+                    )
+                    .child(key_strip(fill, pressed, BLACK_KEY_DEPTH)),
             )
     }
 }
@@ -593,8 +643,25 @@ impl GridApp {
 mod tests {
     // No `use super::*` — the parent's gpui glob import would drag in GPUI's `test`
     // attribute macro, which re-expands the built-in #[test] (see library_tab.rs).
-    use super::panel_colors;
+    use super::{panel_colors, strip_colors};
     use gpui_kit::component::Theme;
+
+    #[test]
+    fn key_strip_gradient_brackets_the_key_color() {
+        let theme = Theme::default();
+        let colors = panel_colors(&theme, None);
+        for fill in [colors.white, colors.black, colors.lit] {
+            let (dark, light) = strip_colors(fill);
+            assert!(dark.l <= fill.l, "top of the strip is not lighter than the key");
+            assert!(light.l >= fill.l, "bottom of the strip is not darker than the key");
+            assert_eq!(dark.h, fill.h);
+            assert_eq!(light.h, fill.h);
+        }
+        for fill in [colors.white, colors.black] {
+            let (dark, light) = strip_colors(fill);
+            assert!(dark.l < fill.l && light.l > fill.l);
+        }
+    }
 
     /// The key colorway follows the theme background's hue with the bed always dark
     /// (light themes too), the black keys strictly between bed and white, and a held

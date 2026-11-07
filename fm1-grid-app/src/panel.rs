@@ -21,10 +21,16 @@ const KEY_COMPACT_LOSS: f32 = 32.0;
 const KEY_MARGIN: f32 = 6.0;
 /// The shaded depth strip at the bottom of each key.
 const WHITE_KEY_DEPTH: f32 = 10.0;
-/// How far a pressed key's accent edge fades into the key face.
-const KEY_PRESS_FRINGE: f32 = 6.0;
-/// The accent opacity at the very edge of a pressed key.
-const KEY_PRESS_FRINGE_ALPHA: f32 = 0.35;
+/// The membrane window near the top of a key.
+const KEY_LED_INSET: f32 = 0.22;
+const KEY_LED_TOP: f32 = 3.0;
+const KEY_LED_HEIGHT: f32 = 16.0;
+const KEY_LED_RADIUS: f32 = 6.0;
+const KEY_LED_FRINGE: f32 = 4.0;
+/// The unpressed window sits a little higher; pressing sinks it.
+const KEY_LED_DEPTH: f32 = 2.0;
+const KEY_LED_FILL_ALPHA: f32 = 0.16;
+const KEY_LED_EDGE_ALPHA: f32 = 0.55;
 /// The lit lip just above a white key's shade strip.
 const WHITE_KEY_LIP: f32 = 2.0;
 const BLACK_KEY_DEPTH: f32 = 6.0;
@@ -130,26 +136,33 @@ fn strip_colors(fill: Hsla) -> (Hsla, Hsla) {
     )
 }
 
-/// A pressed key keeps its normal face and gets a soft accent fringe on the edges,
-/// like the vignette on the unselected grid screens.
-fn press_fringe(color: Hsla) -> AnyElement {
-    let edge = Hsla { a: KEY_PRESS_FRINGE_ALPHA, ..color };
-    let clear = Hsla { a: 0.0, ..color };
-    div()
+/// The small membrane window near the top of a key. Up, it is a shade darker
+/// than the key, like an unpowered LED behind the membrane; pressed, it glows
+/// with the accent and sinks a couple of pixels.
+fn led_window(fill: Hsla, glow: Hsla, pressed: bool) -> AnyElement {
+    let top = if pressed { KEY_LED_TOP + KEY_LED_DEPTH } else { KEY_LED_TOP };
+    let window = div()
         .absolute()
-        .left_0()
-        .right_0()
-        .top_0()
-        .bottom_0()
-        .rounded(px(1.0))
-        .overflow_hidden()
+        .left(relative(KEY_LED_INSET))
+        .right(relative(KEY_LED_INSET))
+        .top(px(top))
+        .h(px(KEY_LED_HEIGHT))
+        .rounded(px(KEY_LED_RADIUS))
+        .overflow_hidden();
+    if !pressed {
+        return window.bg(strip_colors(fill).0).into_any_element();
+    }
+    let edge = Hsla { a: KEY_LED_EDGE_ALPHA, ..glow };
+    let clear = Hsla { a: 0.0, ..glow };
+    window
+        .bg(Hsla { a: KEY_LED_FILL_ALPHA, ..glow })
         .child(
             div()
                 .absolute()
                 .left_0()
                 .right_0()
                 .top_0()
-                .h(px(KEY_PRESS_FRINGE))
+                .h(px(KEY_LED_FRINGE))
                 .bg(linear_gradient(
                     180.,
                     linear_color_stop(edge, 0.),
@@ -162,7 +175,7 @@ fn press_fringe(color: Hsla) -> AnyElement {
                 .left_0()
                 .right_0()
                 .bottom_0()
-                .h(px(KEY_PRESS_FRINGE))
+                .h(px(KEY_LED_FRINGE))
                 .bg(linear_gradient(
                     180.,
                     linear_color_stop(clear, 0.),
@@ -175,7 +188,7 @@ fn press_fringe(color: Hsla) -> AnyElement {
                 .left_0()
                 .top_0()
                 .bottom_0()
-                .w(px(KEY_PRESS_FRINGE))
+                .w(px(KEY_LED_FRINGE))
                 .bg(linear_gradient(
                     90.,
                     linear_color_stop(edge, 0.),
@@ -188,7 +201,7 @@ fn press_fringe(color: Hsla) -> AnyElement {
                 .right_0()
                 .top_0()
                 .bottom_0()
-                .w(px(KEY_PRESS_FRINGE))
+                .w(px(KEY_LED_FRINGE))
                 .bg(linear_gradient(
                     90.,
                     linear_color_stop(clear, 0.),
@@ -630,7 +643,7 @@ impl GridApp {
                     cx.notify();
                 }),
             )
-            .when(pressed, |this| this.child(press_fringe(colors.lit)))
+            .child(led_window(key_fill, colors.lit, pressed))
             .child(
                 v_flex()
                     .size_full()
@@ -720,7 +733,7 @@ impl GridApp {
                     .flex()
                     .items_center()
                     .justify_center()
-                    .when(pressed, |this| this.child(press_fringe(colors.lit)))
+                    .child(led_window(fill, colors.lit, pressed))
                     .child(
                         div()
                             .text_size(px(14.0))

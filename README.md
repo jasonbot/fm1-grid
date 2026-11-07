@@ -142,7 +142,7 @@ cargo run --release -p fm1-tty
 
 - **Devices**: live USB units. `R` toggles rescue mode.
 - **MIDI graph**: sources and their sink links. `Enter` removes a link or opens Connect.
-- **Library**: the same firmware list. `/` filters, `v` picks a device, `d` downloads, `x` deletes, `a` downloads all, `f` flashes. The flash picker shows each unit’s USB path.
+- **Library**: the same firmware list. `/` filters, `v` picks a device, `d` downloads, `x` deletes, `a` downloads all, `f` flashes. The flash picker shows each unit’s USB path. Arrow, Page and Home/End keys in the filter jump back to the list.
 - **Metronome**: `Space` starts and stops it. `-`/`+` change the tempo.
 - `Tab` moves around. `q` quits. `Ctrl-C` quits from anywhere.
 - It shares the library, tempo, device filter and Download All setting with the GUI.

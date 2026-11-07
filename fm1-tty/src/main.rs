@@ -111,7 +111,8 @@ fn on_key(app: &mut app::TuiApp, key: ratatui::crossterm::event::KeyEvent) {
         }
         return;
     }
-    // The filter field takes printable keys; only its own edits and exits apply.
+    // The filter field takes printable keys; navigation keys hand control to the
+    // library without clearing the needle.
     if app.focus == Focus::Filter {
         match key.code {
             KeyCode::Esc => {
@@ -120,6 +121,11 @@ fn on_key(app: &mut app::TuiApp, key: ratatui::crossterm::event::KeyEvent) {
             }
             KeyCode::Enter => app.focus = Focus::Library,
             KeyCode::Tab => app.focus = Focus::Graph,
+            KeyCode::Up | KeyCode::Down | KeyCode::PageUp | KeyCode::PageDown
+            | KeyCode::Home | KeyCode::End => {
+                app.focus = Focus::Library;
+                library_nav(app, key.code);
+            }
             KeyCode::Backspace => app.filter_backspace(),
             KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 app.filter_clear()
@@ -187,6 +193,29 @@ fn on_key(app: &mut app::TuiApp, key: ratatui::crossterm::event::KeyEvent) {
         },
         Focus::Filter => {}
     }
+}
+
+/// The step a library-navigation key asks for, from either focus.
+fn library_nav_delta(code: ratatui::crossterm::event::KeyCode) -> Option<isize> {
+    use ratatui::crossterm::event::KeyCode;
+    match code {
+        KeyCode::Up => Some(-1),
+        KeyCode::Down => Some(1),
+        KeyCode::PageUp => Some(-10),
+        KeyCode::PageDown => Some(10),
+        KeyCode::Home => Some(isize::MIN),
+        KeyCode::End => Some(isize::MAX),
+        _ => None,
+    }
+}
+
+/// Move the library selection for the keys that also work from the filter box.
+fn library_nav(app: &mut app::TuiApp, code: ratatui::crossterm::event::KeyCode) -> bool {
+    let Some(delta) = library_nav_delta(code) else {
+        return false;
+    };
+    app.scroll(delta);
+    true
 }
 
 /// A popup's keyboard handling: arrows move, Enter confirms, Esc cancels.
@@ -327,5 +356,21 @@ fn on_mouse(app: &mut app::TuiApp, mouse: ratatui::crossterm::event::MouseEvent)
         MouseEventKind::ScrollUp if app.regions.lib_rows.contains(at) => app.scroll(-3),
         MouseEventKind::ScrollDown if app.regions.lib_rows.contains(at) => app.scroll(3),
         _ => {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use ratatui::crossterm::event::KeyCode;
+
+    #[test]
+    fn library_navigation_keys_map_to_steps() {
+        assert_eq!(super::library_nav_delta(KeyCode::Up), Some(-1));
+        assert_eq!(super::library_nav_delta(KeyCode::Down), Some(1));
+        assert_eq!(super::library_nav_delta(KeyCode::PageUp), Some(-10));
+        assert_eq!(super::library_nav_delta(KeyCode::PageDown), Some(10));
+        assert_eq!(super::library_nav_delta(KeyCode::Home), Some(isize::MIN));
+        assert_eq!(super::library_nav_delta(KeyCode::End), Some(isize::MAX));
+        assert_eq!(super::library_nav_delta(KeyCode::Enter), None);
     }
 }

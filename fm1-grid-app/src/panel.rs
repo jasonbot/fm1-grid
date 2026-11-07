@@ -24,11 +24,11 @@ const WHITE_KEY_DEPTH: f32 = 10.0;
 /// The membrane window near the top of a key.
 const KEY_LED_INSET: f32 = 0.36;
 const KEY_LED_TOP: f32 = 1.0;
-const KEY_LED_HEIGHT: f32 = 20.0;
+const KEY_LED_HEIGHT: f32 = 45.0;
 const KEY_LED_RADIUS: f32 = 6.0;
 const KEY_LED_RINGS: usize = 4;
 /// The unpressed window sits a little higher; pressing sinks it.
-const KEY_LED_DEPTH: f32 = 2.0;
+const KEY_LED_DEPTH: f32 = 3.0;
 const KEY_LED_FILL_ALPHA: f32 = 0.16;
 const KEY_LED_EDGE_ALPHA: f32 = 0.55;
 /// The lit lip just above a white key's shade strip.

@@ -421,7 +421,7 @@ fn footer(frame: &mut Frame, app: &mut TuiApp, area: Rect) {
                 hints
             }
             Focus::Graph => " ↑↓ select · Enter connect/unroute · m MIDI in · Tab filter/list · space clock · −/+ tempo · q quit".to_string(),
-            Focus::Filter => " type to filter · Backspace edit · Ctrl-U clear · Enter/Esc back · Tab graph · Ctrl-C quit".to_string(),
+            Focus::Filter => " type to filter · Backspace edit · Ctrl-U clear · Esc clear/back · Enter back · Tab graph · Ctrl-C quit".to_string(),
         };
         Line::from(dim(hints))
     };

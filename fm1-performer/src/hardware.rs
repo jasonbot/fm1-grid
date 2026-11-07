@@ -14,8 +14,8 @@
 //!   (the running firmware stages the update loader) ends with a request for address
 //!   0xE000_0000, answered with "success"; the unit reboots into its loader, which
 //!   pulls the same image again (ending at 0xF000_0000) and writes the flash. The unit
-//!   then reboots into the new firmware, whose identity must equal the package's
-//!   product string.
+//!   then reboots into the new firmware, whose identity must match the package's
+//!   product string (models in the SMK-37 family take one another's builds).
 //! - Packages: a .fwsc file embeds its product string in the last byte of each of its
 //!   first twenty 48-byte blocks (0x7D = no character, otherwise the character is
 //!   `(byte - block - 1) & 0xFF`). The image the device pulls is the package with
@@ -62,7 +62,7 @@ const PKG_KEEP: usize = 0x2F;
 
 /// Port names the scanner may handshake-probe (the firmware hub's filter, lowercased).
 /// Anything else is somebody's MIDI keyboard and is never touched.
-const PROBE_NAMES: [&str; 11] = [
+const PROBE_NAMES: [&str; 14] = [
     "fm-1",
     "felucca",
     "sloop",
@@ -74,6 +74,9 @@ const PROBE_NAMES: [&str; 11] = [
     "composite",
     "sinco",
     "usb-midi",
+    "smk-37",
+    "smk37",
+    "starrykey",
 ];
 
 /// The store object holding the probe needles learned from successful flashes (a unit
@@ -276,6 +279,32 @@ fn logical_image(fwsc: &[u8]) -> Vec<u8> {
     }
     out.extend_from_slice(&fwsc[PKG_BLOCKS * PKG_BLOCK..]);
     out
+}
+
+/// M-VAVE's SMK-37 Pro, SMK-37 Elite and MKE-P37, and the Donner Starrykey 37 Play
+/// that reports its own name, all share the board and take one another's packages.
+fn is_smk37_model(model: &str) -> bool {
+    let model = model.trim();
+    model.to_ascii_lowercase().starts_with("smk-37")
+        || model.eq_ignore_ascii_case("MKE-P37")
+        || model.eq_ignore_ascii_case("STARRYKEY-37 PLAY")
+}
+
+/// Whether a device can take a package built for `package_model`. FM-1 and the
+/// SMK-37 family never cross; inside the SMK-37 family the builds are
+/// interchangeable, which is how the Starrykey 37 Play runs the SMK-37 Pro build.
+fn same_model(device_model: &str, package_model: &str) -> bool {
+    device_model.trim().eq_ignore_ascii_case(package_model.trim())
+        || (is_smk37_model(device_model) && is_smk37_model(package_model))
+}
+
+/// Whether the identity a device reports after a flash is the package's: the same
+/// model family (see [`same_model`]) at the same version.
+fn same_identity(reported: &str, product: &str) -> bool {
+    let (reported_model, reported_version) =
+        reported.split_once('_').unwrap_or((reported, ""));
+    let (product_model, product_version) = product.split_once('_').unwrap_or((product, ""));
+    same_model(reported_model, product_model) && reported_version == product_version
 }
 
 /// Pack 8-bit data into SysEx 7-bit words (a little-endian bit stream), as the update
@@ -1176,7 +1205,7 @@ fn flash_flow(
                     .to_string(),
             );
         };
-        if current_model.as_deref() != Some(model) {
+        if !current_model.as_deref().is_some_and(|m| same_model(m, model)) {
             return Err(format!(
                 "the device is {current}, the package is for {product}: nothing was sent"
             ));
@@ -1199,7 +1228,10 @@ fn flash_flow(
             *identity = None;
         }
         let loader = wait_for_device(devices, clock, board, Duration::from_secs(30), |text| {
-            text.to_lowercase().starts_with("ota-") && strip_ota(text).split_once('_').map(|(m, _)| m) == Some(model)
+            text.to_lowercase().starts_with("ota-")
+                && strip_ota(text)
+                    .split_once('_')
+                    .is_some_and(|(m, _)| same_model(m, model))
         });
         let Some((loader_link, _, loader_flash, _)) = loader else {
             return Err(
@@ -1219,7 +1251,7 @@ fn flash_flow(
     // Flash on the loader's row). Step 2 straight away.
     publish(flash, board, "checking the update loader…", None);
     let loader_model = current_model.as_deref().map(strip_ota);
-    if loader_model != Some(model) {
+    if !loader_model.is_some_and(|m| same_model(m, model)) {
         return Err(format!(
             "the loader is for another device than {product}: nothing was written"
         ));
@@ -1263,7 +1295,7 @@ fn write_flash(
                 *state = None;
             }
             let text = back_identity.lock().ok().and_then(|i| i.clone());
-            if text.as_deref() == Some(product) {
+            if text.as_deref().is_some_and(|t| same_identity(t, product)) {
                 if let Ok(mut outcome) = back_outcome.lock() {
                     *outcome = Some(format!("flashed: {}", friendly(product)));
                 }
@@ -1371,5 +1403,36 @@ mod tests {
         remember_probe_name(Some(&store), &extras, "FM-1:32 FM-1 MIDI 1:0");
         assert_eq!(extras.lock().unwrap().len(), 1);
         std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn probe_accepts_smk37_and_starrykey_names() {
+        assert!(probe_match("smk-37 pro midi 1 20:0", &[]));
+        assert!(probe_match("smk37 elite midi 1", &[]));
+        assert!(probe_match("starrykey-37 play midi 1", &[]));
+        // A same-prefix product from another maker stays untouched.
+        assert!(!probe_match("acme smk25 midi 1", &[]));
+    }
+
+    #[test]
+    fn smk37_family_takes_each_others_packages() {
+        // The reported case: a Donner Starrykey 37 Play running an SMK-37 Pro build.
+        assert!(same_model("STARRYKEY-37 PLAY", "SMK-37 Pro"));
+        assert!(same_model("starrykey-37 play", "smk-37 pro"));
+        assert!(same_model("SMK-37 Elite", "SMK-37 Pro"));
+        assert!(same_model("MKE-P37", "SMK-37 Pro"));
+        // FM-1 and unknown names stay apart.
+        assert!(!same_model("FM-1", "SMK-37 Pro"));
+        assert!(!same_model("SMK-37 Pro", "FM-1"));
+        assert!(!same_model("SOME-OTHER-37", "SMK-37 Pro"));
+    }
+
+    #[test]
+    fn post_flash_identity_accepts_the_model_family() {
+        assert!(same_identity("SMK-37 Pro_300", "SMK-37 Pro_300"));
+        assert!(same_identity("STARRYKEY-37 PLAY_300", "SMK-37 Pro_300"));
+        assert!(!same_identity("STARRYKEY-37 PLAY_301", "SMK-37 Pro_300"));
+        assert!(!same_identity("FM-1_300", "SMK-37 Pro_300"));
+        assert!(!same_identity("SMK-37 Pro", "SMK-37 Pro_300"));
     }
 }

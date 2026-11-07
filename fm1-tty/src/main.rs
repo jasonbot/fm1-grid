@@ -32,6 +32,7 @@ fn main() -> std::io::Result<()> {
     let mut terminal = ratatui::Terminal::new(ratatui::backend::CrosstermBackend::new(stdout))?;
     let mut app = app::TuiApp::new();
     let result = run(&mut terminal, &mut app);
+    app.save_session();
     restore()?;
     result
 }
@@ -110,7 +111,11 @@ fn on_key(app: &mut app::TuiApp, key: ratatui::crossterm::event::KeyEvent) {
     // The filter field takes printable keys; only its own edits and exits apply.
     if app.focus == Focus::Filter {
         match key.code {
-            KeyCode::Esc | KeyCode::Enter => app.focus = Focus::Library,
+            KeyCode::Esc => {
+                app.filter_clear();
+                app.focus = Focus::Library;
+            }
+            KeyCode::Enter => app.focus = Focus::Library,
             KeyCode::Tab => app.focus = Focus::Graph,
             KeyCode::Backspace => app.filter_backspace(),
             KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {

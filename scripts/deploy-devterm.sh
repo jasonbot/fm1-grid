@@ -78,7 +78,9 @@ podman run --rm --userns=keep-id --user "$(id -u):$(id -g)" \
 
 echo "==> installing $BIN to $REMOTE:~/bin"
 "${SSH[@]}" "$REMOTE" 'mkdir -p ~/bin'
-"${SCP[@]}" "$ROOT/$BIN" "$REMOTE:bin/$APP"
+# Rename over the old file: replacing a running binary in place fails with ETXTBSY.
+"${SCP[@]}" "$ROOT/$BIN" "$REMOTE:bin/.$APP.new"
+"${SSH[@]}" "$REMOTE" "mv -f ~/bin/.$APP.new ~/bin/$APP"
 
 echo "==> checking device runtime dependencies"
 "${SSH[@]}" "$REMOTE" "APP=$(printf %q "$APP") SUDO_PASS=$(printf %q "$PASS") bash -s" <<'REMOTE'

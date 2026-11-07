@@ -37,10 +37,11 @@ and when the app quits, and come back at the next boot. Pinned panes restore at
 startup (still powered off); unpinning forgets the pane's saved flash. Every pane's
 firmware selection and pin restore the same way, and removing a firmware from the
 Library powers off the panes set to it and re-seats them with a random available
-one. The split position, selected tab (and Devices
-section), selected pane, metronome tempo, Download All toggle, theme, appearance
-override and accent colour restore the same way. State lives in the com.fm1-grid
-data directory (`~/.local/share/fm1-grid` on Linux).
+one. The split position, selected tab (and Devices section), selected pane, theme,
+appearance override and accent colour restore the same way. The metronome tempo, the
+Library's Download All toggle and device checkboxes are stored once and shared with
+fm1-tty, so both apps see the same values. State lives in the com.fm1-grid data
+directory (`~/.local/share/fm1-grid` on Linux).
 
 The **Library** tab lists every firmware the app knows — the bundled set, files you
 import, and (online) everything the
@@ -55,10 +56,11 @@ same firmware when their names match after ignoring case and punctuation, or whe
 name contains the other, as long as both credit the same author (again ignoring case).
 SMK-37 firmware comes from mutant.cloud and Reverbose's SMK-37 list. The hub's own
 SMK-37 page only links to each maker's installer, so the app has no package to
-download there. Each SMK-37
-row carries a tag naming the model it is built for — `SMK-37 Pro`, `SMK-37 Elite` or
-`MKE-P37` — and when one firmware ships one package per model, the model is added to
-the row's name so the builds stay apart. Computer-side tools
+download there. Each SMK-37 row carries a tag naming the model it is built for —
+`SMK-37 Pro`, `SMK-37 Elite` or `MKE-P37` — and when one firmware ships one package
+per model, the model is added to the row's name so the builds stay apart. The Donner
+Starrykey 37 Play reports its own model name, but it is the same board as the SMK-37
+Pro and runs those packages. Computer-side tools
 (programs that run on your computer instead of flashing the hardware) are left out
 where a listing labels them: Reverbose's tool cards and mutant.cloud's tools. Each
 row has a `source:` tag saying where its download comes from — `builtin`, `hub`,
@@ -74,8 +76,8 @@ Clicking a tag pill toggles that tag's words in the filter. Next to the filter b
 a **Devices** button with a tick for FM-1 and one for SMK-37. FM-1 is on and SMK-37
 is off when you start, so the list only shows what the panes can run; tick SMK-37 to
 see those builds too. The app remembers both ticks. The emulator cannot run SMK-37
-firmware, so those rows cannot be flashed from here — their makers' installers do
-that. Each row leads with a favorite button: favoriting is remembered across
+firmware, so the GUI's Library keeps those rows unflashable; fm1-tty flashes them to
+a live unit. Each row leads with a favorite button: favoriting is remembered across
 restarts, a favorite's pills gain a glyph (`★` by default) and every other row the
 hollow `☆`, and the pill filters the list like any tag. The small arrow beside the
 favorite button opens a menu that gives the favorite another glyph: `★`, `⮾` (known
@@ -215,7 +217,8 @@ and vice versa.
 A smaller version of the app that runs in a plain terminal. It talks to real FM-1
 units over USB and has no emulators — a terminal can't draw their screens. It runs
 the same fm1-performer core as the GUI app, so the library and flashing work the same
-way.
+way. The metronome tempo, the Library's device checkboxes and the Download All toggle
+come back after a restart; the clock's run state does not.
 
 ```sh
 cargo run --release -p fm1-tty
@@ -246,7 +249,8 @@ The screen has four parts:
   status on the first, then as much of its description as fits in dim text.
   * `/` focuses the filter box above the list; type any words and every row whose
     name, version, tags, byline or description contains all of them (case-insensitive)
-    stays. `Enter` or `Esc` hands the keyboard back to the list, `Ctrl-U` clears.
+    stays. `Enter` hands the keyboard back to the list; `Esc` clears the filter and
+    goes back. `Ctrl-U` clears without leaving the field.
   * `v` opens the **device selector**: FM-1 is shown by default and SMK-37 is not,
     exactly like the GUI. Toggle either row with `Enter`; the field shows the current
     choice.
@@ -262,10 +266,11 @@ The screen has four parts:
   * `a` toggles **Download All**: every offer is downloaded in turn, one at a time,
     and rows with a newer version on the hub get upgraded, skipping items that
     fail (flip it off and on to retry them). The title shows `ALL` while it runs.
-    It is not remembered between runs.
-  * `f` flashes it onto a plugged-in FM-1 — with rescue mode on, onto any MIDI port
-    (the picker flags those rows `RESCUE:`). With more than one target it asks which
-    one. A pop-up shows progress; on failure it stays up until `Esc`.
+    It is remembered between runs.
+  * `f` flashes it onto a plugged-in unit — an FM-1, an SMK-37, or a Donner
+    Starrykey 37 Play, which takes the SMK-37 Pro build — with rescue mode on, onto
+    any MIDI port (the picker flags those rows `RESCUE:`). With more than one target
+    it asks which one. A pop-up shows progress; on failure it stays up until `Esc`.
 * **Metronome** — the same MIDI-clock beat as the GUI. `Space` starts and stops it,
   `-` and `+` nudge the tempo, `[` and `]` jump by ten. The light blinks on every
   beat, and every FM-1 follows the clock.

@@ -5,10 +5,12 @@
 use fm1_performer::clock::Clock;
 use fm1_performer::firmware_picker::{pick_of, FirmwarePick};
 use fm1_performer::hardware::{DeviceRow, FlashState, Hardware};
-use fm1_performer::library::{Firmware, FirmwareDevice, FirmwareSource, HubStatus, Library, Status};
+use fm1_performer::library::{Firmware, FirmwareSource, HubStatus, Library, Status};
 use fm1_performer::midi_keys::MidiKeys;
 use fm1_performer::routing::{Endpoint, Port, Routing};
 use fm1_performer::store::Store;
+
+use fm1_performer::session::Shared;
 use ratatui::layout::Rect;
 use ratatui::widgets::ListState;
 use std::collections::{HashMap, HashSet};
@@ -41,28 +43,8 @@ pub enum Popup {
     GraphSinks(Port, usize),
 }
 
-/// Which device families the library lists, mirroring the GUI's device dropdown.
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub struct DeviceFilter {
-    pub fm1: bool,
-    pub smk37: bool,
-}
-
-impl Default for DeviceFilter {
-    fn default() -> Self {
-        // FM-1 only, like the GUI.
-        Self { fm1: true, smk37: false }
-    }
-}
-
-impl DeviceFilter {
-    fn shows(self, device: FirmwareDevice) -> bool {
-        match device {
-            FirmwareDevice::Fm1 => self.fm1,
-            FirmwareDevice::Smk37 => self.smk37,
-        }
-    }
-}
+/// Which device families the library lists, shared with the GUI.
+pub use fm1_performer::session::DeviceFilter;
 
 /// A row of the MIDI-graph panel, in draw order. Sources are always shown, linked or
 /// not; each source's links follow, then its always-there connect action.
@@ -137,8 +119,8 @@ pub struct TuiApp {
     /// A dismissed flash board stays down until the next flash starts.
     flash_dismissed: bool,
     /// The Download All toggle: sweeps run on toggle-on, on a hub swap and when a
-    /// download finishes (the library's pump); never on a poll. Not persisted — the
-    /// TUI has no session record.
+    /// download finishes (the library's pump); never on a poll. Saved in the tty
+    /// session record.
     pub download_all: bool,
     /// The rescue toggle: offer every system MIDI port as a flash target too, for
     /// units too bricked to answer to their name. `rescue_ports` is the last sweep.
@@ -256,9 +238,12 @@ impl TuiApp {
         };
         // The store comes first: the scanner loads its remembered probe names from it.
         let hardware = Hardware::start(clock.clone(), routing.clone(), store.clone());
+        let shared = Shared::load(store.as_ref());
+        clock.set_bpm(shared.bpm);
         let mut library = store.as_ref().map(Library::load);
         if let Some(library) = &mut library {
             library.refresh_hub();
+            library.set_download_all(shared.download_all);
         }
         Self {
             clock,
@@ -274,7 +259,7 @@ impl TuiApp {
             focus: Focus::Library,
             popup: None,
             filter: String::new(),
-            device_filter: DeviceFilter::default(),
+            device_filter: shared.device_filter,
             endpoints: Vec::new(),
             links: Vec::new(),
             graph_sel: 0,
@@ -283,7 +268,7 @@ impl TuiApp {
             linked: Vec::new(),
             links_key: None,
             flash_dismissed: false,
-            download_all: false,
+            download_all: shared.download_all,
             rescue: false,
             rescue_ports: Vec::new(),
             rescue_at: Instant::now() - Duration::from_secs(1),
@@ -296,6 +281,17 @@ impl TuiApp {
             osc_percent: None,
             osc_error_until: None,
         }
+    }
+
+    /// Snapshot the saved state to the store; the quit path and the two toggles call
+    /// it. Tempo changes land on quit like the GUI's session record.
+    pub fn save_session(&self) {
+        Shared {
+            bpm: self.clock.bpm(),
+            download_all: self.download_all,
+            device_filter: self.device_filter,
+        }
+        .save(self.store.as_ref());
     }
 
     /// The per-frame update: fold in finished downloads, track the devices, refresh
@@ -530,6 +526,7 @@ impl TuiApp {
             _ => return,
         }
         self.rebuild_view();
+        self.save_session();
     }
 
     /// Move the library selection (negative up).
@@ -690,6 +687,7 @@ impl TuiApp {
         } else {
             "download all off".to_string()
         });
+        self.save_session();
     }
 
     /// The rescue toggle (shift-R): every system MIDI port becomes a flash target,
@@ -820,6 +818,7 @@ impl TuiApp {
     /// Nudge the tempo (clamped by the clock).
     pub fn bump_bpm(&self, delta: i32) {
         self.clock.set_bpm(self.clock.bpm().saturating_add_signed(delta));
+        self.save_session();
     }
 
     // ---- flash board + status ----------------------------------------------------

@@ -591,6 +591,7 @@ impl GridApp {
                             // last time); from there the tick's pump only advances
                             // on a finished download or a hub swap.
                             this.library.set_download_all(this.download_all);
+                            this.save_session(cx);
                             cx.notify();
                         }))
                         .into_any_element(),

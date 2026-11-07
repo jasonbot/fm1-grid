@@ -70,31 +70,8 @@ pub(crate) enum Appearance {
     Dark,
 }
 
-/// The Library tab's device checkboxes: FM-1 on, SMK-37 off until asked for.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(default)]
-pub(crate) struct DeviceFilter {
-    pub fm1: bool,
-    pub smk37: bool,
-}
-
-impl Default for DeviceFilter {
-    fn default() -> Self {
-        Self {
-            fm1: true,
-            smk37: false,
-        }
-    }
-}
-
-impl DeviceFilter {
-    pub(crate) fn shows(&self, device: fm1_performer::library::FirmwareDevice) -> bool {
-        match device {
-            fm1_performer::library::FirmwareDevice::Fm1 => self.fm1,
-            fm1_performer::library::FirmwareDevice::Smk37 => self.smk37,
-        }
-    }
-}
+/// The Library tab's device checkboxes, shared with fm1-tty.
+pub(crate) use fm1_performer::session::DeviceFilter;
 
 #[derive(Default)]
 pub(crate) struct Slot {
@@ -421,7 +398,8 @@ impl GridApp {
         // The previous session's layout and tempo; the tempo field below initialises
         // from the clock, so the restored bpm lands on it first.
         let session = crate::session::Session::load(store.as_ref());
-        clock.set_bpm(session.bpm);
+        let shared = fm1_performer::session::Shared::load(store.as_ref());
+        clock.set_bpm(shared.bpm);
         let emulator_split = cx.new(|_| ResizableState::default());
 
         let focus = cx.focus_handle().tab_stop(true);
@@ -558,6 +536,9 @@ impl GridApp {
                         state.set_value(formatted, window, cx);
                     });
                 }
+                if matches!(event, SliderEvent::Release(_)) {
+                    this.save_session(cx);
+                }
                 cx.notify();
             },
         ));
@@ -595,10 +576,10 @@ impl GridApp {
             library.refresh_hub();
         }
         // Download All only walks the device families the Library tab shows.
-        library.set_device_filter(Some((session.device_filter.fm1, session.device_filter.smk37)));
+        library.set_device_filter(Some((shared.device_filter.fm1, shared.device_filter.smk37)));
         // An armed Download All sweeps when the first catalog lands (the pump's
         // hub-swap trigger), not on a poll.
-        library.set_download_all(session.download_all);
+        library.set_download_all(shared.download_all);
         // The snap-in animation plays for rows the library gains from here on;
         // what's already installed at boot is known, not new.
         let lib_known = library
@@ -680,7 +661,7 @@ impl GridApp {
                 .iter()
                 .map(|(name, glyph)| (crate::library_tab::favorite_key(name), glyph.clone()))
                 .collect(),
-            device_filter: session.device_filter,
+            device_filter: shared.device_filter,
             lib_scroll_to: None,
             lib_known,
             lib_added: Default::default(),
@@ -692,7 +673,7 @@ impl GridApp {
             graph_added: Default::default(),
             graph_removed: Default::default(),
             graph_known: Default::default(),
-            download_all: session.download_all,
+            download_all: shared.download_all,
             theme_id: session.theme.clone(),
             appearance: session.appearance,
             accent: session.accent.clone(),
@@ -1309,6 +1290,7 @@ impl GridApp {
         }
         self.tempo_slider
             .update(cx, |slider, cx| slider.set_value(bpm as f32, window, cx));
+        self.save_session(cx);
     }
 
     /// Fold the routing graph's current links into the animation maps: a new link

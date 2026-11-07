@@ -20,6 +20,8 @@ pub mod midi_keys;
 pub mod routing;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod sources;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod session;
 pub mod store;
 pub mod usbmidi;
 

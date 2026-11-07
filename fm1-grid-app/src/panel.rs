@@ -621,6 +621,8 @@ impl GridApp {
                     cx.notify();
                 }),
             )
+            // Keep the strip under one wrapper: GPUI's flex row mislays the black
+            // keys when an absolute child is added to the key directly.
             .child(
                 div()
                     .size_full()

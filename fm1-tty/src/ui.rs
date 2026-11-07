@@ -191,9 +191,10 @@ fn graph(frame: &mut Frame, app: &mut TuiApp, area: Rect) {
         );
         return;
     }
+    let width = list_area.width as usize;
     let items: Vec<ListItem> = rows
         .iter()
-        .map(|row| ListItem::new(graph_line(app, row)))
+        .map(|row| ListItem::new(graph_line(app, row, width)))
         .collect();
     let highlight = if focused {
         Style::default().add_modifier(Modifier::REVERSED)
@@ -217,12 +218,28 @@ fn graph(frame: &mut Frame, app: &mut TuiApp, area: Rect) {
 
 /// One graph row's line: a bold source heading with its connect action, or an
 /// unroute pill and its sink.
-fn graph_line(app: &TuiApp, row: &GraphRow) -> Line<'static> {
+fn graph_line(app: &TuiApp, row: &GraphRow, width: usize) -> Line<'static> {
     match row {
-        GraphRow::Source(port) => Line::from(vec![
-            bold(format!(" {}", app.graph_source_label(port))),
-            Span::styled("  + connect…", Style::default().fg(ACCENT)),
-        ]),
+        GraphRow::Source(port) => {
+            let name = app.graph_source_name(port);
+            let kind = app.graph_source_kind(port);
+            let connect = "+ connect…";
+            let right = kind.map_or_else(
+                || cols(connect),
+                |kind| cols(kind) + 2 + cols(connect),
+            );
+            let pad = width.saturating_sub(1 + cols(&name) + right);
+            let mut spans = vec![
+                bold(format!(" {name}")),
+                Span::raw(" ".repeat(pad)),
+            ];
+            if let Some(kind) = kind {
+                spans.push(dim(kind));
+                spans.push(Span::raw("  "));
+            }
+            spans.push(Span::styled(connect, Style::default().fg(ACCENT)));
+            Line::from(spans)
+        }
         GraphRow::Link(_, sink) => Line::from(vec![
             Span::styled("   × ", Style::default().fg(ERR)),
             dim(app.graph_source_label(sink)),

@@ -580,25 +580,31 @@ impl TuiApp {
         graph_rows(&self.endpoints, &self.links)
     }
 
-    /// An endpoint's display label ("gone" if it disappeared since the snapshot).
-    pub fn graph_source_label(&self, port: &Port) -> String {
-        let label = self
-            .endpoints
+    /// An endpoint's name ("gone" if it disappeared since the snapshot).
+    pub fn graph_source_name(&self, port: &Port) -> String {
+        self.endpoints
             .iter()
             .find(|endpoint| &endpoint.port == port)
-            .map_or_else(|| "gone".to_string(), |endpoint| endpoint.label.clone());
-        if let Port::Device(name) = port {
-            if let Some(kind) = self
-                .devices
-                .iter()
-                .find(|device| &device.name == name)
-                .and_then(|device| device.identity.as_deref())
-                .and_then(device_type)
-            {
-                return format!("{label} ({kind})");
-            }
-        }
-        label
+            .map_or_else(|| "gone".to_string(), |endpoint| endpoint.label.clone())
+    }
+
+    /// The recognised keyboard model behind a live-device endpoint.
+    pub fn graph_source_kind(&self, port: &Port) -> Option<&'static str> {
+        let Port::Device(name) = port else {
+            return None;
+        };
+        self.devices
+            .iter()
+            .find(|device| &device.name == name)
+            .and_then(|device| device.identity.as_deref())
+            .and_then(device_type)
+    }
+
+    /// The endpoint label, with the model when it is recognised.
+    pub fn graph_source_label(&self, port: &Port) -> String {
+        let label = self.graph_source_name(port);
+        self.graph_source_kind(port)
+            .map_or(label.clone(), |kind| format!("{label} ({kind})"))
     }
 
     /// The sinks a source could still feed: every sink endpoint it has no link to.

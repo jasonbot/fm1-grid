@@ -152,7 +152,7 @@ impl GridApp {
             // show the recessed look at 1x.
             self.frames[slot] = Some(if slot == self.active {
                 let faithful: Vec<lcd::Rgb> = fb.iter().map(|&px| lcd::rgb565(px)).collect();
-                let scale = if matches!(self.sidebar_scale, 2 | 4) {
+                let scale = if matches!(self.sidebar_scale, 2 | 3 | 4 | 6) {
                     self.sidebar_scale
                 } else {
                     1

@@ -120,12 +120,11 @@ pub(crate) fn magnified(pixels: &[Rgb], scale: usize) -> Vec<Rgb> {
     out
 }
 
-/// The sidebar's picture of the selected pane's screen: the faithful pixels run through
-/// the hqx filter at an exact 2x or 4x (`scale`), smoothing jagged edges while keeping
-/// lines crisp. Any other scale passes the pixels through untouched (1x needs no
-/// filter, and fractional scales never reach here).
+/// The sidebar's picture of the selected pane's screen. Exact 2x, 3x and 4x use one
+/// hqx pass; 6x runs hq2x and then hq3x. Other scales pass through untouched (1x
+/// needs no filter, and fractional scales never reach here).
 pub(crate) fn upscaled(pixels: &[Rgb], scale: usize) -> Vec<Rgb> {
-    if scale != 2 && scale != 4 {
+    if !matches!(scale, 2 | 3 | 4 | 6) {
         return pixels.to_vec();
     }
     // hqx works on 0xAARRGGBB words; the LCD is opaque, so alpha is always full.
@@ -136,7 +135,13 @@ pub(crate) fn upscaled(pixels: &[Rgb], scale: usize) -> Vec<Rgb> {
     let mut dest = vec![0u32; LCD_W * LCD_H * scale * scale];
     match scale {
         2 => hqx::hq2x(&src, &mut dest, LCD_W as u32, LCD_H as u32),
-        _ => hqx::hq4x(&src, &mut dest, LCD_W as u32, LCD_H as u32),
+        3 => hqx::hq3x(&src, &mut dest, LCD_W as u32, LCD_H as u32),
+        4 => hqx::hq4x(&src, &mut dest, LCD_W as u32, LCD_H as u32),
+        _ => {
+            let mut mid = vec![0u32; LCD_W * LCD_H * 4];
+            hqx::hq2x(&src, &mut mid, LCD_W as u32, LCD_H as u32);
+            hqx::hq3x(&mid, &mut dest, (LCD_W * 2) as u32, (LCD_H * 2) as u32);
+        }
     }
     dest.iter()
         .map(|&v| {
@@ -167,3 +172,19 @@ pub(crate) fn blank_image() -> Arc<RenderImage> {
     frame_image(&blank(), LCD_W, LCD_H)
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sidebar_scales_cover_1_2_3_4_and_6() {
+        let pixels = vec![[12, 34, 56]; LCD_W * LCD_H];
+        for scale in [1, 2, 3, 4, 6] {
+            assert_eq!(
+                upscaled(&pixels, scale).len(),
+                LCD_W * LCD_H * scale * scale,
+                "scale {scale}"
+            );
+        }
+    }
+}

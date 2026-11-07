@@ -24,7 +24,7 @@ cargo run --release -p fm1-grid
 ## Emulator tab
 
 - The grid shows each screen at 1x (240×240). Small windows use 0.5x.
-- The selected card gets a slight fisheye bulge. Its screen also shows in the sidebar at 2x or 4x.
+- The selected card gets a slight fisheye bulge. Its screen also shows in the sidebar at 1x, 2x, 3x, 4x or 6x.
 - The grid background follows the main color of the selected screen.
 - The front panel is a working control surface. Click keys and buttons. Turn knobs with −/+ or the mouse wheel.
 - The panel lights follow the firmware and your keyboard.

@@ -284,9 +284,9 @@ pub struct GridApp {
     bg_at: Instant,
     bg_sampled_at: Instant,
     dominant_slot: usize,
-    /// The sidebar screen's exact upscale factor (1, 2 or 4), decided by the sidebar
-    /// panel's rendered size last frame and applied by `upload_lcds` with the hqx
-    /// filter (nearest-neighbour while the pane's dropout health is orange or worse).
+    /// The sidebar screen's exact upscale factor (1, 2, 3, 4 or 6), decided by the
+    /// sidebar panel's rendered size last frame and applied by `upload_lcds` with the
+    /// hqx filter (nearest-neighbour while the pane's dropout health is orange or worse).
     pub(crate) sidebar_scale: usize,
     /// The sidebar panel's rendered size, recorded during prepaint (one frame of lag,
     /// the same trade the egui layout made with the graph height).

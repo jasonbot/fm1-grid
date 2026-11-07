@@ -25,11 +25,11 @@ pub(crate) fn halfway(a: gpui_kit::Hsla, b: gpui_kit::Hsla) -> gpui_kit::Hsla {
 
 /// Layout constants shared across the window.
 ///
-/// The sidebar split's initial/min/max widths: the screen at 2x, 1x and 4x plus its
+/// The sidebar split's initial/min/max widths: the screen at 2x, 1x and 6x plus its
 /// bezel and padding.
 pub(crate) const SIDEBAR_INITIAL: f32 = 512.0;
 pub(crate) const SIDEBAR_MIN: f32 = 272.0;
-pub(crate) const SIDEBAR_MAX: f32 = 992.0;
+pub(crate) const SIDEBAR_MAX: f32 = 1462.0;
 /// The firmware comboboxes' dropdown width (sidebar and devices pane).
 pub(crate) const COMBO_MENU_W: f32 = 260.0;
 

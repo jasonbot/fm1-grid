@@ -6,7 +6,7 @@ const PANEL_PAD_Y: f32 = 2.0;
 impl GridApp {
     /// The Emulator tab: the 2x2 grid and the selected pane's sidebar in a draggable
     /// split, with the miniature front panel tucked at the bottom — the only tab that
-    /// shows it. The sidebar's range holds the screen at 1x to 4x; the grid panel's
+    /// shows it. The sidebar's range holds the screen at 1x to 6x; the grid panel's
     /// minimum keeps the 0.5x cards whole (the cards snap down when it shrinks).
     pub(super) fn emulator_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let compact = window.viewport_size().height < px(PANEL_COMPACT_BELOW);
@@ -20,7 +20,7 @@ impl GridApp {
                             // gpui-base rescales panels with the container only when
                             // every panel has a size; an unsized grid panel would pin
                             // the sidebar to its initial width (and its screen would
-                            // never reach 4x).
+                            // never reach 6x).
                             resizable_panel()
                                 .size(px(1152.0 - self.sidebar_width))
                                 .size_range(px(crate::grid::GRID_MIN_W)..Pixels::MAX)

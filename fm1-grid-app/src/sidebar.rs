@@ -16,8 +16,10 @@ use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::component::combobox::Combobox;
 use gpui_kit::*;
 
-/// Exact pixel multiples the screen can show at, largest first (4x, 2x, 1x).
-const SCREEN_SIDES: [f32; 3] = [960.0, 480.0, 240.0];
+/// One screen pixel, before upscaling.
+const SCREEN_BASE: f32 = 240.0;
+/// Exact pixel multiples the screen can show at, largest first.
+const SCREEN_SIDES: [f32; 5] = [1440.0, 960.0, 720.0, 480.0, 240.0];
 /// Horizontal chrome around the screen: the panel's padding and the bezel.
 const FIT_W_CHROME: f32 = 22.0;
 /// Vertical chrome: the controls row, the slot-pill row, the gaps and the padding.
@@ -31,9 +33,9 @@ const COMBO_H: f32 = 32.0;
 impl GridApp {
     /// The sidebar takes a fixed share of the window's width (the grid keeps the rest)
     /// and its full height. The selected screen shows at an exact pixel multiple —
-    /// 4x, 2x or 1x (960/480/240), the largest that fits the width the sidebar had
-    /// last frame — so every LCD pixel maps to a clean block of screen pixels (the
-    /// image arrives hqx-upscaled to match).
+    /// 6x, 4x, 3x, 2x or 1x (1440/960/720/480/240), the largest that fits the
+    /// sidebar last frame — so every LCD pixel maps to a clean block of screen pixels
+    /// (the image arrives upscaled to match).
     pub fn device_sidebar(
         &mut self,
         _window: &mut Window,
@@ -41,10 +43,10 @@ impl GridApp {
     ) -> impl IntoElement {
         let surface = cx.theme().popover;
 
-        // The screen shows at an exact pixel multiple — 4x, 2x or 1x (960/480/240),
-        // the largest that fits the width the split gives the panel and the height the
-        // attributes row leaves. Computed from last frame's measured content size (one
-        // frame of lag, as with the graph height in the egui app).
+        // The screen shows at an exact pixel multiple — 6x, 4x, 3x, 2x or 1x
+        // (1440/960/720/480/240), the largest that fits the panel's width and
+        // height. Computed from last frame's measured content size (one frame of
+        // lag, as with the graph height in the egui app).
         let (panel_w, panel_h) = self.sidebar_size;
         let fit_w = panel_w - FIT_W_CHROME;
         let fit_h = panel_h - FIT_H_CHROME;
@@ -53,7 +55,7 @@ impl GridApp {
             .into_iter()
             .find(|&exact| exact <= fit)
             .unwrap_or(fit);
-        self.sidebar_scale = (side / SCREEN_SIDES[2]).round() as usize;
+        self.sidebar_scale = (side / SCREEN_BASE).round() as usize;
 
         // Record the rendered size for next frame's scale choice.
         let app = cx.entity().clone();

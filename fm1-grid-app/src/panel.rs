@@ -22,11 +22,11 @@ const KEY_MARGIN: f32 = 6.0;
 /// The shaded depth strip at the bottom of each key.
 const WHITE_KEY_DEPTH: f32 = 10.0;
 /// The membrane window near the top of a key.
-const KEY_LED_INSET: f32 = 0.22;
-const KEY_LED_TOP: f32 = 3.0;
-const KEY_LED_HEIGHT: f32 = 16.0;
+const KEY_LED_INSET: f32 = 0.36;
+const KEY_LED_TOP: f32 = 1.0;
+const KEY_LED_HEIGHT: f32 = 20.0;
 const KEY_LED_RADIUS: f32 = 6.0;
-const KEY_LED_FRINGE: f32 = 4.0;
+const KEY_LED_RINGS: usize = 4;
 /// The unpressed window sits a little higher; pressing sinks it.
 const KEY_LED_DEPTH: f32 = 2.0;
 const KEY_LED_FILL_ALPHA: f32 = 0.16;
@@ -152,63 +152,25 @@ fn led_window(fill: Hsla, glow: Hsla, pressed: bool) -> AnyElement {
     if !pressed {
         return window.bg(strip_colors(fill).0).into_any_element();
     }
-    let edge = Hsla { a: KEY_LED_EDGE_ALPHA, ..glow };
-    let clear = Hsla { a: 0.0, ..glow };
-    window
-        .bg(Hsla { a: KEY_LED_FILL_ALPHA, ..glow })
-        .child(
+    let mut window = window.bg(Hsla { a: KEY_LED_FILL_ALPHA, ..glow });
+    for ring in 0..KEY_LED_RINGS {
+        let t = ring as f32 / KEY_LED_RINGS as f32;
+        let alpha =
+            KEY_LED_EDGE_ALPHA + (KEY_LED_FILL_ALPHA - KEY_LED_EDGE_ALPHA) * t;
+        let inset = ring as f32;
+        window = window.child(
             div()
                 .absolute()
-                .left_0()
-                .right_0()
-                .top_0()
-                .h(px(KEY_LED_FRINGE))
-                .bg(linear_gradient(
-                    180.,
-                    linear_color_stop(edge, 0.),
-                    linear_color_stop(clear, 1.),
-                )),
-        )
-        .child(
-            div()
-                .absolute()
-                .left_0()
-                .right_0()
-                .bottom_0()
-                .h(px(KEY_LED_FRINGE))
-                .bg(linear_gradient(
-                    180.,
-                    linear_color_stop(clear, 0.),
-                    linear_color_stop(edge, 1.),
-                )),
-        )
-        .child(
-            div()
-                .absolute()
-                .left_0()
-                .top_0()
-                .bottom_0()
-                .w(px(KEY_LED_FRINGE))
-                .bg(linear_gradient(
-                    90.,
-                    linear_color_stop(edge, 0.),
-                    linear_color_stop(clear, 1.),
-                )),
-        )
-        .child(
-            div()
-                .absolute()
-                .right_0()
-                .top_0()
-                .bottom_0()
-                .w(px(KEY_LED_FRINGE))
-                .bg(linear_gradient(
-                    90.,
-                    linear_color_stop(clear, 0.),
-                    linear_color_stop(edge, 1.),
-                )),
-        )
-        .into_any_element()
+                .left(px(inset))
+                .right(px(inset))
+                .top(px(inset))
+                .bottom(px(inset))
+                .rounded(px((KEY_LED_RADIUS - inset).max(0.0)))
+                .border_1()
+                .border_color(Hsla { a: alpha, ..glow }),
+        );
+    }
+    window.into_any_element()
 }
 
 /// The strip's drawn height in each state.

@@ -5,6 +5,8 @@
 Four emulated M-VAVE FM-1s in a 2×2 grid, each with its own firmware and screen.
 Built with gpui-kit.
 
+![Emulator tab](./screenshot/emulator.png)
+
 Emulators start **off** — flip a pane's power switch in the sidebar to start it.
 Click a pane to send your keyboard there; the selected card gets a colored border.
 
@@ -99,7 +101,7 @@ then it parks. Left on when you quit, it resumes when the app starts and the fir
 catalog lands. The bottom form imports a firmware file with a name, version and
 description; the package's own identity sets the device family and SMK model.
 
-![Screenshot](./screenshot/screen.png)
+![Library tab](./screenshot/library.png)
 
 ## Run
 
@@ -171,6 +173,8 @@ next to the recognized units. That is for a unit so broken it no longer answers 
 its FM-1 name (stuck in its update loader). If no FM-1 is found but some MIDI
 device is out there, the toggle grows a warning ring.
 
+![Devices tab](./screenshot/devices.png)
+
 ## MIDI graph
 
 The Devices tab's second pill is the MIDI graph, connecting sources to sinks: system
@@ -192,6 +196,8 @@ A running pane is a sink only. That is the emulator's limit: the FM-1's TRS jack
 MIDI-in alone, and the firmwares' real MIDI path is USB, which the emulated chip
 cannot enumerate. The graph says so while such a pane runs.
 
+![MIDI graph](./screenshot/midi-graph.png)
+
 ## Settings
 
 The gear icon at the bottom of the rail opens the Settings tab. It is a searchable
@@ -212,6 +218,8 @@ saved with the rest of the app state. The page's Reset button puts the theme and
 back to their defaults. The search box at the top of the sidebar finds settings by
 name or keyword ("dark" finds Mode). A dark-only theme keeps the default light side,
 and vice versa.
+
+![Settings tab](./screenshot/settings.png)
 
 ## fm1-tty
 

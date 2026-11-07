@@ -4,6 +4,9 @@
 //! graph, firmware library, store) lives in the fm1-performer crate. See
 //! GPUI_PORT.md for the egui → gpui-kit split.
 
+/// The window title, shared by the native title bar and the in-app one.
+pub const APP_TITLE: &str = "Synth Firmware Circus";
+
 pub mod app;
 mod audio;
 mod devices;

@@ -245,7 +245,7 @@ impl Render for GridApp {
                         .text_size(px(10.5))
                         .font_weight(FontWeight::BOLD)
                         .text_color(dim)
-                        .child("FM-1 GRID"),
+                        .child(crate::APP_TITLE),
                 ),
             )
             .child(

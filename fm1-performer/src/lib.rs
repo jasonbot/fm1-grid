@@ -6,24 +6,16 @@
 
 pub mod affinity;
 pub mod audio;
-pub mod builtin;
-pub mod clock;
-#[cfg(not(target_arch = "wasm32"))]
-pub mod download_heuristics;
 pub mod emulator;
 pub mod firmware_picker;
-pub mod hardware;
-pub mod keys;
-#[cfg(not(target_arch = "wasm32"))]
-pub mod library;
-pub mod midi_keys;
-pub mod routing;
-#[cfg(not(target_arch = "wasm32"))]
-pub mod sources;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod session;
-pub mod store;
 pub mod usbmidi;
+
+// The shared pieces live in their own crates; keep the old paths working for the apps.
+pub use fm1_base::{clock, keys, midi_keys, routing, store};
+pub use fm1_firmware::{builtin, download_heuristics, library, sources};
+pub use fm1_hardware as hardware;
 
 /// The 2x2 grid of emulator panes. The arrays in the app, audio mixer and clock are sized
 /// for this. Panes are powered off by default, so idle panes cost nothing.

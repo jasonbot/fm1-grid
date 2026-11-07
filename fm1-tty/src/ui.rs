@@ -8,6 +8,7 @@ use fm1_performer::clock::{MAX_BPM, MIN_BPM};
 use fm1_performer::hardware::{DeviceRow, FlashState};
 use fm1_performer::library::{Firmware, FirmwareDevice, FirmwareSource, HubStatus, Status};
 use fm1_performer::routing::Port;
+use fm1_performer::session::DeviceFilter;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
@@ -323,7 +324,7 @@ fn library_row(firmware: &Firmware, percent: Option<u32>, width: usize) -> ListI
         pill = format!("↑ {pill}");
     }
     if firmware.device == FirmwareDevice::Smk37 {
-        pill = format!("{pill} · smk37");
+        pill = format!("{pill} · {}", firmware.variant().unwrap_or("SMK-37"));
     }
     let pill_color = match firmware.status {
         Status::Missing => ERR,
@@ -334,8 +335,6 @@ fn library_row(firmware: &Firmware, percent: Option<u32>, width: usize) -> ListI
         },
     };
     let pad = width.saturating_sub(cols(&left) + cols(&byline) + cols(&pill) + 1);
-    // Source descriptions can hold paragraph breaks; a list line can't.
-    let description = firmware.description.split_whitespace().collect::<Vec<_>>().join(" ");
     ListItem::new(vec![
         Line::from(vec![
             bold(left),
@@ -343,7 +342,7 @@ fn library_row(firmware: &Firmware, percent: Option<u32>, width: usize) -> ListI
             dim(" ".repeat(pad)),
             Span::styled(pill, Style::default().fg(pill_color)),
         ]),
-        Line::from(dim(format!(" {description}"))),
+        Line::from(dim(format!(" {}", firmware.description))),
     ])
 }
 
@@ -492,11 +491,11 @@ fn midi_popup(frame: &mut Frame, app: &mut TuiApp, sel: usize) {
 /// The library's device-family selector.
 fn device_popup(frame: &mut Frame, app: &mut TuiApp, sel: usize) {
     let check = |on: bool| if on { "[✓]" } else { "[ ]" };
-    let items = vec![
-        Line::from(format!("{} FM-1", check(app.device_filter.fm1))),
-        Line::from(format!("{} SMK-37", check(app.device_filter.smk37))),
-    ];
-    list_popup(frame, app, "Library devices", &items, sel);
+    let items = DeviceFilter::ALL
+        .iter()
+        .map(|choice| Line::from(format!("{} {}", check(*choice == app.device_filter), choice.label())))
+        .collect::<Vec<_>>();
+    list_popup(frame, app, "Library device", &items, sel);
 }
 
 /// The graph's connect menu for one source: every sink it feeds nothing yet.
@@ -599,6 +598,20 @@ mod tests {
             source_url: None,
             source: FirmwareSource::Builtin,
         }
+    }
+
+    #[test]
+    fn library_row_shows_the_smk_submodel() {
+        let mut firmware = firmware("desc");
+        firmware.device = FirmwareDevice::Smk37;
+        firmware.tags = vec!["SMK-37 Pro".to_string()];
+        let item = library_row(&firmware, None, 80);
+        let area = Rect::new(0, 0, 80, 2);
+        let mut buf = Buffer::empty(area);
+        let mut state = ListState::default();
+        StatefulWidget::render(List::new([item]), area, &mut buf, &mut state);
+        let line = (0..80).map(|x| buf[(x, 0)].symbol()).collect::<String>();
+        assert!(line.contains("SMK-37 Pro"));
     }
 
     #[test]

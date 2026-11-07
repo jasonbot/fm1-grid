@@ -1,0 +1,10 @@
+[package]
+name = "fm1-hardware"
+version = "0.1.0"
+edition = "2021"
+description = "Live FM-1 / SMK-37 USB-MIDI discovery and firmware flashing"
+license = "MIT"
+
+[dependencies]
+fm1-base = { path = "../fm1-base" }
+midir = "0.11.1"

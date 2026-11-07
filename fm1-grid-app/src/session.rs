@@ -1,6 +1,6 @@
 //! The GUI's own session record: the sidebar split, the selected tab (and the
 //! Devices tab's section) and pane, favorites and the theme. The tempo, Download All
-//! toggle and Library device checkboxes live in fm1-performer's shared record so
+//! toggle and Library device selector live in fm1-performer's shared record so
 //! fm1-tty sees the same values. Saved on quit, restored on launch; a missing or
 //! corrupt record just yields the defaults.
 
@@ -90,7 +90,7 @@ impl GridApp {
     /// Snapshot the session to the store; the quit handler calls this. The sidebar
     /// width comes from the split's bound state entity — an untouched group reports
     /// no sizes, so the initial width is the fallback.
-    pub fn save_session(&self, cx: &App) {
+    pub fn save_session(&mut self, cx: &App) {
         let Some(store) = &self.store else { return };
         let session = Session {
             sidebar_width: self
@@ -122,7 +122,8 @@ impl GridApp {
             download_all: self.download_all,
             device_filter: self.device_filter,
         }
-        .save(Some(store));
+        .save(Some(store), self.shared_dirty);
+        self.shared_dirty = Default::default();
     }
 }
 

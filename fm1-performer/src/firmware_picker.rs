@@ -3,8 +3,8 @@
 //! to one. Zip-wrapped downloads are unwrapped on the way in. The gpui-kit combobox
 //! delegate that presents these lives in the fm1-grid crate.
 
-use crate::builtin::BUILTINS;
-use crate::library::FirmwareSource;
+use fm1_firmware::builtin::BUILTINS;
+use fm1_firmware::library::FirmwareSource;
 use std::path::PathBuf;
 
 /// What a pick installs (or flashes).
@@ -18,7 +18,7 @@ pub enum FirmwarePick {
 
 impl FirmwarePick {
     /// The package bytes: the builtin table, the filesystem, or the blob store.
-    pub fn bytes(&self, store: Option<&crate::store::Store>) -> Result<Vec<u8>, String> {
+    pub fn bytes(&self, store: Option<&fm1_base::store::Store>) -> Result<Vec<u8>, String> {
         match self {
             FirmwarePick::Builtin(index) => Ok(BUILTINS[*index].bytes.to_vec()),
             FirmwarePick::File(path) => {
@@ -38,7 +38,7 @@ impl FirmwarePick {
 /// the page itself, and booting it does nothing. Fail those loudly.
 fn unwrap_fwsc(bytes: Vec<u8>) -> Result<Vec<u8>, String> {
     if !bytes.starts_with(b"PK\x03\x04") {
-        if crate::download_heuristics::looks_like_web_page(&bytes[..bytes.len().min(512)]) {
+        if fm1_firmware::download_heuristics::looks_like_web_page(&bytes[..bytes.len().min(512)]) {
             return Err(
                 "the download is a web page, not a firmware package — download it again"
                     .to_string(),
@@ -125,7 +125,7 @@ fn zip_first_fwsc(bytes: &[u8]) -> Result<Vec<u8>, String> {
 
 /// The install/flash target for a library entry: None when the package isn't at hand
 /// (a hub offer not downloaded yet, or a file that's gone).
-pub fn pick_of(firmware: &crate::library::Firmware) -> Option<FirmwarePick> {
+pub fn pick_of(firmware: &fm1_firmware::library::Firmware) -> Option<FirmwarePick> {
     match &firmware.source {
         FirmwareSource::Builtin => BUILTINS
             .iter()
@@ -223,7 +223,7 @@ mod zip_tests {
     fn hub_blob_pick_unpacks_the_fwsc() {
         let dir = std::env::temp_dir().join(format!("fm1-grid-zip-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
-        let store = crate::store::Store::in_dir(&dir);
+        let store = fm1_base::store::Store::in_dir(&dir);
         let zip = zip_with(&[("pack.fwsc", 8, b"flashable bytes")]);
         store.store_blob("hub/pack.zip", &zip).unwrap();
         let pick = FirmwarePick::HubBlob("hub/pack.zip".to_string());

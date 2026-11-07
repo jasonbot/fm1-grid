@@ -4,13 +4,13 @@
 
 use fm1_performer::clock::Clock;
 use fm1_performer::firmware_picker::{pick_of, FirmwarePick};
-use fm1_performer::hardware::{DeviceRow, FlashState, Hardware};
-use fm1_performer::library::{Firmware, FirmwareSource, HubStatus, Library, Status};
+use fm1_performer::hardware::{package_fits, DeviceRow, FlashState, Hardware};
+use fm1_performer::library::{Firmware, FirmwareDevice, FirmwareSource, HubStatus, Library, Status};
 use fm1_performer::midi_keys::MidiKeys;
 use fm1_performer::routing::{Endpoint, Port, Routing};
 use fm1_performer::store::Store;
 
-use fm1_performer::session::Shared;
+use fm1_performer::session::{Dirty, Shared};
 use ratatui::layout::Rect;
 use ratatui::widgets::ListState;
 use std::collections::{HashMap, HashSet};
@@ -89,6 +89,12 @@ pub struct TuiApp {
     library: Option<Library>,
     /// The full library view from the last tick, in library order.
     pub firmwares: Vec<Firmware>,
+    /// The library view generation `firmwares` was copied from. The catalog is only
+    /// cloned and refiltered when this moves, not on every 16 ms tick.
+    lib_view_generation: u64,
+    /// Shared fields changed since the last write; tempo changes are debounced.
+    shared_dirty: Dirty,
+    shared_flush_at: Option<Instant>,
     /// The rows the filter and device selector leave: indices into `firmwares`, in
     /// draw order. `sel` indexes this.
     pub view: Vec<usize>,
@@ -176,6 +182,15 @@ fn deletable(firmware: &Firmware) -> bool {
 /// The filter box's match, as in the GUI: every space-separated token of the needle
 /// must appear as a case-insensitive substring of name, version, tags, byline or
 /// description.
+/// Library rows are one line; source descriptions can hold paragraph breaks.
+fn one_line(text: &str) -> String {
+    if text.contains(['\n', '\r', '\t']) {
+        text.split_whitespace().collect::<Vec<_>>().join(" ")
+    } else {
+        text.to_string()
+    }
+}
+
 fn matches_filter(firmware: &Firmware, needle: &str) -> bool {
     let needle = needle.to_lowercase();
     let haystack = format!(
@@ -237,12 +252,13 @@ impl TuiApp {
             }
         };
         // The store comes first: the scanner loads its remembered probe names from it.
-        let hardware = Hardware::start(clock.clone(), routing.clone(), store.clone());
+        let hardware = Hardware::start(clock.clone(), routing.clone());
         let shared = Shared::load(store.as_ref());
         clock.set_bpm(shared.bpm);
         let mut library = store.as_ref().map(Library::load);
         if let Some(library) = &mut library {
             library.refresh_hub();
+            library.set_device_filter(Some(shared.device_filter));
             library.set_download_all(shared.download_all);
         }
         Self {
@@ -253,6 +269,9 @@ impl TuiApp {
             store,
             library,
             firmwares: Vec::new(),
+            lib_view_generation: u64::MAX,
+            shared_dirty: Dirty::default(),
+            shared_flush_at: None,
             view: Vec::new(),
             devices: Vec::new(),
             sel: 0,
@@ -283,15 +302,19 @@ impl TuiApp {
         }
     }
 
-    /// Snapshot the saved state to the store; the quit path and the two toggles call
-    /// it. Tempo changes land on quit like the GUI's session record.
-    pub fn save_session(&self) {
-        Shared {
-            bpm: self.clock.bpm(),
-            download_all: self.download_all,
-            device_filter: self.device_filter,
+    /// Write the shared fields this app changed. The quit path, the two toggles and
+    /// the tempo debounce call it.
+    pub fn save_session(&mut self) {
+        if self.shared_dirty.any() {
+            Shared {
+                bpm: self.clock.bpm(),
+                download_all: self.download_all,
+                device_filter: self.device_filter,
+            }
+            .save(self.store.as_ref(), self.shared_dirty);
+            self.shared_dirty = Dirty::default();
         }
-        .save(self.store.as_ref());
+        self.shared_flush_at = None;
     }
 
     /// The per-frame update: fold in finished downloads, track the devices, refresh
@@ -300,13 +323,19 @@ impl TuiApp {
     pub fn tick(&mut self) {
         if let Some(library) = &mut self.library {
             library.pump_downloads();
+            // `list()` also runs the 500 ms on-disk status sweep; it is cheap when
+            // nothing moved. Only the copy and the filter pass are guarded.
+            library.list();
+            let generation = library.view_generation();
+            if generation != self.lib_view_generation {
+                self.lib_view_generation = generation;
+                self.firmwares = library.list().to_vec();
+                for firmware in &mut self.firmwares {
+                    firmware.description = one_line(&firmware.description);
+                }
+                self.rebuild_view();
+            }
         }
-        self.firmwares = self
-            .library
-            .as_mut()
-            .map(|library| library.list_clone())
-            .unwrap_or_default();
-        self.rebuild_view();
         self.devices = self.hardware.devices();
         // The rescue target list, swept at the scanner's own cadence.
         if self.rescue_at.elapsed() >= Duration::from_millis(500) {
@@ -326,6 +355,9 @@ impl TuiApp {
             .is_some_and(|(_, at)| at.elapsed() > STATUS_TTL)
         {
             self.status = None;
+        }
+        if self.shared_flush_at.is_some_and(|at| Instant::now() >= at) {
+            self.save_session();
         }
         self.osc_track();
     }
@@ -472,7 +504,7 @@ impl TuiApp {
             .iter()
             .enumerate()
             .filter(|(_, firmware)| {
-                self.device_filter.shows(firmware.device) && matches_filter(firmware, needle)
+                self.device_filter.shows(firmware) && matches_filter(firmware, needle)
             })
             .map(|(index, _)| index)
             .collect();
@@ -509,23 +541,20 @@ impl TuiApp {
 
     /// The device selector's label, as in the GUI.
     pub fn device_filter_label(&self) -> String {
-        match (self.device_filter.fm1, self.device_filter.smk37) {
-            (true, true) => "FM-1 + SMK-37",
-            (true, false) => "FM-1",
-            (false, true) => "SMK-37",
-            (false, false) => "no devices",
-        }
-        .to_string()
+        self.device_filter.label().to_string()
     }
 
-    /// Toggle one row of the device selector: 0 is FM-1, 1 is SMK-37.
-    pub fn toggle_device_row(&mut self, row: usize) {
-        match row {
-            0 => self.device_filter.fm1 = !self.device_filter.fm1,
-            1 => self.device_filter.smk37 = !self.device_filter.smk37,
-            _ => return,
+    /// Pick one row of the device selector; `row` indexes [`DeviceFilter::ALL`].
+    pub fn select_device(&mut self, row: usize) {
+        let Some(choice) = DeviceFilter::ALL.get(row).copied() else {
+            return;
+        };
+        self.device_filter = choice;
+        if let Some(library) = &mut self.library {
+            library.set_device_filter(Some(choice));
         }
         self.rebuild_view();
+        self.shared_dirty.device_filter = true;
         self.save_session();
     }
 
@@ -687,6 +716,7 @@ impl TuiApp {
         } else {
             "download all off".to_string()
         });
+        self.shared_dirty.download_all = true;
         self.save_session();
     }
 
@@ -733,10 +763,22 @@ impl TuiApp {
             self.say(format!("download {} first", firmware.name));
             return;
         };
+        let package_model = match firmware.device {
+            FirmwareDevice::Fm1 => Some("FM-1"),
+            FirmwareDevice::Smk37 => firmware.variant(),
+        };
+        let compatible = |device: &DeviceRow| {
+            package_model.is_none_or(|model| {
+                device
+                    .identity
+                    .as_deref()
+                    .is_some_and(|identity| package_fits(identity, &format!("{model}_0")))
+            })
+        };
         let mut targets: Vec<(String, bool)> = self
             .devices
             .iter()
-            .filter(|device| device.flash.is_none())
+            .filter(|device| device.flash.is_none() && compatible(device))
             .map(|device| (device.name.clone(), false))
             .collect();
         if self.rescue {
@@ -745,11 +787,9 @@ impl TuiApp {
         match targets.len() {
             0 => self.say(if self.rescue {
                 "no MIDI port in sight".to_string()
-            } else if self.rescue_warn() {
-                "no live FM-1 on USB — R offers every MIDI port as a rescue target"
-                    .to_string()
             } else {
-                "no live FM-1 on USB".to_string()
+                "no matching unit on USB — R offers every MIDI port as a rescue target"
+                    .to_string()
             }),
             1 => {
                 let (unit, rescue) = targets[0].clone();
@@ -816,9 +856,11 @@ impl TuiApp {
     }
 
     /// Nudge the tempo (clamped by the clock).
-    pub fn bump_bpm(&self, delta: i32) {
+    pub fn bump_bpm(&mut self, delta: i32) {
         self.clock.set_bpm(self.clock.bpm().saturating_add_signed(delta));
-        self.save_session();
+        // Key repeat can fire many times a second; write once the user stops.
+        self.shared_dirty.bpm = true;
+        self.shared_flush_at = Some(Instant::now() + Duration::from_millis(300));
     }
 
     // ---- flash board + status ----------------------------------------------------
@@ -913,10 +955,9 @@ mod tests {
 
     /// The device selector is a hard filter, FM-1 only by default like the GUI.
     #[test]
-    fn device_filter_defaults_to_fm1_only() {
-        let filter = DeviceFilter::default();
-        assert!(filter.shows(FirmwareDevice::Fm1));
-        assert!(!filter.shows(FirmwareDevice::Smk37));
+    fn device_filter_defaults_to_fm1_and_offers_every_variant() {
+        assert_eq!(DeviceFilter::default(), DeviceFilter::Fm1);
+        assert_eq!(DeviceFilter::ALL.len(), 5);
     }
 
     /// Every source row gets its links and a connect row; sources and sinks sort by

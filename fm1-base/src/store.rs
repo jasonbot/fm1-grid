@@ -9,7 +9,11 @@
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 #[cfg(not(target_arch = "wasm32"))]
+use std::io::Write;
+#[cfg(not(target_arch = "wasm32"))]
 use std::path::{Path, PathBuf};
+#[cfg(not(target_arch = "wasm32"))]
+use std::sync::atomic::{AtomicU64, Ordering};
 
 /// The store root: the app's data directory. Construct once, share by reference.
 /// Cloneable so background workers (the library's downloads) get their own handle.
@@ -46,6 +50,54 @@ fn check_path(path: &str) -> Result<(), String> {
         || path.split('/').any(|part| part == "..")
     {
         return Err(format!("bad store path {path:?}"));
+    }
+    Ok(())
+}
+
+/// Read and parse one JSON object.
+#[cfg(not(target_arch = "wasm32"))]
+fn read_json<T: DeserializeOwned>(file: &Path) -> Result<T, String> {
+    let bytes = std::fs::read(file).map_err(|e| e.to_string())?;
+    serde_json::from_slice(&bytes).map_err(|e| e.to_string())
+}
+
+/// Replace `file` with `bytes` in one step: write and sync a temporary file, move the
+/// old file to `.bak`, then rename the temporary over the target. A crash can leave
+/// the old file or the new one, never a half-written target.
+#[cfg(not(target_arch = "wasm32"))]
+fn write_atomic(file: &Path, bytes: &[u8], keep_backup: bool) -> Result<(), String> {
+    static SEQ: AtomicU64 = AtomicU64::new(0);
+    let parent = file.parent().ok_or_else(|| "no parent directory".to_string())?;
+    std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    let name = file.file_name().and_then(|n| n.to_str()).unwrap_or("object");
+    let tmp = parent.join(format!(
+        ".{name}.tmp-{}-{}",
+        std::process::id(),
+        SEQ.fetch_add(1, Ordering::Relaxed)
+    ));
+    {
+        let mut handle = std::fs::File::create(&tmp).map_err(|e| e.to_string())?;
+        handle.write_all(bytes).map_err(|e| e.to_string())?;
+        handle.sync_all().map_err(|e| e.to_string())?;
+    }
+    let backup = file.with_extension("bak");
+    if keep_backup && file.exists() {
+        let _ = std::fs::remove_file(&backup);
+        std::fs::rename(file, &backup).map_err(|e| e.to_string())?;
+    }
+    if let Err(first) = std::fs::rename(&tmp, file) {
+        // Windows will not rename over an existing file. The object case already
+        // moved the old file aside; the blob case removes it and retries.
+        if !keep_backup && file.exists() {
+            let _ = std::fs::remove_file(file);
+            if std::fs::rename(&tmp, file).is_ok() {
+                return Ok(());
+            }
+        } else {
+            let _ = std::fs::rename(&backup, file);
+        }
+        let _ = std::fs::remove_file(&tmp);
+        return Err(first.to_string());
     }
     Ok(())
 }
@@ -100,29 +152,19 @@ impl Store {
         out
     }
 
-    /// The objects that parse as `T`.
-    #[allow(dead_code)]
-    pub fn list_objects_of_type<T: DeserializeOwned>(&self, wildcard: Option<&str>) -> Vec<String> {
-        self.list_objects(wildcard)
-            .into_iter()
-            .filter(|name| self.fetch_object::<T>(name).is_ok())
-            .collect()
-    }
 
     pub fn store_object<T: Serialize>(&self, path: &str, object: &T) -> Result<(), String> {
         let file = self.object_file(path)?;
-        if let Some(parent) = file.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-        }
         let json = serde_json::to_vec_pretty(object).map_err(|e| e.to_string())?;
-        std::fs::write(&file, json).map_err(|e| format!("store {path}: {e}"))
+        write_atomic(&file, &json, true).map_err(|e| format!("store {path}: {e}"))
     }
 
     pub fn fetch_object<T: DeserializeOwned>(&self, path: &str) -> Result<T, String> {
         let file = self.object_file(path)?;
-        let bytes =
-            std::fs::read(&file).map_err(|e| format!("fetch {path}: {e}"))?;
-        serde_json::from_slice(&bytes).map_err(|e| format!("parse {path}: {e}"))
+        read_json(&file).map_err(|e| format!("parse {path}: {e}")).or_else(|e| {
+            // A power loss can leave a torn main file; the previous save is beside it.
+            read_json(&file.with_extension("bak")).map_err(|_| e)
+        })
     }
 
     /// Every stored blob's path, optionally filtered.
@@ -140,10 +182,7 @@ impl Store {
 
     pub fn store_blob(&self, path: &str, blob: &[u8]) -> Result<(), String> {
         let file = self.blob_file(path)?;
-        if let Some(parent) = file.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-        }
-        std::fs::write(&file, blob).map_err(|e| format!("store blob {path}: {e}"))
+        write_atomic(&file, blob, false).map_err(|e| format!("store blob {path}: {e}"))
     }
 
     pub fn fetch_blob(&self, path: &str) -> Result<Vec<u8>, String> {
@@ -336,9 +375,6 @@ mod tests {
         y: i32,
     }
 
-    #[derive(Serialize, Deserialize, PartialEq, Debug)]
-    struct Named(String);
-
     #[test]
     fn object_round_trip() {
         let (store, dir) = temp_store("objects");
@@ -350,12 +386,26 @@ mod tests {
         assert_eq!(store.list_objects(None), vec!["a/point"]);
         assert_eq!(store.list_objects(Some("a/*")), vec!["a/point"]);
         assert!(store.list_objects(Some("b/*")).is_empty());
-        assert_eq!(
-            store.list_objects_of_type::<Named>(None),
-            Vec::<String>::new()
-        );
-        assert_eq!(store.list_objects_of_type::<Point>(None), vec!["a/point"]);
         assert!(store.fetch_object::<Point>("missing").is_err());
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn object_backup_recovers_from_a_torn_main_file() {
+        let (store, dir) = temp_store("backup");
+        store.store_object("a/point", &Point { x: 1, y: 2 }).unwrap();
+        store.store_object("a/point", &Point { x: 3, y: 4 }).unwrap();
+        assert_eq!(
+            store.fetch_object::<Point>("a/point").unwrap(),
+            Point { x: 3, y: 4 }
+        );
+        // Simulate a power loss in the middle of a write: the main file is torn, the
+        // previous save is still intact beside it.
+        std::fs::write(dir.join("objects/a/point.json"), b"{").unwrap();
+        assert_eq!(
+            store.fetch_object::<Point>("a/point").unwrap(),
+            Point { x: 1, y: 2 }
+        );
         std::fs::remove_dir_all(dir).ok();
     }
 

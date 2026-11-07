@@ -20,6 +20,12 @@ pub const DEFAULT_BPM: u32 = 120;
 /// module; the clock only ever pushes single real-time bytes (0xF8 / 0xFA / 0xFC).
 pub trait MidiSink: Send + Sync {
     fn send_byte(&self, b: u8);
+    /// One complete MIDI message. The default sends its bytes one at a time.
+    fn send(&self, bytes: &[u8]) {
+        for &b in bytes {
+            self.send_byte(b);
+        }
+    }
 }
 
 /// One real-time byte to every emulator slot and every USB device on the clock.

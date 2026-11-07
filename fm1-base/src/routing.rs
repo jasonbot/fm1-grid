@@ -10,7 +10,8 @@
 //! An emulated pane is a sink only here, but that is an emulator limit, not a firmware
 //! one: the FM-1's TRS jack is MIDI-in alone and its firmwares instead talk MIDI both
 //! ways over USB-C — their images carry a USB MIDIStreaming interface (see
-//! [`crate::usbmidi`]), which is how the live units below get their bidirectional ports.
+//! the hardware scanner), which is how the live units below get their bidirectional
+//! ports.
 //! The emulated SoC stubs the USB controller at register level (and UART1 TX is not
 //! wired either), so nothing a pane's firmware sends ever leaves it. The graph UI says
 //! so where a running pane advertises USB-MIDI.
@@ -21,7 +22,7 @@
 //! send per sink. The metronome's clock routing is separate from this graph; a target
 //! in both simply receives the merged bytes.
 
-use crate::hardware::DeviceLink;
+use crate::clock::MidiSink;
 use fm1_soc::Action;
 use midir::{MidiInput, MidiInputConnection, MidiOutput, MidiOutputConnection};
 use std::collections::HashMap;
@@ -63,7 +64,7 @@ struct Inner {
     /// The graph: source -> sinks, in click order.
     links: HashMap<Port, Vec<Port>>,
     /// The registered live FM-1 units, by port name (the hardware module registers them).
-    devices: HashMap<String, Arc<DeviceLink>>,
+    devices: HashMap<String, Arc<dyn MidiSink>>,
     /// The running emulator panes: slot -> (label, MIDI IN).
     panes: HashMap<usize, (String, Sender<Action>)>,
     /// The system ports that deliver bytes, from the poller.
@@ -183,7 +184,7 @@ impl Routing {
 
     /// Register a live FM-1 unit, so the graph can route to it and from it without
     /// opening its port a second time.
-    pub fn device_added(&self, name: &str, link: Arc<DeviceLink>) {
+    pub fn device_added(&self, name: &str, link: Arc<dyn MidiSink>) {
         if let Ok(mut inner) = self.inner.lock() {
             inner.devices.insert(name.to_string(), link);
         }

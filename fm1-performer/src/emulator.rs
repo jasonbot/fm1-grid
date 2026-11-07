@@ -345,7 +345,7 @@ fn run_emulator(
 mod tests {
     use super::*;
     use crate::audio::AudioRing;
-    use crate::builtin::BUILTINS;
+    use fm1_firmware::builtin::BUILTINS;
 
     /// Boot a bundled firmware, stop it (snapshot taken), boot again with the saved
     /// flash — the pinned-slot cycle. The restored device must run and draw.

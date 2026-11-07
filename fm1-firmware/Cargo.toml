@@ -1,0 +1,20 @@
+[package]
+name = "fm1-firmware"
+version = "0.1.0"
+edition = "2021"
+description = "FM-1 / SMK-37 firmware model, catalog sources, downloads and library"
+license = "MIT"
+
+[dependencies]
+fm1-base = { path = "../fm1-base" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+ureq = "2"
+
+[build-dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+ureq = "3"
+sha2 = "0.10"

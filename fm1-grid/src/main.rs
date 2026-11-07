@@ -4,7 +4,7 @@
 // Windows opens a console window behind the main window.
 #![cfg_attr(windows, windows_subsystem = "windows")]
 
-use fm1_grid::app::GridApp;
+use fm1_grid_app::app::GridApp;
 use gpui_kit::assets::{icon_assets, Assets as ComponentAssets};
 use gpui_kit::component::TitleBar;
 use gpui_kit::*;
@@ -53,7 +53,7 @@ fn main() {
         init(cx);
         // The app menu's Quit (Cmd+Q) lands on the same quit path as closing the last
         // window (below); without a menu the shortcut reaches no handler.
-        cx.set_menus([Menu::new("FM-1 Grid").items([MenuItem::action("Quit FM-1 Grid", Quit)])]);
+        cx.set_menus([Menu::new("Synth Firmware Circus").items([MenuItem::action("Quit Synth Firmware Circus", Quit)])]);
         cx.bind_keys([KeyBinding::new("cmd-q", Quit, None)]);
         cx.on_action(|_: &Quit, cx| cx.quit());
         let bounds = Bounds::centered(None, size(px(1152.0), px(740.0)), cx);
@@ -64,7 +64,7 @@ fn main() {
                 // compact transport and the 0.5x card rows down.
                 window_min_size: Some(size(px(620.0), px(680.0))),
                 titlebar: Some(TitlebarOptions {
-                    title: Some("FM-1 Grid".into()),
+                    title: Some("Synth Firmware Circus".into()),
                     ..TitleBar::title_bar_options()
                 }),
                 // TitleBar::window_options: the in-app title bar owns dragging and

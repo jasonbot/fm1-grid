@@ -39,7 +39,7 @@ firmware selection and pin restore the same way, and removing a firmware from th
 Library powers off the panes set to it and re-seats them with a random available
 one. The split position, selected tab (and Devices section), selected pane, theme,
 appearance override and accent colour restore the same way. The metronome tempo, the
-Library's Download All toggle and device checkboxes are stored once and shared with
+Library's Download All toggle and device selector are stored once and shared with
 fm1-tty, so both apps see the same values. State lives in the com.fm1-grid data
 directory (`~/.local/share/fm1-grid` on Linux).
 
@@ -73,11 +73,12 @@ Installed section pop in with a quick spring animation. The filter box at the
 top matches space-separated words, each a case-insensitive substring anywhere in a
 firmware's name, version, tags, author or description — "f ll gro" finds Felucca.
 Clicking a tag pill toggles that tag's words in the filter. Next to the filter box is
-a **Devices** button with a tick for FM-1 and one for SMK-37. FM-1 is on and SMK-37
-is off when you start, so the list only shows what the panes can run; tick SMK-37 to
-see those builds too. The app remembers both ticks. The emulator cannot run SMK-37
-firmware, so the GUI's Library keeps those rows unflashable; fm1-tty flashes them to
-a live unit. Each row leads with a favorite button: favoriting is remembered across
+a **Devices** button that picks one device: **All**, **FM-1**, **SMK-37 Pro**,
+**SMK-37 Elite** or **MKE-P37**. FM-1 is selected when you start, so the list only
+shows what the panes can run; pick a model to see just that build, or All for
+everything. The choice is remembered. The emulator cannot run SMK-37 firmware, so
+those rows can only be flashed to a live unit, never to a pane. Each
+row leads with a favorite button: favoriting is remembered across
 restarts, a favorite's pills gain a glyph (`★` by default) and every other row the
 hollow `☆`, and the pill filters the list like any tag. The small arrow beside the
 favorite button opens a menu that gives the favorite another glyph: `★`, `⮾` (known
@@ -217,7 +218,7 @@ and vice versa.
 A smaller version of the app that runs in a plain terminal. It talks to real FM-1
 units over USB and has no emulators — a terminal can't draw their screens. It runs
 the same fm1-performer core as the GUI app, so the library and flashing work the same
-way. The metronome tempo, the Library's device checkboxes and the Download All toggle
+way. The metronome tempo, the Library's device selector and the Download All toggle
 come back after a restart; the clock's run state does not.
 
 ```sh
@@ -251,9 +252,9 @@ The screen has four parts:
     name, version, tags, byline or description contains all of them (case-insensitive)
     stays. `Enter` hands the keyboard back to the list; `Esc` clears the filter and
     goes back. `Ctrl-U` clears without leaving the field.
-  * `v` opens the **device selector**: FM-1 is shown by default and SMK-37 is not,
-    exactly like the GUI. Toggle either row with `Enter`; the field shows the current
-    choice.
+  * `v` opens the **device selector**: one of **All**, **FM-1**, **SMK-37 Pro**,
+    **SMK-37 Elite** or **MKE-P37**, exactly like the GUI. Move with the arrows and
+    press `Enter`; the field shows the current choice.
   * `r` re-fetches the online listings.
   * `d` downloads the selected firmware. If the hub has a newer version of the
     selected row (marked with `↑`, bundled and downloaded rows alike), `d` upgrades
@@ -331,52 +332,55 @@ They keep their own licences: most are GPL-3.0, M-VAVE's FM1 Stock is Apache-2.0
 FM1 Open adds a linking exception, and Baud Girl (FM-1+VA) is proprietary — its
 metadata is bundled but the package itself is not, and the app downloads it from
 baudgirl.com on request. The emulator crates are MIT. See
-`fm1-performer/firmware/README.md`.
+`fm1-firmware/firmware/README.md`.
 
 ## Layout
 
-Three crates in one workspace: **fm1-performer** holds the UI-free machinery both
-apps share, **fm1-grid** is the gpui-kit app, **fm1-tty** the terminal UI.
+Seven crates in one workspace: **fm1-base** holds the clock, routing, key tables and store;
+**fm1-firmware** the firmware model, catalog sources and library; **fm1-hardware** the
+USB scanner and flasher; **fm1-performer** the emulator and shared facade both
+apps share, **fm1-grid-app** the gpui-kit UI and state, **fm1-grid** its thin binary,
+and **fm1-tty** the terminal UI.
 
 ```
 scripts/firmware.sh             add/del/index/baked/list for the embedded firmware list
-fm1-performer/build.rs          generates the baked and listing-only firmware tables from firmware/firmwares.json
-fm1-performer/firmware/         the embedded .fwsc packages plus firmwares.json
+fm1-firmware/build.rs           generates the baked and listing-only firmware tables from firmware/firmwares.json
+fm1-firmware/firmware/         the embedded .fwsc packages plus firmwares.json
 fm1-performer/src/emulator.rs   one thread + SoC + cores per slot, flash snapshot at exit
 fm1-performer/src/audio.rs      the per-slot audio queue (the cpal output lives in fm1-grid)
 fm1-performer/src/affinity.rs   Linux physical-core detection and per-emulator pinning
-fm1-performer/src/hardware.rs   the USB-MIDI scanner and live-unit client
+fm1-hardware/src/               USB-MIDI scanner, package layout, protocol, flashing, rescue
 fm1-performer/src/usbmidi.rs    whether a firmware image advertises USB-MIDI
-fm1-performer/src/routing.rs    the MIDI graph: sources, sinks, links
-fm1-performer/src/clock.rs      MIDI-clock thread, tempo, beat light
-fm1-performer/src/midi_keys.rs  a physical MIDI keyboard driving the virtual one
-fm1-performer/src/library.rs    the firmware library: model, hub fetch/downloads, persistence
-fm1-performer/src/download_heuristics.rs  listing link → package bytes: release/install page resolution, HTML rejection
+fm1-base/src/routing.rs         the MIDI graph: sources, sinks, links
+fm1-base/src/clock.rs           MIDI-clock thread, tempo, beat light
+fm1-base/src/midi_keys.rs       a physical MIDI keyboard driving the virtual one
+fm1-firmware/src/library/       firmware library: model, hub fetch/downloads, persistence
+fm1-firmware/src/download_heuristics.rs  listing link → package bytes: release/install page resolution, HTML rejection
 fm1-performer/src/firmware_picker.rs  what a firmware pick installs or flashes (builtin, file, blob)
-fm1-performer/src/store.rs      on-disk objects (JSON) and blobs (desktop dir / localStorage)
-fm1-performer/src/builtin.rs    embedded firmware catalogue (generated table)
-fm1-performer/src/keys.rs       keyboard layout and panel key tables
-fm1-grid/src/app.rs             grid state: pane power, firmware install, key routing, LCD upload
-fm1-grid/src/audio.rs           the four slot queues mixed into one output stream
-fm1-grid/src/grid.rs            the 2x2 grid of cards (screens snap 1x/0.5x to fit) and the background colour
-fm1-grid/src/sidebar.rs         the device sidebar: controls row on top, upscaled screen, pin
-fm1-grid/src/devices.rs         the Devices tab's live USB unit rows and the Rescue toggle
-fm1-grid/src/graph.rs           the Devices tab's MIDI graph editor
-fm1-grid/src/panel.rs           the clickable FM-1 front panel (bottom of the Emulator tab)
-fm1-grid/src/transport.rs       the bottom bar: the metronome row, global across tabs
-fm1-grid/src/lcd.rs             RGB565 decode, colours, ghost/hqx/nearest image filters
-fm1-grid/src/theme.rs           the FM-1 hardware colours, the bundled theme catalog; chrome follows gpui-kit
-fm1-grid/src/themes/            the computed accent families and the shared palette
-fm1-grid/src/themes/influenza.rs   Fluent-UI family (accent + light/dark)
-fm1-grid/src/themes/meltysand.rs   macOS Tahoe family (accent + light/dark)
-fm1-grid/src/themes/visualia.rs    cream/near-black family with an accent-built panel
-fm1-grid/src/library_tab.rs     the Library tab's list, pills, actions and add-file form
-fm1-grid/src/settings.rs        the Settings tab (gpui-kit's Settings component): theme, mode and accent swatches
-fm1-grid/themes/                the bundled gpui-kit theme sets (upstream themes/ at the pinned tag)
-fm1-grid/src/firmware_picker.rs the firmware dropdown's data (searchable, grouped by tag)
-fm1-grid/src/flash_dialog.rs    the modal flash progress + message terminal
-fm1-grid/src/session.rs         the saved UI state (split, tabs, pane, tempo, Download All)
+fm1-base/src/store.rs           on-disk objects (JSON) and blobs (desktop dir / localStorage)
+fm1-firmware/src/builtin.rs     embedded firmware catalogue (generated table)
+fm1-base/src/keys.rs            keyboard layout and panel key tables
+fm1-grid-app/src/app/           grid state: pane power, firmware install, key routing, LCD upload
+fm1-grid-app/src/audio.rs           the four slot queues mixed into one output stream
+fm1-grid-app/src/grid.rs            the 2x2 grid of cards (screens snap 1x/0.5x to fit) and the background colour
+fm1-grid-app/src/sidebar.rs         the device sidebar: controls row on top, upscaled screen, pin
+fm1-grid-app/src/devices.rs         the Devices tab's live USB unit rows and the Rescue toggle
+fm1-grid-app/src/graph.rs           the Devices tab's MIDI graph editor
+fm1-grid-app/src/panel.rs           the clickable FM-1 front panel (bottom of the Emulator tab)
+fm1-grid-app/src/transport.rs       the bottom bar: the metronome row, global across tabs
+fm1-grid-app/src/lcd.rs             RGB565 decode, colours, ghost/hqx/nearest image filters
+fm1-grid-app/src/theme.rs           the FM-1 hardware colours, the bundled theme catalog; chrome follows gpui-kit
+fm1-grid-app/src/themes/            the computed accent families and the shared palette
+fm1-grid-app/src/themes/influenza.rs   Fluent-UI family (accent + light/dark)
+fm1-grid-app/src/themes/meltysand.rs   macOS Tahoe family (accent + light/dark)
+fm1-grid-app/src/themes/visualia.rs    cream/near-black family with an accent-built panel
+fm1-grid-app/src/library_tab/   the Library tab's list, pills, actions and add-file form
+fm1-grid-app/src/settings.rs        the Settings tab (gpui-kit's Settings component): theme, mode and accent swatches
+fm1-grid-app/themes/                the bundled gpui-kit theme sets (upstream themes/ at the pinned tag)
+fm1-grid-app/src/firmware_picker.rs the firmware dropdown's data (searchable, grouped by tag)
+fm1-grid-app/src/flash_dialog.rs    the modal flash progress + message terminal
+fm1-grid-app/src/session.rs         the saved UI state (split, tabs, pane, tempo, Download All)
 fm1-grid/src/main.rs            startup and the quit hook saving slot records
-fm1-grid/src/tests/             headless UI smoke tests
+fm1-grid-app/src/tests/         headless UI smoke tests
 fm1-tty/src/                    the terminal UI (ratatui): library + flashing, MIDI graph, metronome
 ```

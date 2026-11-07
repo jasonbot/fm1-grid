@@ -23,6 +23,14 @@ fn emit(sequence: &str) {
     let _ = out.flush();
 }
 
+/// Set the terminal window title. Not wrapped for tmux passthrough: tmux itself
+/// understands OSC 2 and can apply its own title policy.
+pub fn title(text: &str) {
+    let mut out = stdout().lock();
+    let _ = write!(out, "\x1b]2;{}\x07", sanitize(text));
+    let _ = out.flush();
+}
+
 /// Show or update the terminal's progress bar (state 1, percent 0–100).
 pub fn progress(percent: u32) {
     emit(&format!("\x1b]9;4;1;{}\x07", percent.min(100)));

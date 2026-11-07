@@ -1,38 +1,36 @@
 //! The UI state the GUI and the TUI share: the metronome tempo, the Library's
-//! Download All toggle and its device checkboxes. One record keeps both apps in step
+//! Download All toggle and its device selector. One record keeps both apps in step
 //! while each keeps its own session record for everything else.
 
 use serde::{Deserialize, Serialize};
 
-use crate::clock::{DEFAULT_BPM, MAX_BPM, MIN_BPM};
-use crate::library::FirmwareDevice;
-use crate::store::Store;
+use fm1_base::clock::{DEFAULT_BPM, MAX_BPM, MIN_BPM};
+use fm1_base::store::Store;
 
 const SHARED_OBJECT: &str = "shared";
 
-/// The Library's device checkboxes: FM-1 on, SMK-37 off until asked for.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default)]
-pub struct DeviceFilter {
-    pub fm1: bool,
-    pub smk37: bool,
+pub use fm1_firmware::filter::DeviceFilter;
+
+/// Which shared fields an app changed and must write. Everything else on disk is
+/// left alone, so two apps do not overwrite each other.
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+pub struct Dirty {
+    pub bpm: bool,
+    pub download_all: bool,
+    pub device_filter: bool,
 }
 
-impl Default for DeviceFilter {
-    fn default() -> Self {
+impl Dirty {
+    pub fn all() -> Self {
         Self {
-            fm1: true,
-            smk37: false,
+            bpm: true,
+            download_all: true,
+            device_filter: true,
         }
     }
-}
 
-impl DeviceFilter {
-    pub fn shows(&self, device: FirmwareDevice) -> bool {
-        match device {
-            FirmwareDevice::Fm1 => self.fm1,
-            FirmwareDevice::Smk37 => self.smk37,
-        }
+    pub fn any(self) -> bool {
+        self.bpm || self.download_all || self.device_filter
     }
 }
 
@@ -45,7 +43,7 @@ pub struct Shared {
     pub bpm: u32,
     /// The Library's Download All toggle: on restart, the downloads resume.
     pub download_all: bool,
-    /// The Library's device checkboxes.
+    /// The Library's device selector.
     pub device_filter: DeviceFilter,
 }
 
@@ -81,9 +79,28 @@ impl Shared {
             .unwrap_or_default()
     }
 
-    pub fn save(&self, store: Option<&Store>) {
+    /// Write only the fields marked dirty. A fresh read keeps the other app's
+    /// changes to the other fields.
+    pub fn save(&self, store: Option<&Store>, dirty: Dirty) {
         let Some(store) = store else { return };
-        if let Err(e) = store.store_object(SHARED_OBJECT, self) {
+        if !dirty.any() {
+            return;
+        }
+        let mut record = store
+            .fetch_object::<Self>(SHARED_OBJECT)
+            .unwrap_or_else(|_| Self::migrate(Some(store)));
+        record.bpm = record.bpm.clamp(MIN_BPM, MAX_BPM);
+        if dirty.bpm {
+            record.bpm = self.bpm;
+        }
+        if dirty.download_all {
+            record.download_all = self.download_all;
+        }
+        if dirty.device_filter {
+            record.device_filter = self.device_filter;
+        }
+        record.bpm = record.bpm.clamp(MIN_BPM, MAX_BPM);
+        if let Err(e) = store.store_object(SHARED_OBJECT, &record) {
             eprintln!("fm1 session: {e}");
         }
     }
@@ -102,20 +119,54 @@ mod tests {
         Shared {
             bpm: 1,
             download_all: true,
-            device_filter: DeviceFilter {
-                fm1: false,
-                smk37: true,
-            },
+            device_filter: DeviceFilter::Smk37Pro,
         }
-        .save(Some(&store));
+        .save(Some(&store), Dirty::all());
 
         let loaded = Shared::load(Some(&store));
         assert_eq!(loaded.bpm, MIN_BPM);
         assert!(loaded.download_all);
-        assert!(!loaded.device_filter.fm1);
-        assert!(loaded.device_filter.smk37);
+        assert_eq!(loaded.device_filter, DeviceFilter::Smk37Pro);
         assert_eq!(Shared::load(None).bpm, DEFAULT_BPM);
 
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn dirty_fields_keep_the_other_apps_values() {
+        let dir = std::env::temp_dir().join(format!("fm1-shared-dirty-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let store = Store::in_dir(&dir);
+        Shared::default().save(Some(&store), Dirty::all());
+
+        // The GUI changes the tempo only.
+        Shared {
+            bpm: 130,
+            ..Shared::default()
+        }
+        .save(
+            Some(&store),
+            Dirty {
+                bpm: true,
+                ..Dirty::default()
+            },
+        );
+        // The TUI toggles Download All only.
+        Shared {
+            download_all: true,
+            ..Shared::default()
+        }
+        .save(
+            Some(&store),
+            Dirty {
+                download_all: true,
+                ..Dirty::default()
+            },
+        );
+
+        let loaded = Shared::load(Some(&store));
+        assert_eq!(loaded.bpm, 130);
+        assert!(loaded.download_all);
         std::fs::remove_dir_all(dir).ok();
     }
 
@@ -141,7 +192,7 @@ mod tests {
         let migrated = Shared::load(Some(&store));
         assert_eq!(migrated.bpm, 145);
         assert!(migrated.download_all);
-        assert!(migrated.device_filter.smk37);
+        assert_eq!(migrated.device_filter, DeviceFilter::All);
 
         // Without the GUI's record the TUI's is used.
         std::fs::remove_file(dir.join("objects/session.json")).unwrap();
@@ -155,7 +206,7 @@ mod tests {
             download_all: false,
             device_filter: DeviceFilter::default(),
         }
-        .save(Some(&store));
+        .save(Some(&store), Dirty::all());
         assert_eq!(Shared::load(Some(&store)).bpm, 111);
 
         std::fs::remove_dir_all(dir).ok();

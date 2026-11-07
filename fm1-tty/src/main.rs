@@ -11,6 +11,8 @@ mod osc;
 #[cfg(not(target_arch = "wasm32"))]
 mod ui;
 
+use fm1_performer::session::DeviceFilter;
+
 /// The library does not compile to wasm (ratatui/crossterm are native-only).
 #[cfg(target_arch = "wasm32")]
 fn main() {}
@@ -23,6 +25,7 @@ fn main() -> std::io::Result<()> {
     terminal::enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, terminal::EnterAlternateScreen, event::EnableMouseCapture)?;
+    osc::title("Synth Firmware Circus");
     let original = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         let _ = restore();
@@ -165,7 +168,9 @@ fn on_key(app: &mut app::TuiApp, key: ratatui::crossterm::event::KeyEvent) {
             KeyCode::Home => app.scroll(isize::MIN),
             KeyCode::End => app.scroll(isize::MAX),
             KeyCode::Char('/') => app.focus = Focus::Filter,
-            KeyCode::Char('v') => app.popup = Some(Popup::DeviceFilter(0)),
+            KeyCode::Char('v') => {
+                app.popup = Some(Popup::DeviceFilter(app.device_filter.index()))
+            }
             KeyCode::Char('d') => app.download_selected(),
             KeyCode::Char('x') => app.delete_selected(),
             KeyCode::Char('a') => app.toggle_download_all(),
@@ -242,8 +247,13 @@ fn popup_key(app: &mut app::TuiApp, code: ratatui::crossterm::event::KeyCode) {
         Some(Popup::DeviceFilter(sel)) => match code {
             KeyCode::Esc => app.popup = None,
             KeyCode::Up => app.popup = Some(Popup::DeviceFilter(sel.saturating_sub(1))),
-            KeyCode::Down => app.popup = Some(Popup::DeviceFilter((sel + 1).min(1))),
-            KeyCode::Enter => app.toggle_device_row(sel),
+            KeyCode::Down => {
+                app.popup = Some(Popup::DeviceFilter((sel + 1).min(DeviceFilter::ALL.len() - 1)))
+            }
+            KeyCode::Enter => {
+                app.select_device(sel);
+                app.popup = None;
+            }
             _ => {}
         },
         Some(Popup::GraphSinks(source, sel)) => {
@@ -287,8 +297,8 @@ fn popup_click(app: &mut app::TuiApp, index: usize) {
             }
         }
         Some(Popup::DeviceFilter(_)) => {
-            app.toggle_device_row(index);
-            app.popup = Some(Popup::DeviceFilter(index.min(1)));
+            app.select_device(index);
+            app.popup = None;
         }
         Some(Popup::GraphSinks(_, _)) => app.confirm_graph_sink(index),
         None => {}
@@ -330,7 +340,7 @@ fn on_mouse(app: &mut app::TuiApp, mouse: ratatui::crossterm::event::MouseEvent)
             } else if app.regions.lib_filter.contains(at) {
                 app.focus = Focus::Filter;
             } else if app.regions.lib_devices.contains(at) {
-                app.popup = Some(Popup::DeviceFilter(0));
+                app.popup = Some(Popup::DeviceFilter(app.device_filter.index()));
             } else if let Some(&(_, index)) = app
                 .regions
                 .graph_rows

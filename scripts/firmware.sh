@@ -1,5 +1,5 @@
 #!/bin/sh
-# Manage the embedded firmware list (fm1-performer/firmware/firmwares.json); requires jq.
+# Manage the embedded firmware list (fm1-firmware/firmware/firmwares.json); requires jq.
 #
 #   scripts/firmware.sh add <file.fwsc> <name> <version> [tags] [url]
 #   scripts/firmware.sh index <name-or-file>
@@ -17,7 +17,7 @@
 set -eu
 
 cd "$(dirname "$0")/.."
-JSON=fm1-performer/firmware/firmwares.json
+JSON=fm1-firmware/firmware/firmwares.json
 
 usage() {
     echo "usage:" >&2
@@ -56,7 +56,7 @@ case "${1:-}" in
         url=${6:-}
         [ -f "$src" ] || { echo "no such file: $src" >&2; exit 1; }
         file=$(basename "$src")
-        dest=fm1-performer/firmware/$file
+        dest=fm1-firmware/firmware/$file
         [ "$src" = "$dest" ] || cp "$src" "$dest"
         sum=$(sha256_of "$dest")
         tags_json=$(printf '%s' "$tags" |
@@ -118,7 +118,7 @@ case "${1:-}" in
         [ -n "$file" ] || file=$what
         jq --arg file "$file" --arg what "$what" \
             'map(select(.file != $file and .name != $what))' "$JSON" | save
-        rm -f "fm1-performer/firmware/$file"
+        rm -f "fm1-firmware/firmware/$file"
         echo "removed: $what"
         echo "rebuild with: cargo build --release"
         ;;

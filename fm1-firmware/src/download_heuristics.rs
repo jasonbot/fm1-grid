@@ -163,7 +163,7 @@ pub(crate) fn entry_url(links: &[(String, String)]) -> Option<String> {
 
 /// Whether the head of a download looks like a web page rather than a package (a
 /// listing that linked an HTML page downloaded the page itself).
-pub(crate) fn looks_like_web_page(head: &[u8]) -> bool {
+pub fn looks_like_web_page(head: &[u8]) -> bool {
     let text = String::from_utf8_lossy(head).to_ascii_lowercase();
     let text = text.trim_start();
     text.starts_with("<!doctype") || text.starts_with("<html")

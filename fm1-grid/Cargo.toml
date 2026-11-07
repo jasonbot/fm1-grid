@@ -6,26 +6,5 @@ description = "An FM-1 emulator grid with a MIDI clock metronome (gpui-kit UI)"
 license = "MIT"
 
 [dependencies]
-# The emulator client, MIDI machinery, library and store.
-fm1-performer = { path = "../fm1-performer" }
-# GUI (see GPUI_PORT.md for the egui → gpui-kit port)
+fm1-grid-app = { path = "../fm1-grid-app" }
 gpui-kit = "=0.8.0"
-# Pixel frames for gpui's RenderImage (the LCD views).
-image = "0.25"
-rfd = "0.17.2"
-# Audio out (the emulator produces 44.1 kHz stereo i16)
-cpal = "0.18.2"
-hqx = "0.1.1"
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-# The app builds SoC actions for the emulator client (same deliberate pin as
-# fm1-performer).
-fm1-soc = { git = "https://github.com/joakimeriksson/fm1-emu.git", rev = "9de1ef053a3c4bf56f16f05b5f0de193f4608a1d" }
-
-[build-dependencies]
-# build.rs parses each themes/*.json for its picker label.
-serde_json = "1"
-
-[dev-dependencies]
-# Headless UI tests (src/tests); unifies with the dependency above for test builds.
-gpui-kit = { version = "=0.8.0", features = ["test-support"] }

@@ -2026,15 +2026,47 @@ dependencies = [
 ]
 
 [[package]]
+name = "fm1-base"
+version = "0.1.0"
+dependencies = [
+ "directories",
+ "fm1-soc",
+ "midir",
+ "serde",
+ "serde_json",
+ "web-sys",
+]
+
+[[package]]
 name = "fm1-core"
 version = "0.4.0"
-source = "git+https://github.com/joakimeriksson/fm1-emu.git?rev=9de1ef053a3c4bf56f16f05b5f0de193f4608a1d#9de1ef053a3c4bf56f16f05b5f0de193f4608a1d"
+source = "git+https://github.com/joakimeriksson/fm1-emu.git?rev=b7097fcc3e97eb7d1f6d5f46cee2ad6634f8538d#b7097fcc3e97eb7d1f6d5f46cee2ad6634f8538d"
 dependencies = [
  "fm1-isa",
 ]
 
 [[package]]
+name = "fm1-firmware"
+version = "0.1.0"
+dependencies = [
+ "fm1-base",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "ureq 2.12.1",
+ "ureq 3.5.0",
+]
+
+[[package]]
 name = "fm1-grid"
+version = "0.1.0"
+dependencies = [
+ "fm1-grid-app",
+ "gpui-kit",
+]
+
+[[package]]
+name = "fm1-grid-app"
 version = "0.1.0"
 dependencies = [
  "cpal",
@@ -2049,32 +2081,37 @@ dependencies = [
 ]
 
 [[package]]
+name = "fm1-hardware"
+version = "0.1.0"
+dependencies = [
+ "fm1-base",
+ "midir",
+]
+
+[[package]]
 name = "fm1-isa"
 version = "0.4.0"
-source = "git+https://github.com/joakimeriksson/fm1-emu.git?rev=9de1ef053a3c4bf56f16f05b5f0de193f4608a1d#9de1ef053a3c4bf56f16f05b5f0de193f4608a1d"
+source = "git+https://github.com/joakimeriksson/fm1-emu.git?rev=b7097fcc3e97eb7d1f6d5f46cee2ad6634f8538d#b7097fcc3e97eb7d1f6d5f46cee2ad6634f8538d"
 
 [[package]]
 name = "fm1-performer"
 version = "0.1.0"
 dependencies = [
- "directories",
  "flate2",
+ "fm1-base",
  "fm1-core",
+ "fm1-firmware",
+ "fm1-hardware",
  "fm1-soc",
  "libc",
- "midir",
  "serde",
  "serde_json",
- "sha2 0.10.9",
- "ureq 2.12.1",
- "ureq 3.5.0",
- "web-sys",
 ]
 
 [[package]]
 name = "fm1-soc"
 version = "0.4.0"
-source = "git+https://github.com/joakimeriksson/fm1-emu.git?rev=9de1ef053a3c4bf56f16f05b5f0de193f4608a1d#9de1ef053a3c4bf56f16f05b5f0de193f4608a1d"
+source = "git+https://github.com/joakimeriksson/fm1-emu.git?rev=b7097fcc3e97eb7d1f6d5f46cee2ad6634f8538d#b7097fcc3e97eb7d1f6d5f46cee2ad6634f8538d"
 dependencies = [
  "fm1-core",
 ]

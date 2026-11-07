@@ -58,7 +58,7 @@ mod tests {
             ("FM1-Open-V14.fwsc", false),
         ];
         for (file, expected) in cases {
-            if let Some(firmware) = crate::builtin::BUILTINS.iter().find(|f| f.file == file) {
+            if let Some(firmware) = fm1_firmware::builtin::BUILTINS.iter().find(|f| f.file == file) {
                 assert_eq!(
                     advertised(firmware.bytes),
                     expected,

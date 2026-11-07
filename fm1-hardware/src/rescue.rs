@@ -1,6 +1,5 @@
 //! The rescue flash: flashing a MIDI port the scanner never registered — a unit
-//! bricked badly enough to enumerate under a name the probe filter rejects, so it
-//! never becomes a device row.
+//! bricked badly enough to answer no handshake, so it never becomes a device row.
 //!
 //! Unlike the normal flow there is no handshake, no registry and no clock: the
 //! UPGRADE command goes to the port as it is, and the two reboots (into the update
@@ -62,21 +61,14 @@ fn wait_new_port(timeout: Duration) -> Option<String> {
 }
 
 /// The rescue flash on its own thread: the flow, then the board's outcome. The scan
-/// loop clears the busy flag when this returns. A success also remembers the unit's
-/// come-back port name as a probe needle — the scanner recognizes the unit from now
-/// on (see [`remember_probe_name`]).
+/// loop clears the busy flag when this returns.
 pub(super) fn rescue_task(
     name: &str,
     bytes: Vec<u8>,
     board: &Board,
     router: &Routing,
-    store: Option<&Store>,
-    extra_probes: &Mutex<Vec<String>>,
 ) {
     let result = rescue_flow(name, bytes, board, router);
-    if let Ok((_, back_name)) = &result {
-        remember_probe_name(store, extra_probes, back_name);
-    }
     settle_board(
         board,
         &result
@@ -90,8 +82,7 @@ pub(super) fn rescue_task(
 /// the image up to the staging address and reboots into its loader; a unit already
 /// sitting in its loader pulls straight through to the write address. One serve with
 /// both finish addresses tells the two apart. On success: the product string and the
-/// name of the port the unit came back on (the caller remembers it as a probe
-/// needle).
+/// name of the port the unit came back on.
 fn rescue_flow(
     name: &str,
     bytes: Vec<u8>,

@@ -43,9 +43,10 @@ impl GridApp {
             .enumerate()
         {
             let source = source.port.clone();
-            let mut section = v_flex()
+            let mut heading = h_flex()
                 .w_full()
-                .gap_1()
+                .justify_between()
+                .items_center()
                 .child(
                     div()
                         .id(("graph-source", row_ix))
@@ -55,7 +56,56 @@ impl GridApp {
                         .text_color(ink)
                         .child(label(&source)),
                 );
-
+            // The always-there router dropdown: every sink this source is not
+            // already connected to.
+            let candidates: Vec<(Port, String)> = endpoints
+                .iter()
+                .filter(|endpoint| {
+                    endpoint.sink
+                        && endpoint.port != source
+                        && !links
+                            .iter()
+                            .any(|(s, d)| *s == source && d == &endpoint.port)
+                })
+                .map(|endpoint| (endpoint.port.clone(), endpoint.label.clone()))
+                .collect();
+            let app_menu = app.clone();
+            let source_menu = source.clone();
+            heading = heading.child(
+                Button::new(("graph-connect", row_ix))
+                    .label("Connect")
+                    .icon(Icon::new(Lucide::ChevronDown))
+                    .compact()
+                    .small()
+                    .dropdown_menu(move |menu, _, _| {
+                        let mut menu = menu;
+                        if candidates.is_empty() {
+                            menu = menu.item(PopupMenuItem::new("no other sinks").disabled(true));
+                        }
+                        for (port, label) in &candidates {
+                            let app = app_menu.clone();
+                            let source = source_menu.clone();
+                            let port = port.clone();
+                            let label = label.clone();
+                            menu = menu.item(PopupMenuItem::new(label).on_click(
+                                move |_, window, cx| {
+                                    let source = source.clone();
+                                    let port = port.clone();
+                                    app.update(cx, |this, cx| {
+                                        this.routing.connect(source, port);
+                                        this.focus.focus(window, cx);
+                                        cx.notify();
+                                    });
+                                },
+                            ));
+                        }
+                        menu
+                    }),
+            );
+            let mut section = v_flex()
+                .w_full()
+                .gap_1()
+                .child(heading);
             // The sinks this source feeds, each with its (X) unroute pill. A row
             // that just appeared snaps in on the library's spring; rows that just
             // vanished linger as ghosts and fade out.
@@ -106,52 +156,6 @@ impl GridApp {
                 ));
             }
 
-            // The always-there router dropdown: every sink this source is not
-            // already connected to.
-            let candidates: Vec<(Port, String)> = endpoints
-                .iter()
-                .filter(|endpoint| {
-                    endpoint.sink
-                        && endpoint.port != source
-                        && !links
-                            .iter()
-                            .any(|(s, d)| *s == source && d == &endpoint.port)
-                })
-                .map(|endpoint| (endpoint.port.clone(), endpoint.label.clone()))
-                .collect();
-            let app_menu = app.clone();
-            let source_menu = source.clone();
-            section = section.child(
-                Button::new(("graph-connect", row_ix))
-                    .label("Connect")
-                    .icon(Icon::new(Lucide::ChevronDown))
-                    .compact()
-                    .small()
-                    .dropdown_menu(move |menu, _, _| {
-                        let mut menu = menu;
-                        if candidates.is_empty() {
-                            menu = menu.item(PopupMenuItem::new("no other sinks").disabled(true));
-                        }
-                        for (port, label) in &candidates {
-                            let app = app_menu.clone();
-                            let source = source_menu.clone();
-                            let port = port.clone();
-                            let label = label.clone();
-                            menu = menu.item(PopupMenuItem::new(label).on_click(
-                                move |_, window, cx| {
-                                    let source = source.clone();
-                                    let port = port.clone();
-                                    app.update(cx, |this, cx| {
-                                        this.routing.connect(source, port);
-                                        this.focus.focus(window, cx);
-                                        cx.notify();
-                                    });
-                                },
-                            ));
-                        }
-                        menu
-                    }),
-            );
             sections.push(section.into_any_element());
         }
         if sections.is_empty() {

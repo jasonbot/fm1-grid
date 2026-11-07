@@ -242,8 +242,7 @@ The screen has four parts:
   (and every live unit) is a source, with its current links listed under it. One out
   feeds any number of ins. `Tab` into it, move with the arrow keys and press `Enter`
   on a link to unroute it or on `+ connect…` to pick another sink; the same rows are
-  mouse-clickable. `m` (or the `MIDI in:` field) picks a physical MIDI keyboard whose
-  notes are forwarded to every connected FM-1.
+  mouse-clickable.
 * **Library** — the firmware list, same as the GUI's Library tab: what came with the
   app, what you imported, and (online) what the Firmware Hub, fm1-editor.com,
   Reverbose and mutant.cloud offer. Each entry takes two lines: the name, version and

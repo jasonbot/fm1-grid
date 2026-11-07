@@ -138,17 +138,6 @@ fn on_key(app: &mut app::TuiApp, key: ratatui::crossterm::event::KeyEvent) {
         KeyCode::Char('=') | KeyCode::Char('+') => return app.bump_bpm(1),
         KeyCode::Char('[') => return app.bump_bpm(-10),
         KeyCode::Char(']') => return app.bump_bpm(10),
-        KeyCode::Char('m') => {
-            let current = app.midi_label();
-            let sel = app
-                .midi_ports()
-                .iter()
-                .position(|(_, label)| *label == current)
-                .map(|i| i + 1)
-                .unwrap_or(0);
-            app.popup = Some(Popup::MidiPorts(sel));
-            return;
-        }
         KeyCode::Tab => {
             app.focus = match app.focus {
                 Focus::Library => Focus::Graph,
@@ -207,25 +196,6 @@ fn popup_key(app: &mut app::TuiApp, code: ratatui::crossterm::event::KeyCode) {
     use ratatui::crossterm::event::KeyCode;
 
     match app.popup.clone() {
-        Some(Popup::MidiPorts(sel)) => {
-            let count = 1 + app.midi_ports().len();
-            match code {
-                KeyCode::Esc => app.popup = None,
-                KeyCode::Up => app.popup = Some(Popup::MidiPorts(sel.saturating_sub(1))),
-                KeyCode::Down => app.popup = Some(Popup::MidiPorts((sel + 1).min(count - 1))),
-                KeyCode::Enter => {
-                    let ports = app.midi_ports();
-                    let pick = if sel == 0 {
-                        None
-                    } else {
-                        ports.get(sel - 1).map(|(name, _)| name.clone())
-                    };
-                    app.select_midi(pick);
-                    app.popup = None;
-                }
-                _ => {}
-            }
-        }
         Some(Popup::FlashTarget(sel, names, pick)) => match code {
             KeyCode::Esc => app.popup = None,
             KeyCode::Up => {
@@ -279,16 +249,6 @@ fn popup_key(app: &mut app::TuiApp, code: ratatui::crossterm::event::KeyCode) {
 fn popup_click(app: &mut app::TuiApp, index: usize) {
     use app::Popup;
     match app.popup.clone() {
-        Some(Popup::MidiPorts(_)) => {
-            let ports = app.midi_ports();
-            let pick = if index == 0 {
-                None
-            } else {
-                ports.get(index - 1).map(|(name, _)| name.clone())
-            };
-            app.select_midi(pick);
-            app.popup = None;
-        }
         Some(Popup::FlashTarget(_, names, pick)) => {
             if let Some((unit, rescue)) = names.get(index).cloned() {
                 app.start_flash(&unit, rescue, &pick);
@@ -335,9 +295,7 @@ fn on_mouse(app: &mut app::TuiApp, mouse: ratatui::crossterm::event::MouseEvent)
     }
     match mouse.kind {
         MouseEventKind::Down(MouseButton::Left) => {
-            if app.regions.midi_field.contains(at) {
-                app.popup = Some(Popup::MidiPorts(0));
-            } else if app.regions.lib_filter.contains(at) {
+            if app.regions.lib_filter.contains(at) {
                 app.focus = Focus::Filter;
             } else if app.regions.lib_devices.contains(at) {
                 app.popup = Some(Popup::DeviceFilter(app.device_filter.index()));

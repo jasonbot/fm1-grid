@@ -6,14 +6,13 @@ use fm1_performer::clock::Clock;
 use fm1_performer::firmware_picker::{pick_of, FirmwarePick};
 use fm1_performer::hardware::{device_type, package_fits, DeviceRow, FlashState, Hardware};
 use fm1_performer::library::{Firmware, FirmwareDevice, FirmwareSource, HubStatus, Library, Status};
-use fm1_performer::midi_keys::MidiKeys;
 use fm1_performer::routing::{Endpoint, Port, Routing};
 use fm1_performer::store::Store;
 
 use fm1_performer::session::{Dirty, Shared};
 use ratatui::layout::Rect;
 use ratatui::widgets::ListState;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -32,8 +31,6 @@ pub enum Focus {
 /// A modal over the main screen; while one is up it gets every key.
 #[derive(Clone)]
 pub enum Popup {
-    /// The MIDI-keyboard selector: the highlighted row (0 is "no keyboard").
-    MidiPorts(usize),
     /// The flash target picker: (selected row, (target name, is rescue target) rows,
     /// what to flash).
     FlashTarget(usize, Vec<(String, bool)>, FirmwarePick),
@@ -47,7 +44,7 @@ pub enum Popup {
 pub use fm1_performer::session::DeviceFilter;
 
 /// A row of the MIDI-graph panel, in draw order. Sources are always shown, linked or
-/// not; each source's links follow, then its always-there connect action.
+/// not; each source's links follow.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum GraphRow {
     Source(Port),
@@ -65,8 +62,6 @@ pub struct Regions {
     /// The filter field and the device-filter field above the list.
     pub lib_filter: Rect,
     pub lib_devices: Rect,
-    /// The "MIDI in" field: opens the keyboard selector.
-    pub midi_field: Rect,
     /// The graph rows: (rect, row index into `TuiApp::graph_rows`).
     pub graph_rows: Vec<(Rect, usize)>,
     /// The graph's scrolling list area (wheel events).
@@ -83,7 +78,6 @@ pub struct TuiApp {
     pub clock: Arc<Clock>,
     routing: Routing,
     pub hardware: Hardware,
-    midi_keys: MidiKeys,
     store: Option<Store>,
     library: Option<Library>,
     /// The full library view from the last tick, in library order.
@@ -113,14 +107,6 @@ pub struct TuiApp {
     pub graph_sel: usize,
     /// The graph list's scroll state (the widget owns the offset).
     pub graph_state: ListState,
-    /// The MIDI keyboard port the user picked (the poller may still be opening it).
-    want_midi: Option<String>,
-    /// Graph links this app created for the picked keyboard: (system source, device)
-    /// port names.
-    linked: Vec<(String, String)>,
-    /// The (keyboard, device list) the auto-links were last reconciled for: a manual
-    /// graph edit sticks until one of those moves.
-    links_key: Option<(Option<String>, Vec<String>)>,
     /// A dismissed flash board stays down until the next flash starts.
     flash_dismissed: bool,
     /// The Download All toggle: sweeps run on toggle-on, on a hub swap and when a
@@ -241,7 +227,6 @@ impl TuiApp {
         // No emulator panes here; the hardware module's USB targets carry the clock.
         let clock = Arc::new(Clock::start(1));
         let routing = Routing::start();
-        let midi_keys = MidiKeys::start();
         let store = match Store::new() {
             Ok(store) => Some(store),
             Err(e) => {
@@ -263,7 +248,6 @@ impl TuiApp {
             clock,
             routing,
             hardware,
-            midi_keys,
             store,
             library,
             firmwares: Vec::new(),
@@ -281,9 +265,6 @@ impl TuiApp {
             links: Vec::new(),
             graph_sel: 0,
             graph_state: ListState::default(),
-            want_midi: None,
-            linked: Vec::new(),
-            links_key: None,
             flash_dismissed: false,
             download_all: shared.download_all,
             rescue: false,
@@ -341,7 +322,6 @@ impl TuiApp {
             self.rescue_ports = self.hardware.midi_ports();
         }
 
-        self.reconcile_links();
         self.endpoints = self.routing.endpoints();
         self.links = self.routing.links();
         let rows = self.graph_rows().len();
@@ -446,49 +426,6 @@ impl TuiApp {
                 crate::osc::notify(&format!("{name} removed from the library"));
             }
         }
-    }
-
-    /// The selected physical keyboard plays every connected unit: keep one graph link
-    /// (system port → device) per live unit, adding and dropping as they come and go.
-    /// Only links this app created are ever touched, and only when the pick or the
-    /// device list moves — a manual edit in the graph pane sticks otherwise.
-    fn reconcile_links(&mut self) {
-        let mut devices: Vec<String> = self.devices.iter().map(|device| device.name.clone()).collect();
-        devices.sort();
-        let key = (self.midi_keys.selected(), devices);
-        if self.links_key.as_ref() == Some(&key) {
-            return;
-        }
-        self.links_key = Some(key);
-        let live = self.routing.links();
-        self.linked.retain(|(source, sink)| {
-            live.contains(&(Port::System(source.clone()), Port::Device(sink.clone())))
-        });
-        let want: HashSet<(String, String)> = match self.midi_keys.selected() {
-            Some(port) => self
-                .devices
-                .iter()
-                .map(|device| (port.clone(), device.name.clone()))
-                .collect(),
-            None => HashSet::new(),
-        };
-        for (source, sink) in &want {
-            if !self.linked.contains(&(source.clone(), sink.clone())) {
-                self.routing
-                    .connect(Port::System(source.clone()), Port::Device(sink.clone()));
-            }
-        }
-        let extra: Vec<(String, String)> = self
-            .linked
-            .iter()
-            .filter(|link| !want.contains(link))
-            .cloned()
-            .collect();
-        for (source, sink) in extra {
-            self.routing
-                .disconnect(Port::System(source), Port::Device(sink));
-        }
-        self.linked = want.into_iter().collect();
     }
 
     // ---- library filter + selection --------------------------------------------
@@ -833,36 +770,6 @@ impl TuiApp {
             Err(e) => self.hardware.report(unit, e),
         }
         self.popup = None;
-    }
-
-    // ---- MIDI keyboard ---------------------------------------------------------
-
-    /// The system MIDI sources for the selector: (port name, label).
-    pub fn midi_ports(&self) -> Vec<(String, String)> {
-        self.routing
-            .endpoints()
-            .into_iter()
-            .filter_map(|endpoint| match endpoint.port {
-                Port::System(name) if endpoint.source => Some((name, endpoint.label)),
-                _ => None,
-            })
-            .collect()
-    }
-
-    /// The selector's display name for the current pick.
-    pub fn midi_label(&self) -> String {
-        match &self.want_midi {
-            None => "none".to_string(),
-            Some(name) => fm1_performer::routing::label_of(name),
-        }
-    }
-
-    /// Choose the physical MIDI keyboard (None for off). Its notes are routed to
-    /// every connected unit; the graph links land on the next ticks once the port is
-    /// open.
-    pub fn select_midi(&mut self, port: Option<String>) {
-        self.want_midi = port.clone();
-        self.midi_keys.select(port);
     }
 
     // ---- metronome ---------------------------------------------------------------

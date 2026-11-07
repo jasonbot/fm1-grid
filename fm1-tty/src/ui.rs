@@ -59,7 +59,6 @@ pub fn draw(frame: &mut Frame, app: &mut TuiApp) {
     footer(frame, app, chunks[4]);
 
     match app.popup.clone() {
-        Some(Popup::MidiPorts(sel)) => midi_popup(frame, app, sel),
         Some(Popup::FlashTarget(sel, names, _)) => flash_target_popup(frame, app, sel, &names),
         Some(Popup::DeviceFilter(sel)) => device_popup(frame, app, sel),
         Some(Popup::GraphSinks(source, sel)) => graph_sinks_popup(frame, app, sel, &source),
@@ -164,24 +163,7 @@ fn graph(frame: &mut Frame, app: &mut TuiApp, area: Rect) {
         return;
     }
 
-    let label = app.midi_label();
-    let field = Line::from(vec![
-        dim("MIDI in: "),
-        Span::styled(
-            format!("▾ {label}"),
-            Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
-        ),
-        dim("   (m to change; forwards to every FM-1)"),
-    ]);
-    let field_area = Rect::new(inner.x, inner.y, inner.width, 1);
-    frame.render_widget(Paragraph::new(field), field_area);
-    app.regions.midi_field =
-        Rect::new(field_area.x, field_area.y, (11 + cols(&label)) as u16, 1);
-    if inner.height < 2 {
-        return;
-    }
-
-    let list_area = Rect::new(inner.x, inner.y + 1, inner.width, inner.height - 1);
+    let list_area = inner;
     app.regions.graph_list = list_area;
     let rows = app.graph_rows();
     if rows.is_empty() {
@@ -436,10 +418,10 @@ fn footer(frame: &mut Frame, app: &mut TuiApp, area: Rect) {
                 if app.selected_deletable() {
                     hints.push_str(" · x delete");
                 }
-                hints.push_str(" · / filter · v devices · a all · f flash · R rescue · r refresh hub · m MIDI in · space clock · −/+ tempo · Tab graph · q quit");
+                hints.push_str(" · / filter · v devices · a all · f flash · R rescue · r refresh hub · space clock · −/+ tempo · Tab graph · q quit");
                 hints
             }
-            Focus::Graph => " ↑↓ select · Enter connect/unroute · m MIDI in · Tab filter/list · space clock · −/+ tempo · q quit".to_string(),
+            Focus::Graph => " ↑↓ select · Enter connect/unroute · Tab filter/list · space clock · −/+ tempo · q quit".to_string(),
             Focus::Filter => " type to filter · Backspace edit · Ctrl-U clear · Esc clear/back · Enter back · Tab graph · Ctrl-C quit".to_string(),
         };
         Line::from(dim(hints))
@@ -491,23 +473,6 @@ fn list_popup(
 }
 
 /// The physical MIDI keyboard selector.
-fn midi_popup(frame: &mut Frame, app: &mut TuiApp, sel: usize) {
-    let current = app.midi_label();
-    let mut items = vec![Line::from(if current == "none" {
-        "● no keyboard".to_string()
-    } else {
-        "  no keyboard".to_string()
-    })];
-    for (_, label) in app.midi_ports() {
-        items.push(Line::from(if label == current {
-            format!("● {label}")
-        } else {
-            format!("  {label}")
-        }));
-    }
-    list_popup(frame, app, "MIDI keyboard", &items, sel);
-}
-
 /// The library's device-family selector.
 fn device_popup(frame: &mut Frame, app: &mut TuiApp, sel: usize) {
     let check = |on: bool| if on { "[✓]" } else { "[ ]" };

@@ -8,7 +8,7 @@
 
 use crate::app::GridApp;
 use crate::firmware_picker::FirmwareDelegate;
-use fm1_performer::hardware::DeviceRow;
+use fm1_performer::hardware::{device_type, DeviceRow};
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::base::{ElementExt, h_flex, v_flex};
 use gpui_kit::component::button::{Toggle, ToggleVariants};
@@ -231,6 +231,9 @@ impl GridApp {
                     .text_color(ink)
                     .child(row.display.clone()),
             )
+            .when_some(row.identity.as_deref().and_then(device_type), |el, kind| {
+                el.child(crate::app::type_pill(kind))
+            })
             .child(
                 div()
                     .id(("dev-port", ix))

@@ -57,6 +57,12 @@
         // Custom firmware (7xx/9xx) accepts any SMK model, per the reference installers.
         assert!(package_fits("SMK-37 Pro_900", "MKE-P37_900"));
         assert!(package_fits("MKE-P37_900", "SMK-37 Pro_900"));
+        assert_eq!(device_type("FM-1_916"), Some("FM-1"));
+        assert_eq!(device_type("STARRYKEY-37 PLAY_014"), Some("SMK-37 Pro"));
+        assert_eq!(device_type("SMK-37 Elite_016"), Some("SMK-37 Elite"));
+        assert_eq!(device_type("MKE-P37_900"), Some("MKE-P37"));
+        assert_eq!(device_type("ota-MKE-P37_900"), Some("MKE-P37"));
+        assert_eq!(device_type("something else"), None);
         assert!(package_fits("ota-SMK-37 Pro_900", "SMK-37 Pro_0"));
         assert!(!package_fits("FM-1_916", "SMK-37 Pro_900"));
         assert!(!package_fits("SMK-37 Pro_900", "FM-1_916"));

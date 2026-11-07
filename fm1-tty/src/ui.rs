@@ -5,7 +5,7 @@
 
 use crate::app::{Focus, GraphRow, Popup, Regions, TuiApp};
 use fm1_performer::clock::{MAX_BPM, MIN_BPM};
-use fm1_performer::hardware::{DeviceRow, FlashState};
+use fm1_performer::hardware::{device_type, DeviceRow, FlashState};
 use fm1_performer::library::{Firmware, FirmwareDevice, FirmwareSource, HubStatus, Status};
 use fm1_performer::routing::Port;
 use fm1_performer::session::DeviceFilter;
@@ -128,6 +128,9 @@ fn device_row(device: &DeviceRow) -> Line<'static> {
         bold(device.port.clone()),
         dim(format!("  {}", device.display)),
     ];
+    if let Some(kind) = device.identity.as_deref().and_then(device_type) {
+        spans.push(dim(format!("  ({kind})")));
+    }
     if let Some(usb) = &device.usb {
         spans.push(dim(format!("  ·  usb {usb}")));
     }
@@ -518,7 +521,16 @@ fn flash_target_popup(frame: &mut Frame, app: &mut TuiApp, sel: usize, targets: 
     let items: Vec<Line> = targets
         .iter()
         .map(|(name, rescue)| {
-            let label = fm1_performer::routing::label_of(name);
+            let mut label = fm1_performer::routing::label_of(name);
+            if let Some(kind) = app
+                .devices
+                .iter()
+                .find(|device| &device.name == name)
+                .and_then(|device| device.identity.as_deref())
+                .and_then(device_type)
+            {
+                label = format!("{label} ({kind})");
+            }
             if *rescue {
                 Line::from(Span::styled(
                     format!("RESCUE: {label}"),

@@ -138,7 +138,7 @@ timeout 60 ~/bin/fm1-grid >/tmp/fm1-smoke.log 2>&1 &
 apid=$!
 found=0
 for _ in $(seq 1 30); do
-    if xwininfo -root -tree 2>/dev/null | grep -q '"FM-1 Grid"'; then
+    if xwininfo -root -tree 2>/dev/null | grep -q '"Synth Firmware Circus"'; then
         found=1
         break
     fi
@@ -147,7 +147,7 @@ for _ in $(seq 1 30); do
 done
 kill "$apid" 2>/dev/null || true
 if ((found)); then
-    echo "smoke test passed: FM-1 Grid window opened"
+    echo "smoke test passed: app window opened"
 else
     echo "smoke test failed; app output:" >&2
     tail -30 /tmp/fm1-smoke.log >&2

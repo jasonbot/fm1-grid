@@ -199,6 +199,17 @@
     }
 
     #[test]
+    pub(super) fn device_type_colours_are_hash_stable() {
+        let fm1 = crate::app::type_color("FM-1");
+        assert_eq!(fm1, crate::app::type_color("FM-1"));
+        assert_ne!(fm1, crate::app::type_color("SMK-37 Pro"));
+        assert_eq!(
+            crate::app::type_color("MKE-P37"),
+            crate::app::type_color("MKE-P37")
+        );
+    }
+
+    #[test]
     pub(super) fn available_smk_rows_can_flash() {
         use fm1_performer::firmware_picker::pick_of;
         let mut firmware = firmware("Smk Thing", &[]);

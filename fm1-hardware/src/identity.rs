@@ -37,6 +37,29 @@ pub fn package_fits(current: &str, product: &str) -> bool {
         && !device_version.starts_with('0')
 }
 
+/// The keyboard model an identity names, for UI labels. The Donner Starrykey
+/// reports its own name but runs the SMK-37 Pro build, so it shows as SMK-37 Pro.
+pub fn device_type(identity: &str) -> Option<&'static str> {
+    let identity = identity
+        .strip_prefix("ota-")
+        .or_else(|| identity.strip_prefix("OTA-"))
+        .unwrap_or(identity);
+    let (model, _) = identity.split_once('_').unwrap_or((identity, ""));
+    if model.eq_ignore_ascii_case("FM-1") {
+        Some("FM-1")
+    } else if model.eq_ignore_ascii_case("SMK-37 Pro")
+        || model.eq_ignore_ascii_case("STARRYKEY-37 PLAY")
+    {
+        Some("SMK-37 Pro")
+    } else if model.eq_ignore_ascii_case("SMK-37 Elite") {
+        Some("SMK-37 Elite")
+    } else if model.eq_ignore_ascii_case("MKE-P37") {
+        Some("MKE-P37")
+    } else {
+        None
+    }
+}
+
 /// Whether the identity a device reports after a flash is the package's: the same
 /// model family (see [`same_model`]) at the same version.
 pub(crate) fn same_identity(reported: &str, product: &str) -> bool {

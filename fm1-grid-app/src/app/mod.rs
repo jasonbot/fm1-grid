@@ -188,6 +188,30 @@ pub(crate) struct LibForm {
     pub filter: Entity<InputState>,
 }
 
+/// A pill for a recognized keyboard model. The colour is a hash of the model
+/// name, so it stays the same across runs and themes.
+pub(crate) fn type_color(kind: &str) -> Hsla {
+    let mut hash = 0xcbf2_9ce4_8422_2325u64;
+    for byte in kind.as_bytes() {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x100_0000_01b3);
+    }
+    hsla((hash % 360) as f32 / 360.0, 0.62, 0.55, 1.0)
+}
+
+pub(crate) fn type_pill(kind: &str) -> AnyElement {
+    let color = type_color(kind);
+    div()
+        .rounded_full()
+        .px(px(6.0))
+        .py(px(1.0))
+        .text_size(px(9.0))
+        .bg(color.opacity(0.16))
+        .text_color(color)
+        .child(kind.to_string())
+        .into_any_element()
+}
+
 pub struct GridApp {
     pub(crate) slots: [Slot; MAX_SLOTS],
     /// One logical CPU per physical core, used to pin emulator threads on Linux.

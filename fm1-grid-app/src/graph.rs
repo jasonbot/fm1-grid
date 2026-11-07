@@ -6,6 +6,7 @@
 //! only draws it and posts commands.
 
 use crate::app::GridApp;
+use fm1_performer::hardware::device_type;
 use fm1_performer::routing::Port;
 use gpui_kit::base::{ElementExt, h_flex, v_flex};
 use gpui_kit::assets::IconName as Lucide;
@@ -15,6 +16,7 @@ use gpui_kit::component::scroll::ScrollableElement;
 use gpui_kit::component::{ActiveTheme, Icon, Sizable};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{TestSupportExt as _, *};
+use std::collections::HashMap;
 use std::time::Instant;
 
 impl GridApp {
@@ -35,6 +37,14 @@ impl GridApp {
                 .map_or_else(|| "gone".to_string(), |endpoint| endpoint.label.clone())
         };
 
+        let kinds: HashMap<String, &'static str> = self
+            .hardware
+            .devices()
+            .iter()
+            .filter_map(|row| {
+                row.identity.as_deref().and_then(device_type).map(|kind| (row.name.clone(), kind))
+            })
+            .collect();
         let app = cx.entity().clone();
         let mut sections: Vec<AnyElement> = Vec::new();
         for (row_ix, source) in endpoints
@@ -56,6 +66,10 @@ impl GridApp {
                         .text_color(ink)
                         .child(label(&source)),
                 );
+            let kind = match &source {
+                Port::Device(name) => kinds.get(name).copied(),
+                _ => None,
+            };
             // The always-there router dropdown: every sink this source is not
             // already connected to.
             let candidates: Vec<(Port, String)> = endpoints
@@ -71,7 +85,11 @@ impl GridApp {
                 .collect();
             let app_menu = app.clone();
             let source_menu = source.clone();
-            heading = heading.child(
+            let mut trailing = h_flex().items_center().gap_2();
+            if let Some(kind) = kind {
+                trailing = trailing.child(crate::app::type_pill(kind));
+            }
+            trailing = trailing.child(
                 Button::new(("graph-connect", row_ix))
                     .label("Connect")
                     .icon(Icon::new(Lucide::ChevronDown))
@@ -102,6 +120,7 @@ impl GridApp {
                         menu
                     }),
             );
+            heading = heading.child(trailing);
             let mut section = v_flex()
                 .w_full()
                 .gap_1()

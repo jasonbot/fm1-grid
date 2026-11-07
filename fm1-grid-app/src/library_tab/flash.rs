@@ -1,4 +1,5 @@
 use super::*;
+use fm1_performer::hardware::device_type;
 
 impl GridApp {
     /// The Flash To… dropdown: live flashable units, then powered-off unpinned panes.
@@ -14,7 +15,7 @@ impl GridApp {
             FirmwareDevice::Fm1 => Some("FM-1"),
             FirmwareDevice::Smk37 => firmware.variant(),
         };
-        let units: Vec<String> = self
+        let units: Vec<(String, Option<&'static str>)> = self
             .hardware
             .devices()
             .iter()
@@ -29,7 +30,7 @@ impl GridApp {
                         })
                     })
             })
-            .map(|row| row.name.clone())
+            .map(|row| (row.name.clone(), row.identity.as_deref().and_then(device_type)))
             .collect();
         let slots: Vec<usize> = (0..fm1_performer::MAX_SLOTS)
             .filter(|&slot| !self.powered[slot] && !self.slots[slot].pinned)
@@ -68,12 +69,17 @@ impl GridApp {
                 let Some(pick) = pick.clone() else {
                     return menu;
                 };
-                for unit in &units {
+                for (unit, kind) in &units {
                     let app = app.clone();
                     let unit = unit.clone();
+                    let kind = *kind;
                     let pick = pick.clone();
                     let name = flash_name.clone();
-                    menu = menu.item(PopupMenuItem::new(format!("USB: {unit}")).on_click(
+                    let label = kind.map_or_else(
+                        || format!("USB: {unit}"),
+                        |kind| format!("USB: {unit} ({kind})"),
+                    );
+                    menu = menu.item(PopupMenuItem::new(label).on_click(
                         move |_, window, cx| {
                             let unit = unit.clone();
                             let pick = pick.clone();

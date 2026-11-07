@@ -4,7 +4,7 @@
 
 use fm1_performer::clock::Clock;
 use fm1_performer::firmware_picker::{pick_of, FirmwarePick};
-use fm1_performer::hardware::{package_fits, DeviceRow, FlashState, Hardware};
+use fm1_performer::hardware::{device_type, package_fits, DeviceRow, FlashState, Hardware};
 use fm1_performer::library::{Firmware, FirmwareDevice, FirmwareSource, HubStatus, Library, Status};
 use fm1_performer::midi_keys::MidiKeys;
 use fm1_performer::routing::{Endpoint, Port, Routing};
@@ -584,10 +584,23 @@ impl TuiApp {
 
     /// An endpoint's display label ("gone" if it disappeared since the snapshot).
     pub fn graph_source_label(&self, port: &Port) -> String {
-        self.endpoints
+        let label = self
+            .endpoints
             .iter()
             .find(|endpoint| &endpoint.port == port)
-            .map_or_else(|| "gone".to_string(), |endpoint| endpoint.label.clone())
+            .map_or_else(|| "gone".to_string(), |endpoint| endpoint.label.clone());
+        if let Port::Device(name) = port {
+            if let Some(kind) = self
+                .devices
+                .iter()
+                .find(|device| &device.name == name)
+                .and_then(|device| device.identity.as_deref())
+                .and_then(device_type)
+            {
+                return format!("{label} ({kind})");
+            }
+        }
+        label
     }
 
     /// The sinks a source could still feed: every sink endpoint it has no link to.

@@ -24,7 +24,7 @@ mod scan;
 mod tests;
 
 pub(crate) use flash::*;
-pub use identity::package_fits;
+pub use identity::{device_type, package_fits};
 pub(crate) use identity::*;
 pub(crate) use package::*;
 pub(crate) use protocol::*;

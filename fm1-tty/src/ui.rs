@@ -503,16 +503,10 @@ fn flash_target_popup(frame: &mut Frame, app: &mut TuiApp, sel: usize, targets: 
     let items: Vec<Line> = targets
         .iter()
         .map(|(name, rescue)| {
-            let mut label = fm1_performer::routing::label_of(name);
-            if let Some(kind) = app
-                .devices
-                .iter()
-                .find(|device| &device.name == name)
-                .and_then(|device| device.identity.as_deref())
-                .and_then(device_type)
-            {
-                label = format!("{label} ({kind})");
-            }
+            let device = (!*rescue)
+                .then(|| app.devices.iter().find(|device| &device.name == name))
+                .flatten();
+            let label = flash_target_text(name, device);
             if *rescue {
                 Line::from(Span::styled(
                     format!("RESCUE: {label}"),
@@ -524,6 +518,23 @@ fn flash_target_popup(frame: &mut Frame, app: &mut TuiApp, sel: usize, targets: 
         })
         .collect();
     list_popup(frame, app, "Flash to…", &items, sel);
+}
+
+/// A target's picker label. Two identical FM-1s can share a MIDI label; the USB
+/// bus path is the physical unit's clearest handle.
+fn flash_target_text(name: &str, device: Option<&DeviceRow>) -> String {
+    let mut label = fm1_performer::routing::label_of(name);
+    if let Some(device) = device {
+        if let Some(kind) = device.identity.as_deref().and_then(device_type) {
+            label = format!("{label} ({kind})");
+        }
+        if let Some(usb) = &device.usb {
+            label = format!("{label} · usb {usb}");
+        } else if let Some(number) = device.number {
+            label = format!("{label} · ALSA #{number}");
+        }
+    }
+    label
 }
 
 /// The flash progress modal: phase, gauge and the tail of the message log. Closable
@@ -592,6 +603,25 @@ mod tests {
             source_url: None,
             source: FirmwareSource::Builtin,
         }
+    }
+
+    #[test]
+    fn flash_picker_shows_the_usb_path() {
+        let row = DeviceRow {
+            name: "24:0 FM-1:MIDI 1".to_string(),
+            port: "FM-1 MIDI 1".to_string(),
+            number: Some(24),
+            usb: Some("1-2.4".to_string()),
+            identity: Some("FM-1_916".to_string()),
+            display: "Felucca".to_string(),
+            flash: None,
+            outcome: None,
+        };
+        let label = flash_target_text(&row.name, Some(&row));
+        assert!(label.contains("usb 1-2.4"), "{label}");
+        let mut other = row.clone();
+        other.usb = Some("1-2.3".to_string());
+        assert_ne!(label, flash_target_text(&other.name, Some(&other)));
     }
 
     #[test]

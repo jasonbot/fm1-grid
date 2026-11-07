@@ -20,6 +20,8 @@ const KEY_COMPACT_LOSS: f32 = 32.0;
 const KEY_MARGIN: f32 = 6.0;
 /// The shaded depth strip at the bottom of each key.
 const WHITE_KEY_DEPTH: f32 = 10.0;
+/// The lit lip just above a white key's shade strip.
+const WHITE_KEY_LIP: f32 = 2.0;
 const BLACK_KEY_DEPTH: f32 = 6.0;
 /// The panel's height above the key bed: header, control rows and margins.
 const PANEL_CONTROLS_H: f32 = 156.0;
@@ -530,6 +532,12 @@ impl GridApp {
             (colors.white, colors.white_ink, colors.white_note)
         };
         let pressed = self.held[id as usize] || self.panel_down[id as usize];
+        let strip_height = if pressed {
+            WHITE_KEY_DEPTH / 2.0
+        } else {
+            WHITE_KEY_DEPTH
+        };
+        let lip = strip_colors(key_fill).1;
         div()
             .id(("panel-key", id as usize))
             .flex_1()
@@ -552,7 +560,7 @@ impl GridApp {
             .child(
                 v_flex()
                     .size_full()
-                    .pb(px(WHITE_KEY_DEPTH))
+                    .pb(px(WHITE_KEY_DEPTH + WHITE_KEY_LIP))
                     .items_center()
                     .child(
                         div().flex_1().flex().items_center().child(
@@ -569,6 +577,15 @@ impl GridApp {
                             .text_color(note_ink)
                             .child(note),
                     ),
+            )
+            .child(
+                div()
+                    .absolute()
+                    .left_0()
+                    .right_0()
+                    .bottom(px(strip_height))
+                    .h(px(WHITE_KEY_LIP))
+                    .bg(lip),
             )
             .child(key_strip(key_fill, pressed, WHITE_KEY_DEPTH))
     }

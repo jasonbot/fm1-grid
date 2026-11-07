@@ -128,7 +128,7 @@ Click a pane to send your keys there.
 - Switching panes releases held keys. A pane that is off ignores keys.
 - The front panel keys, buttons and knobs also work with the mouse.
 - White keys have a 2px lip and a shaded bottom strip. A pressed key shrinks its strip.
-- A held key keeps its normal color and gets a soft accent fringe at the edges. Button LEDs use warning yellow, and PLAY uses green.
+- Keys have a small membrane window near the top. It is slightly darker when the key is up and glows with the accent when held. Button LEDs use warning yellow, and PLAY uses green.
 
 ![Pressed key](./screenshot/pressed-key.png)
 

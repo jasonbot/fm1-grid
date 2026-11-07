@@ -12,13 +12,14 @@ use std::borrow::Cow;
 
 // Lucide icons beyond gpui-kit's default set: the sidebar's pin and power toggles,
 // the tab and pill-tab icons, the rescue toggle's life buoy, the settings tab's
-// palette and auto-appearance icons, and the button icons (the default set already
-// covers RefreshCw, Plus, ChevronDown, ArrowRight, Settings, Sun and Moon;
-// ListFilter is the Library's device combo).
+// palette and auto-appearance icons, and the button icons (the default set covers
+// RefreshCw, Plus, ChevronDown, ArrowRight, Sun and Moon; ListFilter is the Library's
+// device combo). Settings is repeated because the component assets did not serve it
+// in this build.
 // The macro embeds exactly these SVGs; a misspelled name fails the build.
 icon_assets!(
     ExtraIcons,
-    [Pin, Monitor, KeyboardMusic, Library, Download, Trash, Zap, FilePlus, Save, X, Usb, Waypoints, Power, LifeBuoy, Palette, SunMoon, ListFilter]
+    [Pin, Monitor, KeyboardMusic, Library, Download, Trash, Zap, FilePlus, Save, X, Usb, Waypoints, Power, LifeBuoy, Palette, SunMoon, ListFilter, Settings]
 );
 
 actions!(fm1_grid, [Quit]);
@@ -98,3 +99,14 @@ fn main() {
     });
 }
 
+#[cfg(test)]
+mod tests {
+    use super::ExtraIcons;
+    use gpui_kit::AssetSource;
+
+    #[test]
+    fn settings_icon_is_bundled_with_extras() {
+        let bytes = ExtraIcons.load("icons/settings.svg").unwrap();
+        assert!(bytes.is_some(), "the settings rail icon needs an asset");
+    }
+}

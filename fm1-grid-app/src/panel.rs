@@ -125,11 +125,16 @@ fn strip_colors(fill: Hsla) -> (Hsla, Hsla) {
     )
 }
 
+/// The strip's drawn height in each state.
+fn strip_height(height: f32, pressed: bool) -> f32 {
+    if pressed { height / 2.0 } else { height }
+}
+
 /// The key's bottom strip. Pressed, it is half as high and solid dark; otherwise it
 /// is the full depth with a top-dark to bottom-light gradient.
 fn key_strip(fill: Hsla, pressed: bool, height: f32) -> AnyElement {
     let (dark, light) = strip_colors(fill);
-    let height = if pressed { height / 2.0 } else { height };
+    let height = strip_height(height, pressed);
     let strip = div()
         .absolute()
         .left_0()
@@ -532,11 +537,7 @@ impl GridApp {
             (colors.white, colors.white_ink, colors.white_note)
         };
         let pressed = self.held[id as usize] || self.panel_down[id as usize];
-        let strip_height = if pressed {
-            WHITE_KEY_DEPTH / 2.0
-        } else {
-            WHITE_KEY_DEPTH
-        };
+        let depth = strip_height(WHITE_KEY_DEPTH, pressed);
         let lip = strip_colors(key_fill).1;
         div()
             .id(("panel-key", id as usize))
@@ -583,7 +584,7 @@ impl GridApp {
                     .absolute()
                     .left_0()
                     .right_0()
-                    .bottom(px(strip_height))
+                    .bottom(px(depth))
                     .h(px(WHITE_KEY_LIP))
                     .bg(lip),
             )
@@ -662,8 +663,14 @@ impl GridApp {
 mod tests {
     // No `use super::*` — the parent's gpui glob import would drag in GPUI's `test`
     // attribute macro, which re-expands the built-in #[test] (see library_tab.rs).
-    use super::{panel_colors, strip_colors};
+    use super::{panel_colors, strip_colors, strip_height};
     use gpui_kit::component::Theme;
+
+    #[test]
+    fn pressed_strip_is_half_height() {
+        assert_eq!(strip_height(10.0, false), 10.0);
+        assert_eq!(strip_height(10.0, true), 5.0);
+    }
 
     #[test]
     fn key_strip_gradient_brackets_the_key_color() {

@@ -52,7 +52,6 @@ pub use fm1_performer::session::DeviceFilter;
 pub enum GraphRow {
     Source(Port),
     Link(Port, Port),
-    Connect(Port),
 }
 
 /// Mouse hit regions, refilled by every draw. Plain data; `ui.rs` writes, `main.rs`
@@ -230,7 +229,6 @@ fn graph_rows(endpoints: &[Endpoint], links: &[(Port, Port)]) -> Vec<GraphRow> {
         for (_, sink) in sinks {
             rows.push(GraphRow::Link(source.port.clone(), sink.clone()));
         }
-        rows.push(GraphRow::Connect(source.port.clone()));
     }
     rows
 }
@@ -638,10 +636,10 @@ impl TuiApp {
         self.graph_sel = index;
         match self.graph_rows().get(index).cloned() {
             Some(GraphRow::Link(source, sink)) => self.routing.disconnect(source, sink),
-            Some(GraphRow::Connect(source)) => {
+            Some(GraphRow::Source(source)) => {
                 self.popup = Some(Popup::GraphSinks(source, 0));
             }
-            Some(GraphRow::Source(_)) | None => {}
+            None => {}
         }
     }
 
@@ -973,8 +971,8 @@ mod tests {
         assert_eq!(DeviceFilter::ALL.len(), 5);
     }
 
-    /// Every source row gets its links and a connect row; sources and sinks sort by
-    /// label so the row indices hold still.
+    /// Every source row carries its links; sources and sinks sort by label so the
+    /// row indices hold still.
     #[test]
     fn graph_rows_list_links_and_connect_actions() {
         let keyboard = Port::System("kb".to_string());
@@ -1007,9 +1005,7 @@ mod tests {
             vec![
                 GraphRow::Source(keyboard.clone()),
                 GraphRow::Link(keyboard.clone(), unit.clone()),
-                GraphRow::Connect(keyboard),
                 GraphRow::Source(unit.clone()),
-                GraphRow::Connect(unit),
             ]
         );
     }

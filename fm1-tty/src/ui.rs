@@ -215,18 +215,18 @@ fn graph(frame: &mut Frame, app: &mut TuiApp, area: Rect) {
         .collect();
 }
 
-/// One graph row's line: a bold source heading, an unroute pill and its sink, or the
-/// connect action.
+/// One graph row's line: a bold source heading with its connect action, or an
+/// unroute pill and its sink.
 fn graph_line(app: &TuiApp, row: &GraphRow) -> Line<'static> {
     match row {
-        GraphRow::Source(port) => Line::from(bold(format!(" {}", app.graph_source_label(port)))),
+        GraphRow::Source(port) => Line::from(vec![
+            bold(format!(" {}", app.graph_source_label(port))),
+            Span::styled("  + connect…", Style::default().fg(ACCENT)),
+        ]),
         GraphRow::Link(_, sink) => Line::from(vec![
             Span::styled("   × ", Style::default().fg(ERR)),
             dim(app.graph_source_label(sink)),
         ]),
-        GraphRow::Connect(_) => {
-            Line::from(Span::styled("   + connect…", Style::default().fg(ACCENT)))
-        }
     }
 }
 

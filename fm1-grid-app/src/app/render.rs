@@ -1,5 +1,8 @@
 use super::*;
 
+/// Space above and below the front panel.
+const PANEL_PAD_Y: f32 = 2.0;
+
 impl GridApp {
     /// The Emulator tab: the 2x2 grid and the selected pane's sidebar in a draggable
     /// split, with the miniature front panel tucked at the bottom — the only tab that
@@ -33,7 +36,13 @@ impl GridApp {
                         ),
                 ),
             )
-            .child(self.control_display(cx, compact))
+            .child(
+                div()
+                    .w_full()
+                    .pt(px(PANEL_PAD_Y))
+                    .pb(px(PANEL_PAD_Y))
+                    .child(self.control_display(cx, compact)),
+            )
     }
     /// The left icon rail: the app tabs as icon-only buttons stacked vertically, the
     /// gear pinned to the bottom. One chip slides between the buttons on the same

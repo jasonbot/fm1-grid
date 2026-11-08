@@ -83,7 +83,7 @@ impl GridApp {
             move |options, _window, cx| {
                 let current = app.read(cx).accent.clone();
                 let enabled = !options.is_disabled();
-                let mut row = h_flex().items_center().gap_1();
+                let mut row = h_flex().w_full().flex_wrap().items_center().gap_1();
                 for accent in crate::themes::ACCENTS {
                     let selected = accent.id == current;
                     let app = app.clone();

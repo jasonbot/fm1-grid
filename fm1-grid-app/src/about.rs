@@ -158,7 +158,7 @@ fn about_app(cx: &mut Context<GridApp>) -> impl IntoElement {
                                 .text_size(px(14.0))
                                 .text_color(cx.theme().primary)
                                 .on_click(|_, _, cx| cx.open_url(REPO_URL))
-                                .child("github.com/jasonbot/fm1-grid"),
+                                .child(REPO_URL.strip_prefix("https://").unwrap_or(REPO_URL)),
                         ),
                 ),
         )

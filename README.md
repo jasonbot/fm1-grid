@@ -113,7 +113,7 @@ flowchart LR
 ## About
 
 - The info icon at the bottom of the rail opens About.
-- **About this app** shows the app title, version and release history.
+- **About this app** shows the app title, version, release history, and a link to the GitHub repository.
 - **Licenses** scrolls the generated third-party licence text.
 
 ## Keyboard

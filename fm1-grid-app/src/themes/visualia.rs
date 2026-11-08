@@ -40,14 +40,20 @@ pub(crate) fn theme(mode: ThemeMode, accent: &Accent) -> ThemeConfig {
         )
         .into(),
         mode,
-        font_family: Some("Inter, Segoe UI, Helvetica Neue, Noto Sans, DejaVu Sans, sans-serif".into()),
+        font_family: Some(
+            "Inter, Segoe UI, Helvetica Neue, Noto Sans, DejaVu Sans, sans-serif".into(),
+        ),
         mono_font_family: Some(
             "JetBrains Mono, Cascadia Mono, Consolas, Menlo, DejaVu Sans Mono, monospace".into(),
         ),
         radius: Some(8),
         radius_lg: Some(16),
         shadow: Some(true),
-        colors: if dark { dark_tokens(base) } else { light_tokens(base) },
+        colors: if dark {
+            dark_tokens(base)
+        } else {
+            light_tokens(base)
+        },
         ..Default::default()
     }
 }
@@ -68,7 +74,7 @@ fn light_tokens(a: Rgb) -> ThemeConfigColors {
         border: opt(border.clone()),
         muted: opt("#efe8d5"),
         muted_foreground: opt("#6b6254"),
-        accent: opt(a.alpha(0x33)),
+        accent: opt(a.alpha(0x99)),
         accent_foreground: opt(accent_text),
         primary: opt(accent.clone()),
         primary_hover: opt(hover.clone()),
@@ -127,7 +133,7 @@ fn light_tokens(a: Rgb) -> ThemeConfigColors {
         list_active_border: opt(accent.clone()),
         list_even: opt("#f5eedb"),
         list_head: opt("#f1e8d3"),
-        popover: opt("#fbf6e8"),
+        popover: opt("#f6f4ed"),
         popover_foreground: opt("#241f17"),
         input: opt(border_soft),
         selection: opt(a.alpha(0x40)),
@@ -176,7 +182,11 @@ fn dark_tokens(a: Rgb) -> ThemeConfigColors {
     let bg_hue = toward_purple(accent.h);
     let background = hsl(bg_hue, accent.s * 0.20, 0.055);
     let border = hsl(bg_hue, 0.06, 0.42);
-    let lifted = hsl(accent.h, (accent.s * 0.90).clamp(0.0, 1.0), (accent.l + 0.15).min(0.92));
+    let lifted = hsl(
+        accent.h,
+        (accent.s * 0.90).clamp(0.0, 1.0),
+        (accent.l + 0.15).min(0.92),
+    );
     let lifted_hex = hex(lifted);
     let accent_text = a.lighten(0.15).contrast();
     let hover = hsl(lifted.h, lifted.s, (lifted.l + 0.06).min(1.0));
@@ -340,11 +350,13 @@ mod tests {
         assert_eq!(light.name.as_ref(), "Visualia Light (Red)");
         assert_eq!(light.colors.background.as_deref(), Some("#fbf9f7"));
         // The border is a dark, low-saturation tint of the accent hue.
-        let border = gpui_kit::component::try_parse_color(
-            light.colors.border.as_deref().unwrap(),
-        )
-        .unwrap();
+        let border =
+            gpui_kit::component::try_parse_color(light.colors.border.as_deref().unwrap()).unwrap();
         assert!(border.l < 0.35 && border.s < 0.15);
+        // The menu/metronome surface is a desaturated cream, not the yellow one.
+        let popover =
+            gpui_kit::component::try_parse_color(light.colors.popover.as_deref().unwrap()).unwrap();
+        assert!(popover.s < 0.35, "popover is desaturated: {popover:?}");
     }
 
     #[test]
@@ -352,17 +364,16 @@ mod tests {
         let blue = accent("blue");
         let dark = theme(ThemeMode::Dark, blue);
         assert_eq!(dark.name.as_ref(), "Visualia Dark (Blue)");
-        let bg = gpui_kit::component::try_parse_color(
-            dark.colors.background.as_deref().unwrap(),
-        )
-        .unwrap();
+        let bg = gpui_kit::component::try_parse_color(dark.colors.background.as_deref().unwrap())
+            .unwrap();
         assert!(bg.l < 0.10, "background is nearly black: {bg:?}");
         assert!(bg.s < 0.25, "background is desaturated: {bg:?}");
-        let border = gpui_kit::component::try_parse_color(
-            dark.colors.border.as_deref().unwrap(),
-        )
-        .unwrap();
-        assert!(border.l > 0.35 && border.s < 0.12, "medium light desaturated border: {border:?}");
+        let border =
+            gpui_kit::component::try_parse_color(dark.colors.border.as_deref().unwrap()).unwrap();
+        assert!(
+            border.l > 0.35 && border.s < 0.12,
+            "medium light desaturated border: {border:?}"
+        );
     }
 
     #[test]
@@ -372,7 +383,10 @@ mod tests {
             let palette = panel(accent, dark);
             assert!(palette.bed.l < 0.12);
             assert!(palette.button.l > palette.bed.l);
-            assert!(palette.button.s < palette.bed.s, "buttons are more desaturated");
+            assert!(
+                palette.button.s < palette.bed.s,
+                "buttons are more desaturated"
+            );
             assert!(palette.border.l > palette.button.l);
         }
     }

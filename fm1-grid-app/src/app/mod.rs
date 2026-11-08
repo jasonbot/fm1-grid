@@ -391,6 +391,9 @@ pub struct GridApp {
     /// The tab rail's rendered height, recorded during prepaint — the sliding chip
     /// aims the gear's bottom slot with it (one frame of lag, like the sidebar's).
     pub(crate) rail_h: f32,
+    /// Raw download-mode units and their flash analysis.
+    pub(crate) recovery: crate::recovery::RecoveryState,
+    recovery_generation: u64,
     /// The library generation the firmware pickers were last built from.
     combos_at_generation: u64,
     _tick: Task<()>,

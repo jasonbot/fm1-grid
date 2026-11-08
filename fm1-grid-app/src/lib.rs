@@ -17,6 +17,7 @@ mod grid;
 mod lcd;
 mod library_tab;
 mod panel;
+mod recovery;
 mod session;
 mod settings;
 mod sidebar;

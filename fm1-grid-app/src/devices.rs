@@ -11,7 +11,7 @@ use crate::firmware_picker::FirmwareDelegate;
 use fm1_performer::hardware::{device_type, DeviceRow};
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::base::{ElementExt, h_flex, v_flex};
-use gpui_kit::component::button::{Toggle, ToggleVariants};
+use gpui_kit::component::button::{Button, Toggle, ToggleVariants};
 use gpui_kit::component::combobox::{Combobox, ComboboxEvent, ComboboxState};
 use gpui_kit::component::progress::Progress;
 use gpui_kit::component::scroll::ScrollableElement;
@@ -141,6 +141,19 @@ impl GridApp {
                 content = content.child(self.rescue_row(ix, &name, cx));
             }
         }
+        let recovery = self.recovery.rows();
+        if !recovery.is_empty() {
+            content = content.child(
+                div()
+                    .text_size(px(9.5))
+                    .font_weight(FontWeight::BOLD)
+                    .text_color(dim)
+                    .child("DOWNLOAD-MODE UNITS"),
+            );
+            for (ix, row) in recovery.into_iter().enumerate() {
+                content = content.child(self.recovery_row(ix, row, rescue_on, cx));
+            }
+        }
         for (ix, row) in rows.into_iter().enumerate() {
             content = content.child(self.device_row(ix, row, cx));
         }
@@ -204,6 +217,108 @@ impl GridApp {
         }
 
         pane
+    }
+
+    /// One unit in the chip's ROM download mode: the flash analysis from the
+    /// recovery core, plus m-bootloader installation in rescue mode.
+    fn recovery_row(
+        &mut self,
+        ix: usize,
+        row: crate::recovery::RecoveryRow,
+        rescue_on: bool,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let (ink, dim, danger, accent) = {
+            let theme = cx.theme();
+            (
+                theme.foreground,
+                theme.muted_foreground,
+                theme.danger,
+                theme.primary,
+            )
+        };
+        let title = row
+            .probe
+            .as_ref()
+            .map_or_else(|| "Reading flash…".to_string(), |probe| probe.model.clone());
+        let mut out = v_flex().w_full().child(
+            h_flex()
+                .w_full()
+                .items_center()
+                .flex_wrap()
+                .gap_2()
+                .child(
+                    div()
+                        .text_size(px(14.0))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(ink)
+                        .child(title),
+                )
+                .child(
+                    div()
+                        .text_size(px(9.5))
+                        .text_color(dim)
+                        .child(row.description.clone()),
+                ),
+        );
+        if let Some(probe) = &row.probe {
+            out = out.child(
+                div()
+                    .text_size(px(10.0))
+                    .text_color(dim)
+                    .child(format!(
+                        "firmware {} · bootloader {} · {} · {}",
+                        probe.firmware, probe.bootloader, probe.chip_key, probe.flash
+                    )),
+            );
+        }
+        if let Some(error) = &row.error {
+            out = out.child(
+                div()
+                    .text_size(px(10.0))
+                    .text_color(danger)
+                    .child(error.clone()),
+            );
+        }
+        if rescue_on && row.probe.is_some() && !row.busy {
+            let path = row.path.clone();
+            out = out.child(
+                div().child(
+                    Button::new(("recovery-boot", ix))
+                        .label("Install m-bootloader")
+                        .small()
+                        .tooltip(
+                            "Write m-bootloader to this unit's boot area; the full flash                              is backed up first",
+                        )
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.recovery.install_bootloader(&path);
+                            cx.notify();
+                        })),
+                ),
+            );
+        }
+        if row.busy {
+            out = out.child(
+                div()
+                    .text_size(px(10.0))
+                    .text_color(accent)
+                    .child("Installing m-bootloader…"),
+            );
+        }
+        if let Some(outcome) = &row.outcome {
+            let color = if outcome.starts_with("m-bootloader installed") {
+                ink
+            } else {
+                danger
+            };
+            out = out.child(
+                div()
+                    .text_size(px(10.0))
+                    .text_color(color)
+                    .child(outcome.clone()),
+            );
+        }
+        out.into_any_element()
     }
 
     /// One live unit: the name row (what it runs, then the dim port facts), the flash

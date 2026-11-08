@@ -76,6 +76,8 @@ impl GridApp {
                 0.5
             };
         dirty |= std::mem::replace(&mut self.grid_scale, scale) != scale;
+        // Raw download-mode probes arrive on their own thread.
+        dirty |= self.recovery.changed(&mut self.recovery_generation);
         // Flash progress and hotplugged USB devices arrive on the hardware module's
         // threads; sweep them up twice a second.
         self.tick_count = self.tick_count.wrapping_add(1);

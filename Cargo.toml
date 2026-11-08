@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["fm1-grid", "fm1-grid-app", "fm1-performer", "fm1-tty", "fm1-base", "fm1-firmware", "fm1-hardware"]
+members = ["fm1-grid", "fm1-grid-app", "fm1-performer", "fm1-tty", "fm1-base", "fm1-firmware", "fm1-hardware", "fm1-recovery"]
 
 [profile.release]
 opt-level = 3

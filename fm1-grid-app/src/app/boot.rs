@@ -308,6 +308,8 @@ impl GridApp {
             appearance: session.appearance,
             accent: session.accent.clone(),
             rail_h: 740.0,
+            recovery: crate::recovery::RecoveryState::start(),
+            recovery_generation: 0,
             combos_at_generation: 0,
             _tick: tick,
             _subscriptions: subscriptions,

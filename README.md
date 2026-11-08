@@ -78,6 +78,7 @@ The `.fwsc` files are gitignored. A fresh build downloads and checks any missing
 - Flash progress stays at the bottom while the unit reboots.
 - **Rescue** adds every MIDI port as a flash target. Use it for a unit that no longer answers to its name.
 - The emulator cannot run SMK-37 firmware. Those rows can only go to a live unit.
+- A unit in ROM download mode shows its model, firmware and bootloader. With Rescue on, it can take m-bootloader.
 
 ## MIDI graph
 

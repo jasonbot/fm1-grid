@@ -1,0 +1,23 @@
+[package]
+name = "fm1-recovery"
+version = "0.1.0"
+edition = "2021"
+description = "Raw USB download-mode recovery for M-VAVE FM-1 and SMK-37 units"
+
+[dependencies]
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+sha2 = "0.11"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = "0.2"
+rusb = { version = "0.9", features = ["vendored"], optional = true }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+libc = "0.2"
+rusb = { version = "0.9", features = ["vendored"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_IO", "Win32_System_Ioctl", "Win32_Storage_IscsiDisc"] }
+
+[features]
+usb = ["dep:rusb"]

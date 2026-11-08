@@ -24,12 +24,8 @@ const WHITE_KEY_DEPTH: f32 = 10.0;
 const KEY_LED_INSET: f32 = 0.36;
 const BLACK_KEY_WIDTH_FRAC: f32 = 0.62;
 const BLACK_KEY_HEIGHT_FRAC: f32 = 0.62;
-const KEY_LED_HEIGHT: f32 = 45.0;
-const WHITE_LED_TRIM: f32 = 6.0;
-const BLACK_LED_TRIM: f32 = 8.0;
-/// The LED window never takes more than this share of a short key.
-const WHITE_LED_MAX_FRAC: f32 = 0.34;
-const BLACK_LED_MAX_FRAC: f32 = 0.5;
+const WHITE_LED_HEIGHT: f32 = 19.5;
+const BLACK_LED_HEIGHT: f32 = 18.5;
 /// The LED window sits this far above the key's lip.
 const KEY_LED_LIP_GAP: f32 = 4.0;
 const KEY_LABEL_TOP: f32 = 0.0;
@@ -46,7 +42,7 @@ const LED_LIT_THRESHOLD: f32 = 0.04;
 const STRIP_SHADE_DELTA: f32 = 0.07;
 /// How much the LED border mixes toward the key face.
 const LED_BORDER_MIX: f32 = 0.5;
-const KEY_LED_FILL_ALPHA: f32 = 0.3;
+const KEY_LED_FILL_ALPHA: f32 = 0.5;
 /// The lit lip just above a white key's shade strip.
 const WHITE_KEY_LIP: f32 = 2.0;
 const BLACK_KEY_DEPTH: f32 = 6.0;
@@ -652,7 +648,7 @@ impl GridApp {
         let (key_fill, ink, note_ink) =
             (colors.white, colors.white_ink, colors.white_note);
         let depth = strip_height(WHITE_KEY_DEPTH, pressed);
-        let led_height = (KEY_LED_HEIGHT - WHITE_LED_TRIM).min(height * WHITE_LED_MAX_FRAC);
+        let led_height = WHITE_LED_HEIGHT;
         let led_top = height - led_bottom(depth, WHITE_KEY_LIP) - led_height;
         let note_top = KEY_LABEL_TOP + WHITE_HINT_SIZE + KEY_LABEL_GAP;
         let lip = strip_colors(key_fill, colors.dark).1;
@@ -744,7 +740,7 @@ impl GridApp {
         let lit = pressed || self.leds[id as usize] > LED_LIT_THRESHOLD;
         let hint = panel_key_hint(id);
         let (fill, ink) = (colors.black, colors.black_ink);
-        let led_height = (KEY_LED_HEIGHT - BLACK_LED_TRIM).min(height * BLACK_LED_MAX_FRAC);
+        let led_height = BLACK_LED_HEIGHT;
         let led_top = height - led_bottom(strip_height(BLACK_KEY_DEPTH, pressed), 0.0) - led_height;
         div()
             .absolute()

@@ -10,7 +10,7 @@ use fm1_performer::keys::{
     BLACK_KEYS, FUNCTION_ROW_1, FUNCTION_ROW_2, PANEL_KEYS, WHITE_KEYS, panel_key_hint,
 };
 use crate::theme::mix_hsla;
-use gpui_kit::base::{ElementExt, v_flex};
+use gpui_kit::base::ElementExt;
 use gpui_kit::component::ActiveTheme;
 use gpui_kit::*;
 
@@ -24,19 +24,19 @@ const WHITE_KEY_DEPTH: f32 = 10.0;
 const KEY_LED_INSET: f32 = 0.36;
 const BLACK_KEY_WIDTH_FRAC: f32 = 0.62;
 const BLACK_KEY_HEIGHT_FRAC: f32 = 0.62;
-const KEY_LED_TOP: f32 = 1.0;
 const KEY_LED_HEIGHT: f32 = 45.0;
 const WHITE_LED_TRIM: f32 = 6.0;
 const BLACK_LED_TRIM: f32 = 8.0;
 /// The LED window never takes more than this share of a short key.
-const KEY_LED_MAX_FRAC: f32 = 0.55;
+const KEY_LED_MAX_FRAC: f32 = 0.5;
+/// The LED window sits this far above the key's lip.
+const KEY_LED_LIP_GAP: f32 = 4.0;
+const KEY_LABEL_TOP: f32 = 0.0;
+const KEY_LABEL_GAP: f32 = 1.0;
 const WHITE_HINT_SIZE: f32 = 16.0;
 const BLACK_HINT_SIZE: f32 = 14.0;
 const KEY_NOTE_SIZE: f32 = 10.0;
-const KEY_NOTE_PAD: f32 = 2.0;
 const KEY_LED_RADIUS: f32 = 6.0;
-/// The free-space shift for a key with a black key on one side.
-const BLACK_KEY_SHIFT_FRAC: f32 = BLACK_KEY_WIDTH_FRAC / 4.0;
 /// Key corner rounding.
 const KEY_RADIUS: f32 = 1.0;
 /// Firmware LED level that counts as lit.
@@ -45,8 +45,6 @@ const LED_LIT_THRESHOLD: f32 = 0.04;
 const STRIP_SHADE_DELTA: f32 = 0.07;
 /// How much the LED border mixes toward the key face.
 const LED_BORDER_MIX: f32 = 0.5;
-/// The unpressed window sits a little higher; pressing sinks it.
-const KEY_LED_DEPTH: f32 = 3.0;
 const KEY_LED_FILL_ALPHA: f32 = 0.16;
 /// The lit lip just above a white key's shade strip.
 const WHITE_KEY_LIP: f32 = 2.0;
@@ -203,10 +201,10 @@ fn led_window(
     border: Hsla,
     pressed: bool,
     dark: bool,
+    top: f32,
     height: f32,
     insets: (f32, f32),
 ) -> AnyElement {
-    let top = if pressed { KEY_LED_TOP + KEY_LED_DEPTH } else { KEY_LED_TOP };
     let border = mix_hsla(border, fill, LED_BORDER_MIX);
     let window = div()
         .absolute()
@@ -230,10 +228,10 @@ fn led_window(
         .into_any_element()
 }
 
-/// Center a text label between the bottom of the LED window and the next lower
-/// element (a note label or the key's bottom edge).
-fn hint_top(led_height: f32, lower_bound: f32, text_size: f32) -> f32 {
-    (KEY_LED_TOP + KEY_LED_DEPTH + led_height + lower_bound) / 2.0 - text_size / 2.0
+/// The LED window's bottom edge: the strip height, the lip above it, and the
+/// gap to the LED.
+fn led_bottom(strip_height: f32, lip: f32) -> f32 {
+    strip_height + lip + KEY_LED_LIP_GAP
 }
 
 /// The strip's drawn height in each state.
@@ -635,23 +633,6 @@ impl GridApp {
             )
     }
 
-    /// The LED window's left and right insets for a white key. A black key covers
-    /// one edge of the upper key face; shift the window into the free part so it
-    /// is not crowded against that black key.
-    fn white_led_insets(id: u8) -> (f32, f32) {
-        let Some(index) = WHITE_KEYS.iter().position(|&key| key == id) else {
-            return (KEY_LED_INSET, KEY_LED_INSET);
-        };
-        let left = BLACK_KEYS.iter().any(|&(_, after)| after + 1 == index);
-        let right = BLACK_KEYS.iter().any(|&(_, after)| after == index);
-        let shift = BLACK_KEY_SHIFT_FRAC;
-        match (left, right) {
-            (true, false) => (KEY_LED_INSET + shift, KEY_LED_INSET - shift),
-            (false, true) => (KEY_LED_INSET - shift, KEY_LED_INSET + shift),
-            _ => (KEY_LED_INSET, KEY_LED_INSET),
-        }
-    }
-
     /// A white piano key: the theme's light step at rest, the theme's accent while
     /// held; hint below the LED window, note name at the bottom.
     fn white_key(
@@ -675,11 +656,9 @@ impl GridApp {
             (colors.white, colors.white_ink, colors.white_note)
         };
         let depth = strip_height(WHITE_KEY_DEPTH, pressed);
-        let insets = Self::white_led_insets(id);
         let led_height = (KEY_LED_HEIGHT - WHITE_LED_TRIM).min(height * KEY_LED_MAX_FRAC);
-        let note_top =
-            height - (WHITE_KEY_DEPTH + WHITE_KEY_LIP) - KEY_NOTE_PAD - KEY_NOTE_SIZE;
-        let hint_top = hint_top(led_height, note_top, WHITE_HINT_SIZE);
+        let led_top = height - led_bottom(depth, WHITE_KEY_LIP) - led_height;
+        let note_top = KEY_LABEL_TOP + WHITE_HINT_SIZE + KEY_LABEL_GAP;
         let lip = strip_colors(key_fill, colors.dark).1;
         div()
             .id(("panel-key", id as usize))
@@ -706,15 +685,16 @@ impl GridApp {
                 colors.white_edge,
                 pressed,
                 colors.dark,
+                led_top,
                 led_height,
-                insets,
+                (KEY_LED_INSET, KEY_LED_INSET),
             ))
             .child(
                 div()
                     .absolute()
                     .left_0()
                     .right_0()
-                    .top(px(hint_top))
+                    .top(px(KEY_LABEL_TOP))
                     .flex()
                     .justify_center()
                     .child(
@@ -725,14 +705,15 @@ impl GridApp {
                     ),
             )
             .child(
-                v_flex()
-                    .size_full()
-                    .pb(px(WHITE_KEY_DEPTH + WHITE_KEY_LIP))
-                    .items_center()
-                    .child(div().flex_1())
+                div()
+                    .absolute()
+                    .left_0()
+                    .right_0()
+                    .top(px(note_top))
+                    .flex()
+                    .justify_center()
                     .child(
                         div()
-                            .pb(px(KEY_NOTE_PAD))
                             .text_size(px(KEY_NOTE_SIZE))
                             .text_color(note_ink)
                             .child(note),
@@ -772,8 +753,7 @@ impl GridApp {
             (colors.black, colors.black_ink)
         };
         let led_height = (KEY_LED_HEIGHT - BLACK_LED_TRIM).min(height * KEY_LED_MAX_FRAC);
-        let key_bottom = height - BLACK_KEY_DEPTH;
-        let hint_top = hint_top(led_height, key_bottom, BLACK_HINT_SIZE);
+        let led_top = height - led_bottom(strip_height(BLACK_KEY_DEPTH, pressed), 0.0) - led_height;
         div()
             .absolute()
             .left(px(x))
@@ -815,6 +795,7 @@ impl GridApp {
                         colors.black_edge,
                         pressed,
                         colors.dark,
+                        led_top,
                         led_height,
                         (KEY_LED_INSET, KEY_LED_INSET),
                     ))
@@ -823,7 +804,7 @@ impl GridApp {
                             .absolute()
                             .left_0()
                             .right_0()
-                            .top(px(hint_top))
+                            .top(px(KEY_LABEL_TOP))
                             .flex()
                             .justify_center()
                             .child(
@@ -842,31 +823,15 @@ impl GridApp {
 mod tests {
     // No `use super::*` — the parent's gpui glob import would drag in GPUI's `test`
     // attribute macro, which re-expands the built-in #[test] (see library_tab.rs).
-    use super::{GridApp, KEY_LED_INSET, hint_top, panel_colors, strip_colors, strip_height};
+    use super::{WHITE_KEY_LIP, led_bottom, panel_colors, strip_colors, strip_height};
     use gpui_kit::component::Theme;
 
     #[test]
-    fn white_led_window_avoids_a_single_black_key() {
-        let center = (KEY_LED_INSET, KEY_LED_INSET);
-        // C has a black key on its right only.
-        let (left, right) = GridApp::white_led_insets(14);
-        assert!(left < center.0 && right > center.1, "C shifts left");
-        // I has a black key on its left only.
-        let (left, right) = GridApp::white_led_insets(20);
-        assert!(left > center.0 && right < center.1, "I shifts right");
-        // B has black keys on both sides.
-        assert_eq!(GridApp::white_led_insets(16), center);
-    }
-
-    #[test]
-    fn hint_sits_between_led_and_key_lower_edge() {
-        // Normal white key: LED bottom at 4+39, note top at 96.
-        assert_eq!(hint_top(39.0, 96.0, 16.0), 61.5);
-        // Compact white key.
-        assert_eq!(hint_top(39.0, 64.0, 16.0), 45.5);
-        // Normal and compact black keys.
-        assert_eq!(hint_top(37.0, 68.0, 14.0), 47.5);
-        assert_eq!(hint_top(30.0, 48.0, 14.0), 34.0);
+    fn led_sits_four_pixels_above_the_lip() {
+        assert_eq!(led_bottom(10.0, WHITE_KEY_LIP), 16.0);
+        assert_eq!(led_bottom(5.0, WHITE_KEY_LIP), 11.0);
+        assert_eq!(led_bottom(6.0, 0.0), 10.0);
+        assert_eq!(led_bottom(3.0, 0.0), 7.0);
     }
 
     #[test]

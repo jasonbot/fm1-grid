@@ -309,7 +309,9 @@ pub struct GridApp {
     pub(crate) devices_tab: usize,
     /// The About tab's section: 0 = About this app, 1 = Licenses.
     pub(crate) about_tab: usize,
-    pub(crate) about_scroll: ScrollHandle,
+    pub(crate) about_scroll: VirtualListScrollHandle,
+    pub(crate) about_lines: Rc<Vec<&'static str>>,
+    pub(crate) about_sizes: Rc<Vec<Size<Pixels>>>,
     /// The Devices and MIDI Graph sections' scroll state (scrollbars, PgUp/PgDn and
     /// Home/End) and their viewport heights for the page step.
     pub(crate) devices_scroll: ScrollHandle,

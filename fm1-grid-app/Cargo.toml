@@ -14,7 +14,7 @@ cpal = "0.18.2"
 hqx = "0.1.1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-fm1-soc = { git = "https://github.com/joakimeriksson/fm1-emu.git", rev = "b7097fcc3e97eb7d1f6d5f46cee2ad6634f8538d" }
+fm1-soc = { git = "https://github.com/joakimeriksson/fm1-emu.git", rev = "a0e9a88cba72a6de7368273c82e26867848e281d" }
 
 [build-dependencies]
 serde_json = "1"

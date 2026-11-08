@@ -154,10 +154,33 @@ impl Library {
         self.last_stat = Instant::now();
         let hub = self.hub.lock().unwrap().clone();
         let mut view: Vec<Firmware> = Vec::new();
-        for firmware in self.builtins.iter_mut().chain(&mut self.stored) {
+        for firmware in self.builtins.iter_mut() {
+            // A downloaded hub upgrade replaces its builtin row; keep the row in
+            // the builtins-first position instead of showing both versions.
+            let superseded = self.stored.iter().any(|stored| {
+                matches!(stored.source, FirmwareSource::Hub { blob: Some(_), .. })
+                    && same_firmware(stored, firmware)
+                    && version_newer(&stored.version, &firmware.version)
+            });
+            if superseded {
+                continue;
+            }
             // Hub entries never shadow an installed entry; they flag it upgradable.
-            // Builtins and installed hub packages both qualify — the listing moving
-            // ahead of an installed version is an upgrade either way.
+            firmware.upgradable = !matches!(firmware.source, FirmwareSource::File { .. })
+                && hub.iter().any(|offer| {
+                    same_firmware(firmware, offer) && version_newer(&offer.version, &firmware.version)
+                });
+            firmware.status = entry_status(firmware, &self.downloads, &self.store);
+            view.push(firmware.clone());
+        }
+        for firmware in self.stored.iter_mut() {
+            // An old stored duplicate of a builtin never shadows the builtin.
+            if self.builtins.iter().any(|builtin| {
+                same_firmware(builtin, firmware)
+                    && !version_newer(&firmware.version, &builtin.version)
+            }) {
+                continue;
+            }
             firmware.upgradable = !matches!(firmware.source, FirmwareSource::File { .. })
                 && hub.iter().any(|offer| {
                     same_firmware(firmware, offer) && version_newer(&offer.version, &firmware.version)

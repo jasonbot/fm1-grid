@@ -126,6 +126,32 @@
     }
 
     #[test]
+    fn downloaded_upgrade_replaces_the_builtin_row() {
+        let (store, dir) = temp_store("upgrade-row");
+        let builtin = BUILTINS.first().expect("no builtins");
+        let mut library = Library::load(&store);
+        *library.hub.lock().unwrap() = vec![hub_offer(builtin.name, "999.0", "newer.fwsc")];
+        let key = blob_key("fw/newer.fwsc");
+        store.store_blob(&key, b"package").unwrap();
+        let mut done = hub_offer(builtin.name, "999.0", "newer.fwsc");
+        done.source = FirmwareSource::Hub {
+            path: "fw/newer.fwsc".to_string(),
+            blob: Some(key),
+        };
+        library.stored.push(done);
+        library.view_dirty = true;
+        let matches: Vec<_> = library
+            .list()
+            .iter()
+            .filter(|f| f.name == builtin.name)
+            .collect();
+        assert_eq!(matches.len(), 1, "the upgrade replaces the builtin row");
+        assert!(matches!(matches[0].source, FirmwareSource::Hub { .. }));
+        assert_eq!(matches[0].version, "999.0");
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
     fn installed_hub_entry_is_upgradable() {
         let (store, dir) = temp_store("hub-upgrade");
         let mut library = Library::load(&store);

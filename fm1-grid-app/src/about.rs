@@ -143,9 +143,23 @@ fn about_app(cx: &mut Context<GridApp>) -> impl IntoElement {
                         .child(crate::APP_TITLE),
                 )
                 .child(
-                    Icon::new(IconName::Github)
-                        .size_5()
-                        .text_color(dim),
+                    h_flex()
+                        .items_center()
+                        .gap_2()
+                        .child(
+                            Icon::new(IconName::Github)
+                                .size_5()
+                                .text_color(dim),
+                        )
+                        .child(
+                            div()
+                                .id("about-repo")
+                                .cursor_pointer()
+                                .text_size(px(14.0))
+                                .text_color(cx.theme().primary)
+                                .on_click(|_, _, cx| cx.open_url(REPO_URL))
+                                .child("github.com/jasonbot/fm1-grid"),
+                        ),
                 ),
         )
         .child(
@@ -159,17 +173,6 @@ fn about_app(cx: &mut Context<GridApp>) -> impl IntoElement {
                 .text_size(px(12.0))
                 .text_color(dim)
                 .child(format!("Version {}", env!("CARGO_PKG_VERSION"))),
-        )
-        .child(
-            div()
-                .id("about-repo")
-                .flex()
-                .items_center()
-                .gap_2()
-                .cursor_pointer()
-                .text_color(cx.theme().primary)
-                .on_click(|_, _, cx| cx.open_url(REPO_URL))
-                .child("github.com/jasonbot/fm1-grid"),
         )
         .child(
             div()

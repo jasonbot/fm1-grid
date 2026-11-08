@@ -131,11 +131,22 @@ fn about_app(cx: &mut Context<GridApp>) -> impl IntoElement {
         .p_6()
         .gap_4()
         .child(
-            div()
-                .text_size(px(26.0))
-                .font_weight(FontWeight::BOLD)
-                .text_color(ink)
-                .child(crate::APP_TITLE),
+            h_flex()
+                .w_full()
+                .items_center()
+                .justify_between()
+                .child(
+                    div()
+                        .text_size(px(26.0))
+                        .font_weight(FontWeight::BOLD)
+                        .text_color(ink)
+                        .child(crate::APP_TITLE),
+                )
+                .child(
+                    Icon::new(IconName::Github)
+                        .size_5()
+                        .text_color(dim),
+                ),
         )
         .child(
             div()
@@ -158,7 +169,6 @@ fn about_app(cx: &mut Context<GridApp>) -> impl IntoElement {
                 .cursor_pointer()
                 .text_color(cx.theme().primary)
                 .on_click(|_, _, cx| cx.open_url(REPO_URL))
-                .child(Icon::new(IconName::Github).size_4())
                 .child("github.com/jasonbot/fm1-grid"),
         )
         .child(

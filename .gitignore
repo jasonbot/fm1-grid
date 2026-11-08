@@ -1,2 +1,5 @@
 /target
 *.fwsc
+fm1-recovery/data/*.bin
+fm1-recovery/data/*.boot
+fm1-recovery/data/*.part

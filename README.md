@@ -153,6 +153,7 @@ cargo run --release -p fm1-tty
 - Needs Rust 1.91 or newer.
 - Linux also needs ALSA headers and the usual X11/Wayland dev packages for gpui.
 - macOS needs the Xcode command-line tools. Raw recovery needs sudo.
+- The recovery build downloads m-bootloader v2.2 and its loader from the upstream release, verifies their SHA-256, and keeps them gitignored.
 - Windows needs the MSVC build tools. Raw recovery needs administrator access.
 - `.cargo/config.toml` uses `target-cpu=native`. Delete it when building for another machine.
 - The emulator crates are pinned to a revision in `Cargo.toml`. Bump it on purpose.

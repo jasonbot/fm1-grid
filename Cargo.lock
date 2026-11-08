@@ -2079,6 +2079,8 @@ dependencies = [
  "rfd",
  "serde",
  "serde_json",
+ "toml 0.8.23",
+ "ureq 3.5.0",
 ]
 
 [[package]]

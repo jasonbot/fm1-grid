@@ -32,7 +32,7 @@ const KEY_LED_MAX_FRAC: f32 = 0.5;
 /// The LED window sits this far above the key's lip.
 const KEY_LED_LIP_GAP: f32 = 4.0;
 const KEY_LABEL_TOP: f32 = 0.0;
-const KEY_LABEL_GAP: f32 = 1.0;
+const KEY_LABEL_GAP: f32 = 6.0;
 const WHITE_HINT_SIZE: f32 = 16.0;
 const BLACK_HINT_SIZE: f32 = 14.0;
 const KEY_NOTE_SIZE: f32 = 10.0;

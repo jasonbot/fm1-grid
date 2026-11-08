@@ -21,6 +21,10 @@ impl GridApp {
                 Rc::new(crate::themes::visualia::theme(ThemeMode::Light, accent)),
                 Rc::new(crate::themes::visualia::theme(ThemeMode::Dark, accent)),
             ),
+            crate::theme::MAC_PLATINUM => (
+                Rc::new(crate::themes::mac_platinum::theme(ThemeMode::Light, accent)),
+                Rc::new(crate::themes::mac_platinum::theme(ThemeMode::Dark, accent)),
+            ),
             _ => {
                 let registry = ThemeRegistry::global(cx);
                 let pick = |name: &Option<String>,
@@ -60,8 +64,8 @@ impl GridApp {
         self.save_session(cx);
         cx.notify();
     }
-    /// The Settings tab's accent pick: only Influenza consumes it, but the choice
-    /// is stored for every family.
+    /// The Settings tab's accent pick: the computed families consume it, but the
+    /// choice is stored for every family.
     pub(crate) fn set_accent(&mut self, id: &str, cx: &mut Context<Self>) {
         self.accent = crate::themes::accent(id).id.to_string();
         self.apply_theme(cx);

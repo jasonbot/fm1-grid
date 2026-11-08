@@ -263,6 +263,26 @@ fn settings_theme_and_appearance(cx: &mut TestAppContext) {
         );
     });
 
+    // Mac Platinum is computed from the accent too, keeping its Platinum chrome.
+    cx.update_window(window.into(), |_, _window, cx| {
+        app.update(cx, |app, cx| {
+            app.set_theme_family(crate::theme::MAC_PLATINUM, cx)
+        });
+    })
+    .unwrap();
+    cx.update(|cx| {
+        let theme = Theme::global(cx);
+        assert_eq!(theme.theme_name().as_ref(), "Mac Platinum Light (Red)");
+        assert_eq!(
+            theme.colors.background,
+            gpui_kit::component::try_parse_color("#f6f6f6").unwrap()
+        );
+        assert_eq!(
+            theme.colors.link,
+            gpui_kit::component::try_parse_color("#ff5257").unwrap()
+        );
+    });
+
     cx.update_window(window.into(), |_, window, cx| {
         window.click(("tab", 0usize), cx);
         app.update(cx, |app, cx| {
@@ -283,16 +303,17 @@ fn bundled_themes_load(cx: &mut TestAppContext) {
         gpui_kit::init(cx);
         crate::theme::load_bundled_themes(cx);
         let registry = ThemeRegistry::global(cx);
-        // Default, Influenza, Meltysand, Visualia, plus every bundled
-        // themes/*.json (listed by build.rs).
+        // Default, Influenza, Meltysand, Visualia, Mac Platinum, plus every
+        // bundled themes/*.json (listed by build.rs).
         assert_eq!(
             crate::theme::theme_families().len(),
-            crate::theme::THEME_FILES.len() + 4
+            crate::theme::THEME_FILES.len() + 5
         );
         for id in [
             crate::theme::INFLUENZA,
             crate::theme::MELTYSAND,
             crate::theme::VISUALIA,
+            crate::theme::MAC_PLATINUM,
         ] {
             assert!(crate::theme::theme_families()
                 .iter()

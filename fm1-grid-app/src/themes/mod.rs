@@ -15,6 +15,7 @@
 use gpui_kit::{Hsla, Rgba, SharedString};
 
 pub(crate) mod influenza;
+pub(crate) mod mac_platinum;
 pub(crate) mod meltysand;
 pub(crate) mod visualia;
 
@@ -170,6 +171,22 @@ pub(crate) const ACCENTS: &[Accent] = &[
     Accent { id: "moss", label: "Moss", hex: "#486860" },     // Moss
 ];
 
+/// The accent palette in spectrum order: red through yellow, green, cyan,
+/// blue and violet; achromatic Graphite comes last.
+pub(crate) fn accents_by_hue() -> Vec<&'static Accent> {
+    let mut accents: Vec<_> = ACCENTS.iter().collect();
+    accents.sort_by(|a, b| {
+        let (a, b) = (color(a), color(b));
+        let a_grey = a.s <= f32::EPSILON;
+        let b_grey = b.s <= f32::EPSILON;
+        a_grey
+            .cmp(&b_grey)
+            .then_with(|| a.h.total_cmp(&b.h))
+            .then_with(|| a.l.total_cmp(&b.l))
+    });
+    accents
+}
+
 /// An accent by picker id; an unknown or stale session value falls back to Blue.
 pub(crate) fn accent(id: &str) -> &'static Accent {
     ACCENTS
@@ -196,6 +213,18 @@ mod tests {
             assert!(ids.insert(accent.id), "duplicate accent id {}", accent.id);
             assert_eq!(Rgb::parse(accent.hex).hex(), accent.hex.to_lowercase());
         }
+    }
+
+    #[test]
+    fn accents_are_ordered_by_hue() {
+        let ordered = accents_by_hue();
+        let hues: Vec<f32> = ordered
+            .iter()
+            .filter(|accent| color(accent).s > f32::EPSILON)
+            .map(|accent| color(accent).h)
+            .collect();
+        assert!(hues.windows(2).all(|pair| pair[0] <= pair[1]));
+        assert!(ordered.last().is_some_and(|accent| color(accent).s <= f32::EPSILON));
     }
 
     #[test]

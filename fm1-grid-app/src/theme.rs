@@ -111,9 +111,7 @@ fn first_installed(
         .map(str::trim)
         .filter(|name| !name.is_empty() && !generic(&name))
         .chain(fallbacks.iter().copied())
-        .find(|name| {
-            *name == ".SystemUIFont" || installed.iter().any(|family| family == name)
-        })
+        .find(|name| *name == ".SystemUIFont" || installed.iter().any(|family| family == name))
         .unwrap_or(last)
         .to_string()
         .into()
@@ -127,6 +125,9 @@ pub(crate) const MELTYSAND: &str = crate::themes::meltysand::FAMILY;
 
 /// The creme/near-black accent family; computed from the accent as well.
 pub(crate) const VISUALIA: &str = crate::themes::visualia::FAMILY;
+
+/// The classic Mac OS Platinum look, computed from the accent.
+pub(crate) const MAC_PLATINUM: &str = crate::themes::mac_platinum::FAMILY;
 
 /// One picker family: the registered config names that fill the light and dark
 /// slots (the family's first of each mode; a missing side keeps the default theme).
@@ -168,13 +169,19 @@ static FAMILIES: std::sync::LazyLock<Vec<ThemeFamily>> = std::sync::LazyLock::ne
         },
         ThemeFamily {
             id: MELTYSAND,
-            label: "Meltysand (macOS)",
+            label: "Meltysand",
             light: None,
             dark: None,
         },
         ThemeFamily {
             id: VISUALIA,
-            label: "Visualia (accent)",
+            label: "Visualia",
+            light: None,
+            dark: None,
+        },
+        ThemeFamily {
+            id: MAC_PLATINUM,
+            label: "Mac Platinum",
             light: None,
             dark: None,
         },
@@ -239,10 +246,8 @@ mod tests {
             mono_font_family: Some("Comic Mono, Courier New, monospace".into()),
             ..Default::default()
         };
-        let resolved = resolve_theme_fonts(
-            &config,
-            &installed(&["Comic Sans MS", "Helvetica Neue"]),
-        );
+        let resolved =
+            resolve_theme_fonts(&config, &installed(&["Comic Sans MS", "Helvetica Neue"]));
         assert_eq!(resolved.font_family.as_deref(), Some("Comic Sans MS"));
         // Neither mono entry is installed, so the platform fallback wins.
         assert_eq!(resolved.mono_font_family.as_deref(), Some(".SystemUIFont"));
@@ -255,10 +260,7 @@ mod tests {
             mono_font_family: Some("monospace".into()),
             ..Default::default()
         };
-        let resolved = resolve_theme_fonts(
-            &config,
-            &installed(&["Arial", "DejaVu Sans Mono"]),
-        );
+        let resolved = resolve_theme_fonts(&config, &installed(&["Arial", "DejaVu Sans Mono"]));
         assert_eq!(resolved.font_family.as_deref(), Some("Arial"));
         assert_eq!(
             resolved.mono_font_family.as_deref(),

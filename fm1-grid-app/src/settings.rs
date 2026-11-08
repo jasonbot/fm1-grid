@@ -76,7 +76,10 @@ impl GridApp {
         // the picked family actually consumes an accent.
         let accent_active = matches!(
             self.theme_id.as_str(),
-            crate::theme::INFLUENZA | crate::theme::MELTYSAND | crate::theme::VISUALIA
+            crate::theme::INFLUENZA
+                | crate::theme::MELTYSAND
+                | crate::theme::VISUALIA
+                | crate::theme::MAC_PLATINUM
         );
         let accent_field = SettingField::render({
             let app = app.clone();
@@ -84,7 +87,7 @@ impl GridApp {
                 let current = app.read(cx).accent.clone();
                 let enabled = !options.is_disabled();
                 let mut row = h_flex().w_full().flex_wrap().items_center().gap_1();
-                for accent in crate::themes::ACCENTS {
+                for accent in crate::themes::accents_by_hue() {
                     let selected = accent.id == current;
                     let app = app.clone();
                     let id = accent.id;

@@ -22,11 +22,29 @@ const KEY_MARGIN: f32 = 6.0;
 const WHITE_KEY_DEPTH: f32 = 10.0;
 /// The membrane window near the top of a key.
 const KEY_LED_INSET: f32 = 0.36;
+const BLACK_KEY_WIDTH_FRAC: f32 = 0.62;
+const BLACK_KEY_HEIGHT_FRAC: f32 = 0.62;
 const KEY_LED_TOP: f32 = 1.0;
 const KEY_LED_HEIGHT: f32 = 45.0;
 const WHITE_LED_TRIM: f32 = 6.0;
 const BLACK_LED_TRIM: f32 = 8.0;
+/// The LED window never takes more than this share of a short key.
+const KEY_LED_MAX_FRAC: f32 = 0.55;
+const WHITE_HINT_SIZE: f32 = 16.0;
+const BLACK_HINT_SIZE: f32 = 14.0;
+const KEY_NOTE_SIZE: f32 = 10.0;
+const KEY_NOTE_PAD: f32 = 2.0;
 const KEY_LED_RADIUS: f32 = 6.0;
+/// The free-space shift for a key with a black key on one side.
+const BLACK_KEY_SHIFT_FRAC: f32 = BLACK_KEY_WIDTH_FRAC / 4.0;
+/// Key corner rounding.
+const KEY_RADIUS: f32 = 1.0;
+/// Firmware LED level that counts as lit.
+const LED_LIT_THRESHOLD: f32 = 0.04;
+/// The strip's lightness offset from the key face.
+const STRIP_SHADE_DELTA: f32 = 0.07;
+/// How much the LED border mixes toward the key face.
+const LED_BORDER_MIX: f32 = 0.5;
 /// The unpressed window sits a little higher; pressing sinks it.
 const KEY_LED_DEPTH: f32 = 3.0;
 const KEY_LED_FILL_ALPHA: f32 = 0.16;
@@ -36,6 +54,41 @@ const BLACK_KEY_DEPTH: f32 = 6.0;
 /// The panel's height above the key bed: header, control rows and margins.
 const PANEL_CONTROLS_H: f32 = 156.0;
 const GROUP_HEIGHT: f32 = 24.0;
+/// Panel content margins and control geometry.
+const PANEL_SIDE_MARGIN: f32 = 14.0;
+const PANEL_CONTROLS_TOP: f32 = 24.0;
+const PANEL_HEADER_TOP: f32 = 7.0;
+const PANEL_HEADER_SIZE: f32 = 9.5;
+const GROUP_WIDTH: f32 = 120.0;
+const GROUP_GAP: f32 = 6.0;
+const CONTROL_ROW_GAP: f32 = 4.0;
+const CONTROL_GROUP_COLUMNS: f32 = 2.0;
+const CONTROL_GROUP_ROWS: f32 = 2.0;
+const SECOND_BAND_GAP: f32 = 8.0;
+const FUNCTION_SIDE_GAP: f32 = 12.0;
+const FUNCTION_SHARE: f32 = 0.52;
+const FUNCTION_MIN_W: f32 = 360.0;
+const FUNCTION_MAX_W: f32 = 520.0;
+const FUNCTION_BUTTON_GAP: f32 = 4.0;
+const FUNCTION_BUTTONS: f32 = 6.0;
+const KNOB_GAP: f32 = 6.0;
+const KNOBS: f32 = 4.0;
+const KEY_ROW_GAP: f32 = 1.0;
+const PANEL_RADIUS: f32 = 8.0;
+const PANEL_WIDTH_EPSILON: f32 = 0.5;
+const KNOB_ARROW_W: f32 = 22.0;
+const KNOB_RADIUS: f32 = 3.0;
+const KNOB_END_SIZE: f32 = 13.0;
+const KNOB_LABEL_SIZE: f32 = 9.5;
+const KNOB_DIVIDER_W: f32 = 1.0;
+const WHEEL_PIXELS_PER_DETENT: f32 = 40.0;
+const BUTTON_RADIUS: f32 = 4.0;
+const BUTTON_GAP: f32 = 6.0;
+const BUTTON_PAD_X: f32 = 6.0;
+const BUTTON_LED_SIZE: f32 = 7.0;
+const BUTTON_LABEL_SIZE: f32 = 9.5;
+const BUTTON_HINT_SIZE: f32 = 8.5;
+const BUTTON_TINT_MIX: f32 = 0.45;
 /// The panel never grows past the card grid's width.
 const PANEL_MAX_W: f32 = 1040.0;
 /// The smallest the panel lays out at; a narrower window clips the right edge.
@@ -132,8 +185,8 @@ enum KnobTarget {
 /// The two gradient ends for a key's bottom strip, top then bottom. In a light
 /// theme the top is darker; a dark theme reverses the light direction.
 fn strip_colors(fill: Hsla, dark: bool) -> (Hsla, Hsla) {
-    let darker = Hsla { l: (fill.l - 0.07).max(0.0), ..fill };
-    let lighter = Hsla { l: (fill.l + 0.07).min(1.0), ..fill };
+    let darker = Hsla { l: (fill.l - STRIP_SHADE_DELTA).max(0.0), ..fill };
+    let lighter = Hsla { l: (fill.l + STRIP_SHADE_DELTA).min(1.0), ..fill };
     if dark {
         (lighter, darker)
     } else {
@@ -151,13 +204,14 @@ fn led_window(
     pressed: bool,
     dark: bool,
     height: f32,
+    insets: (f32, f32),
 ) -> AnyElement {
     let top = if pressed { KEY_LED_TOP + KEY_LED_DEPTH } else { KEY_LED_TOP };
-    let border = mix_hsla(border, fill, 0.5);
+    let border = mix_hsla(border, fill, LED_BORDER_MIX);
     let window = div()
         .absolute()
-        .left(relative(KEY_LED_INSET))
-        .right(relative(KEY_LED_INSET))
+        .left(relative(insets.0))
+        .right(relative(insets.1))
         .top(px(top))
         .h(px(height))
         .rounded(px(KEY_LED_RADIUS))
@@ -174,6 +228,12 @@ fn led_window(
         .border_1()
         .border_color(border)
         .into_any_element()
+}
+
+/// Center a text label between the bottom of the LED window and the next lower
+/// element (a note label or the key's bottom edge).
+fn hint_top(led_height: f32, lower_bound: f32, text_size: f32) -> f32 {
+    (KEY_LED_TOP + KEY_LED_DEPTH + led_height + lower_bound) / 2.0 - text_size / 2.0
 }
 
 /// The strip's drawn height in each state.
@@ -222,12 +282,12 @@ impl GridApp {
         // The last measured width drives the absolute geometry; the element itself
         // stays full-width, so narrowing and widening the window both take effect.
         let w = self.panel_width.clamp(PANEL_MIN_W, PANEL_MAX_W);
-        let left = 14.0f32;
-        let right = w - 14.0;
-        let controls_top = 24.0f32;
-        let group_width = 120.0f32;
-        let group_gap = 6.0f32;
-        let row_gap = 4.0f32;
+        let left = PANEL_SIDE_MARGIN;
+        let right = w - PANEL_SIDE_MARGIN;
+        let controls_top = PANEL_CONTROLS_TOP;
+        let group_width = GROUP_WIDTH;
+        let group_gap = GROUP_GAP;
+        let row_gap = CONTROL_ROW_GAP;
         let mono = cx.theme().mono_font_family.clone();
         let visualia = (self.theme_id == crate::theme::VISUALIA).then(|| {
             crate::themes::visualia::panel(
@@ -240,14 +300,17 @@ impl GridApp {
         // The right-hand groups (the four knobs and the function buttons) span one
         // common width, so the knobs sit directly above the button grid. Cap it to
         // what the two left group columns leave, or narrow windows overlap them.
-        let left_columns = left + 2.0 * group_width + group_gap;
-        let max_function_width = (right - left_columns - 12.0).max(0.0);
-        let function_width = (w * 0.52).clamp(360.0, 520.0).min(max_function_width);
+        let left_columns = left + CONTROL_GROUP_COLUMNS * group_width + group_gap;
+        let max_function_width = (right - left_columns - FUNCTION_SIDE_GAP).max(0.0);
+        let function_width = (w * FUNCTION_SHARE)
+            .clamp(FUNCTION_MIN_W, FUNCTION_MAX_W)
+            .min(max_function_width);
         let function_left = right - function_width;
-        let button_gap = 4.0f32;
-        let button_width = (function_width - button_gap * 5.0) / 6.0;
-        let knob_gap = 6.0f32;
-        let knob_width = (function_width - knob_gap * 3.0) / 4.0;
+        let button_gap = FUNCTION_BUTTON_GAP;
+        let button_width =
+            (function_width - button_gap * (FUNCTION_BUTTONS - 1.0)) / FUNCTION_BUTTONS;
+        let knob_gap = KNOB_GAP;
+        let knob_width = (function_width - knob_gap * (KNOBS - 1.0)) / KNOBS;
 
         let app = cx.entity().clone();
         let mut panel = div()
@@ -257,13 +320,13 @@ impl GridApp {
             .w_full()
             .max_w(px(PANEL_MAX_W))
             .h(px(panel_h))
-            .rounded(px(8.0))
+            .rounded(px(PANEL_RADIUS))
             .overflow_hidden()
             .bg(colors.bed)
             .on_prepaint(move |bounds, _, cx| {
                 let width: f32 = bounds.size.width.into();
                 app.update(cx, |this, cx| {
-                    if (this.panel_width - width).abs() > 0.5 {
+                    if (this.panel_width - width).abs() > PANEL_WIDTH_EPSILON {
                         this.panel_width = width;
                         cx.notify();
                     }
@@ -275,8 +338,8 @@ impl GridApp {
                     .absolute()
                     .left(px(left))
                     .right(px(left))
-                    .top(px(7.0))
-                    .text_size(px(9.5))
+                    .top(px(PANEL_HEADER_TOP))
+                    .text_size(px(PANEL_HEADER_SIZE))
                     .text_color(colors.silk_dim)
                     .child("FM-1 PANEL"),
             );
@@ -311,7 +374,7 @@ impl GridApp {
             ));
         }
 
-        let second_band = controls_top + GROUP_HEIGHT * 2.0 + row_gap + 8.0;
+        let second_band = controls_top + GROUP_HEIGHT * CONTROL_GROUP_ROWS + row_gap + SECOND_BAND_GAP;
 
         // OCT- and OCT+ sit under the two encoder columns.
         for (index, (label, id, hint)) in [("OCT−", 0u8, "Z"), ("OCT+", 1, "X")]
@@ -361,13 +424,13 @@ impl GridApp {
                 .h(px(key_height))
                 .flex()
                 .flex_row()
-                .gap(px(1.0))
-                .children(WHITE_KEYS.iter().map(|&id| self.white_key(cx, id, &colors))),
+                .gap(px(KEY_ROW_GAP))
+                .children(WHITE_KEYS.iter().map(|&id| self.white_key(cx, id, key_height, &colors))),
         );
-        let black_height = key_height * 0.62;
+        let black_height = key_height * BLACK_KEY_HEIGHT_FRAC;
         for &(id, after) in BLACK_KEYS.iter() {
             let center_x = key_left + (after as f32 + 1.0) * white_width;
-            let width = white_width * 0.62;
+            let width = white_width * BLACK_KEY_WIDTH_FRAC;
             panel = panel.child(self.black_key(cx, id, center_x - width / 2.0, key_top, width, black_height, &colors));
         }
 
@@ -411,7 +474,7 @@ impl GridApp {
         target: KnobTarget,
         colors: &PanelColors,
     ) -> impl IntoElement {
-        let arrow = 22.0f32;
+        let arrow = KNOB_ARROW_W;
         let (silk, hover, button, edge) = (
             colors.silk,
             colors.button_hover,
@@ -427,7 +490,7 @@ impl GridApp {
                 .items_center()
                 .justify_center()
                 .cursor_pointer()
-                .text_size(px(13.0))
+                .text_size(px(KNOB_END_SIZE))
                 .text_color(silk)
                 .hover(move |style| style.bg(hover))
                 .child(glyph)
@@ -445,7 +508,7 @@ impl GridApp {
             .top(px(y))
             .w(px(width))
             .h(px(GROUP_HEIGHT))
-            .rounded(px(3.0))
+            .rounded(px(KNOB_RADIUS))
             .bg(button)
             .border_1()
             .border_color(edge)
@@ -456,7 +519,7 @@ impl GridApp {
             .on_scroll_wheel(cx.listener(move |this, event: &ScrollWheelEvent, _, cx| {
                 let detents = match event.delta {
                     ScrollDelta::Lines(point) => point.y,
-                    ScrollDelta::Pixels(point) => f32::from(point.y) / 40.0,
+                    ScrollDelta::Pixels(point) => f32::from(point.y) / WHEEL_PIXELS_PER_DETENT,
                 };
                 let steps = this.wheel_detents(salt, detents);
                 if steps != 0 {
@@ -465,7 +528,7 @@ impl GridApp {
                 }
             }))
             .child(end("turn-down", "−", -1))
-            .child(div().w(px(1.0)).h_full().bg(edge))
+            .child(div().w(px(KNOB_DIVIDER_W)).h_full().bg(edge))
             .child(
                 div()
                     .flex_1()
@@ -474,11 +537,11 @@ impl GridApp {
                     .items_center()
                     .justify_center()
                     .truncate()
-                    .text_size(px(9.5))
+                    .text_size(px(KNOB_LABEL_SIZE))
                     .text_color(silk)
                     .child(label.to_string()),
             )
-            .child(div().w(px(1.0)).h_full().bg(edge))
+            .child(div().w(px(KNOB_DIVIDER_W)).h_full().bg(edge))
             .child(end("turn-up", "+", 1))
     }
 
@@ -499,9 +562,9 @@ impl GridApp {
         colors: &PanelColors,
     ) -> impl IntoElement {
         let lit =
-            self.held[id as usize] || self.leds[id as usize] > 0.04 || self.panel_down[id as usize];
+            self.held[id as usize] || self.leds[id as usize] > LED_LIT_THRESHOLD || self.panel_down[id as usize];
         let fill = if lit {
-            mix_hsla(colors.button, tint, 0.45)
+            mix_hsla(colors.button, tint, BUTTON_TINT_MIX)
         } else {
             colors.button
         };
@@ -517,7 +580,7 @@ impl GridApp {
             .h(px(GROUP_HEIGHT))
             .id(("panel-btn", id as usize))
             .test_support()
-            .rounded(px(4.0))
+            .rounded(px(BUTTON_RADIUS))
             .overflow_hidden()
             .bg(fill)
             .border_1()
@@ -525,8 +588,8 @@ impl GridApp {
             .flex()
             .flex_row()
             .items_center()
-            .gap(px(6.0))
-            .px(px(6.0))
+            .gap(px(BUTTON_GAP))
+            .px(px(BUTTON_PAD_X))
             .cursor_pointer()
             .hover(move |style| {
                 if lit {
@@ -546,8 +609,8 @@ impl GridApp {
             // The LED: the theme's tint while lit, a dark step of the bed otherwise.
             .child(
                 div()
-                    .w(px(7.0))
-                    .h(px(7.0))
+                    .w(px(BUTTON_LED_SIZE))
+                    .h(px(BUTTON_LED_SIZE))
                     .rounded_full()
                     .flex_none()
                     .bg(if lit { tint } else { colors.led_off })
@@ -558,25 +621,48 @@ impl GridApp {
                 div()
                     .min_w_0()
                     .truncate()
-                    .text_size(px(9.5))
+                    .text_size(px(BUTTON_LABEL_SIZE))
                     .text_color(ink)
                     .child(label.to_string()),
             )
             .child(
                 div()
                     .ml_auto()
-                    .text_size(px(8.5))
+                    .text_size(px(BUTTON_HINT_SIZE))
                     .font_family(mono)
                     .text_color(hint_color)
                     .child(hint.to_string()),
             )
     }
 
+    /// The LED window's left and right insets for a white key. A black key covers
+    /// one edge of the upper key face; shift the window into the free part so it
+    /// is not crowded against that black key.
+    fn white_led_insets(id: u8) -> (f32, f32) {
+        let Some(index) = WHITE_KEYS.iter().position(|&key| key == id) else {
+            return (KEY_LED_INSET, KEY_LED_INSET);
+        };
+        let left = BLACK_KEYS.iter().any(|&(_, after)| after + 1 == index);
+        let right = BLACK_KEYS.iter().any(|&(_, after)| after == index);
+        let shift = BLACK_KEY_SHIFT_FRAC;
+        match (left, right) {
+            (true, false) => (KEY_LED_INSET + shift, KEY_LED_INSET - shift),
+            (false, true) => (KEY_LED_INSET - shift, KEY_LED_INSET + shift),
+            _ => (KEY_LED_INSET, KEY_LED_INSET),
+        }
+    }
+
     /// A white piano key: the theme's light step at rest, the theme's accent while
-    /// held; hint in the middle, note name at the bottom.
-    fn white_key(&self, cx: &mut Context<Self>, id: u8, colors: &PanelColors) -> impl IntoElement {
+    /// held; hint below the LED window, note name at the bottom.
+    fn white_key(
+        &self,
+        cx: &mut Context<Self>,
+        id: u8,
+        height: f32,
+        colors: &PanelColors,
+    ) -> impl IntoElement {
         let pressed = self.held[id as usize] || self.panel_down[id as usize];
-        let lit = pressed || self.leds[id as usize] > 0.04;
+        let lit = pressed || self.leds[id as usize] > LED_LIT_THRESHOLD;
         let note = PANEL_KEYS
             .iter()
             .find(|(key, _, _)| *key == id)
@@ -589,6 +675,11 @@ impl GridApp {
             (colors.white, colors.white_ink, colors.white_note)
         };
         let depth = strip_height(WHITE_KEY_DEPTH, pressed);
+        let insets = Self::white_led_insets(id);
+        let led_height = (KEY_LED_HEIGHT - WHITE_LED_TRIM).min(height * KEY_LED_MAX_FRAC);
+        let note_top =
+            height - (WHITE_KEY_DEPTH + WHITE_KEY_LIP) - KEY_NOTE_PAD - KEY_NOTE_SIZE;
+        let hint_top = hint_top(led_height, note_top, WHITE_HINT_SIZE);
         let lip = strip_colors(key_fill, colors.dark).1;
         div()
             .id(("panel-key", id as usize))
@@ -596,7 +687,7 @@ impl GridApp {
             .min_w_0()
             .h_full()
             .relative()
-            .rounded(px(1.0))
+            .rounded(px(KEY_RADIUS))
             .bg(key_fill)
             .border_1()
             .border_color(colors.white_edge)
@@ -615,25 +706,34 @@ impl GridApp {
                 colors.white_edge,
                 pressed,
                 colors.dark,
-                KEY_LED_HEIGHT - WHITE_LED_TRIM,
+                led_height,
+                insets,
             ))
+            .child(
+                div()
+                    .absolute()
+                    .left_0()
+                    .right_0()
+                    .top(px(hint_top))
+                    .flex()
+                    .justify_center()
+                    .child(
+                        div()
+                            .text_size(px(WHITE_HINT_SIZE))
+                            .text_color(ink)
+                            .child(hint),
+                    ),
+            )
             .child(
                 v_flex()
                     .size_full()
                     .pb(px(WHITE_KEY_DEPTH + WHITE_KEY_LIP))
                     .items_center()
-                    .child(
-                        div().flex_1().flex().items_center().child(
-                            div()
-                                .text_size(px(16.0))
-                                .text_color(ink)
-                                .child(hint),
-                        ),
-                    )
+                    .child(div().flex_1())
                     .child(
                         div()
-                            .pb(px(2.0))
-                            .text_size(px(10.0))
+                            .pb(px(KEY_NOTE_PAD))
+                            .text_size(px(KEY_NOTE_SIZE))
                             .text_color(note_ink)
                             .child(note),
                     ),
@@ -664,13 +764,16 @@ impl GridApp {
         colors: &PanelColors,
     ) -> impl IntoElement {
         let pressed = self.held[id as usize] || self.panel_down[id as usize];
-        let lit = pressed || self.leds[id as usize] > 0.04;
+        let lit = pressed || self.leds[id as usize] > LED_LIT_THRESHOLD;
         let hint = panel_key_hint(id);
         let (fill, ink) = if lit && !pressed {
             (colors.lit, colors.lit_ink)
         } else {
             (colors.black, colors.black_ink)
         };
+        let led_height = (KEY_LED_HEIGHT - BLACK_LED_TRIM).min(height * KEY_LED_MAX_FRAC);
+        let key_bottom = height - BLACK_KEY_DEPTH;
+        let hint_top = hint_top(led_height, key_bottom, BLACK_HINT_SIZE);
         div()
             .absolute()
             .left(px(x))
@@ -678,7 +781,7 @@ impl GridApp {
             .w(px(width))
             .h(px(height))
             .id(("panel-key", id as usize))
-            .rounded(px(1.0))
+            .rounded(px(KEY_RADIUS))
             .bg(fill)
             .border_1()
             .border_color(colors.black_edge)
@@ -712,13 +815,23 @@ impl GridApp {
                         colors.black_edge,
                         pressed,
                         colors.dark,
-                        KEY_LED_HEIGHT - BLACK_LED_TRIM,
+                        led_height,
+                        (KEY_LED_INSET, KEY_LED_INSET),
                     ))
                     .child(
                         div()
-                            .text_size(px(14.0))
-                            .text_color(ink)
-                            .child(hint),
+                            .absolute()
+                            .left_0()
+                            .right_0()
+                            .top(px(hint_top))
+                            .flex()
+                            .justify_center()
+                            .child(
+                                div()
+                                    .text_size(px(BLACK_HINT_SIZE))
+                                    .text_color(ink)
+                                    .child(hint),
+                            ),
                     )
                     .child(key_strip(fill, pressed, BLACK_KEY_DEPTH, colors.dark)),
             )
@@ -729,8 +842,32 @@ impl GridApp {
 mod tests {
     // No `use super::*` — the parent's gpui glob import would drag in GPUI's `test`
     // attribute macro, which re-expands the built-in #[test] (see library_tab.rs).
-    use super::{panel_colors, strip_colors, strip_height};
+    use super::{GridApp, KEY_LED_INSET, hint_top, panel_colors, strip_colors, strip_height};
     use gpui_kit::component::Theme;
+
+    #[test]
+    fn white_led_window_avoids_a_single_black_key() {
+        let center = (KEY_LED_INSET, KEY_LED_INSET);
+        // C has a black key on its right only.
+        let (left, right) = GridApp::white_led_insets(14);
+        assert!(left < center.0 && right > center.1, "C shifts left");
+        // I has a black key on its left only.
+        let (left, right) = GridApp::white_led_insets(20);
+        assert!(left > center.0 && right < center.1, "I shifts right");
+        // B has black keys on both sides.
+        assert_eq!(GridApp::white_led_insets(16), center);
+    }
+
+    #[test]
+    fn hint_sits_between_led_and_key_lower_edge() {
+        // Normal white key: LED bottom at 4+39, note top at 96.
+        assert_eq!(hint_top(39.0, 96.0, 16.0), 61.5);
+        // Compact white key.
+        assert_eq!(hint_top(39.0, 64.0, 16.0), 45.5);
+        // Normal and compact black keys.
+        assert_eq!(hint_top(37.0, 68.0, 14.0), 47.5);
+        assert_eq!(hint_top(30.0, 48.0, 14.0), 34.0);
+    }
 
     #[test]
     fn pressed_strip_is_half_height() {

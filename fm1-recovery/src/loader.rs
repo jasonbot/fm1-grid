@@ -49,8 +49,8 @@ pub fn crc16(bytes: &[u8]) -> u16 {
 
 fn cipher(bytes: &[u8], key: u32) -> Vec<u8> {
     const MAGIC: &[u8] = &[
-        0xC3, 0xCF, 0xC0, 0xE8, 0xCE, 0xD2, 0xB0, 0xAE, 0xC4, 0xE3, 0xA3, 0xAC, 0xD3, 0xF1,
-        0xC1, 0xD6,
+        0xC3, 0xCF, 0xC0, 0xE8, 0xCE, 0xD2, 0xB0, 0xAE, 0xC4, 0xE3, 0xA3, 0xAC, 0xD3, 0xF1, 0xC1,
+        0xD6,
     ];
     let mut crc = crc16(&(key >> 16).to_le_bytes());
     bytes
@@ -113,7 +113,8 @@ impl Loader {
         }
         let answer = loader.call(READ_KEY, &0xAC6900u32.to_be_bytes())?;
         let key = u16::from_le_bytes([answer[5], answer[4]]);
-        loader.chip_key = u16::from_le_bytes(cipher(&key.to_le_bytes(), 0xFFFF_FFFF).try_into().unwrap());
+        loader.chip_key =
+            u16::from_le_bytes(cipher(&key.to_le_bytes(), 0xFFFF_FFFF).try_into().unwrap());
         let answer = loader.call(ONLINE_DEVICE, &[])?;
         loader.flash_id = u32::from_le_bytes([answer[2], answer[3], answer[4], answer[5]]);
         if let Ok(answer) = loader.call(BUFFER_SIZE, &[]) {
@@ -127,15 +128,23 @@ impl Loader {
         Ok(loader)
     }
 
-    pub fn chip_key(&self) -> u16 { self.chip_key }
-    pub fn flash_id(&self) -> u32 { self.flash_id }
+    pub fn chip_key(&self) -> u16 {
+        self.chip_key
+    }
+    pub fn flash_id(&self) -> u32 {
+        self.flash_id
+    }
 
     fn upload(&mut self, address: u32, image: &[u8]) -> Result<(), TransportError> {
         for (index, block) in image.chunks(512).enumerate() {
             let at = address + (index * 512) as u32;
             let scrambled = cipher(block, 0xFFFF_FFFF);
             let packet = cdb(WRITE_MEMORY, &sized_args(at, &scrambled));
-            retry(|| self.device.command(&packet, Direction::Out(&scrambled)).map(|_| ()))?;
+            retry(|| {
+                self.device
+                    .command(&packet, Direction::Out(&scrambled))
+                    .map(|_| ())
+            })?;
         }
         Ok(())
     }
@@ -145,7 +154,11 @@ impl Loader {
         args.extend(LOADER_ARG.to_be_bytes());
         let packet = cdb(JUMP, &args);
         let mut answer = [0u8; 16];
-        retry(|| self.device.command(&packet, Direction::In(&mut answer)).map(|_| ()))?;
+        retry(|| {
+            self.device
+                .command(&packet, Direction::In(&mut answer))
+                .map(|_| ())
+        })?;
         Ok(())
     }
 
@@ -163,13 +176,19 @@ impl Loader {
                 .map(|_| ())
         })?;
         if u16::from_be_bytes([answer[0], answer[1]]) != command {
-            return Err(TransportError::Failed("the loader answered the wrong command".into()));
+            return Err(TransportError::Failed(
+                "the loader answered the wrong command".into(),
+            ));
         }
         Ok(answer[2..].try_into().unwrap())
     }
 
-
-    pub fn read(&mut self, address: usize, length: usize, progress: &mut dyn FnMut(usize)) -> Result<Vec<u8>, TransportError> {
+    pub fn read(
+        &mut self,
+        address: usize,
+        length: usize,
+        progress: &mut dyn FnMut(usize),
+    ) -> Result<Vec<u8>, TransportError> {
         let mut output = vec![0u8; length];
         let mut done = 0;
         while done < length {
@@ -180,7 +199,11 @@ impl Loader {
             let target = &mut output[done..done + chunk];
             retry(|| {
                 let got = self.device.command(&packet, Direction::In(target))?;
-                if got == chunk { Ok(()) } else { Err(TransportError::Failed("short flash read".into())) }
+                if got == chunk {
+                    Ok(())
+                } else {
+                    Err(TransportError::Failed("short flash read".into()))
+                }
             })?;
             done += chunk;
             progress(done);
@@ -207,12 +230,21 @@ impl Loader {
         Ok(())
     }
 
-    pub fn write(&mut self, address: usize, bytes: &[u8], progress: &mut dyn FnMut(usize)) -> Result<(), TransportError> {
+    pub fn write(
+        &mut self,
+        address: usize,
+        bytes: &[u8],
+        progress: &mut dyn FnMut(usize),
+    ) -> Result<(), TransportError> {
         for (index, chunk) in bytes.chunks(self.io).enumerate() {
             if chunk.iter().any(|&byte| byte != 0xFF) {
                 let at = (address + index * self.io) as u32;
                 let packet = cdb(WRITE_FLASH, &sized_args(at, chunk));
-                retry(|| self.device.command(&packet, Direction::Out(chunk)).map(|_| ()))?;
+                retry(|| {
+                    self.device
+                        .command(&packet, Direction::Out(chunk))
+                        .map(|_| ())
+                })?;
             }
             progress(index * self.io + chunk.len());
         }
@@ -223,6 +255,8 @@ impl Loader {
         let mut args = (address as u32).to_be_bytes().to_vec();
         args.extend((length as u32).to_be_bytes());
         let answer = self.call(CRC32, &args)?;
-        Ok(u32::from_be_bytes([answer[0], answer[1], answer[2], answer[3]]))
+        Ok(u32::from_be_bytes([
+            answer[0], answer[1], answer[2], answer[3],
+        ]))
     }
 }

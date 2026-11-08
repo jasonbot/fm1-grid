@@ -18,7 +18,11 @@ pub fn crc16(bytes: &[u8]) -> u16 {
     for byte in bytes {
         crc ^= u16::from(*byte) << 8;
         for _ in 0..8 {
-            crc = if crc & 0x8000 != 0 { (crc << 1) ^ 0x1021 } else { crc << 1 };
+            crc = if crc & 0x8000 != 0 {
+                (crc << 1) ^ 0x1021
+            } else {
+                crc << 1
+            };
         }
     }
     crc
@@ -52,7 +56,10 @@ fn put32(bytes: &mut [u8], at: usize, value: u32) {
     bytes[at..at + 4].copy_from_slice(&value.to_le_bytes());
 }
 fn cstr(bytes: &[u8]) -> String {
-    let end = bytes.iter().position(|&byte| byte == 0).unwrap_or(bytes.len());
+    let end = bytes
+        .iter()
+        .position(|&byte| byte == 0)
+        .unwrap_or(bytes.len());
     bytes[..end].iter().map(|&byte| byte as char).collect()
 }
 
@@ -80,17 +87,23 @@ fn entry(raw: &[u8]) -> Entry {
 }
 
 fn header_ok(flash: &[u8]) -> bool {
-    if flash.len() < 32 { return false; }
+    if flash.len() < 32 {
+        return false;
+    }
     let head = decrypt(&flash[..32], 0xFFFF);
     crc16(&head[2..]) == u16le(&head, 0)
 }
 
 fn boot_table(flash: &[u8]) -> Vec<Entry> {
-    if flash.len() < BOOT_AREA || !header_ok(flash) { return vec![]; }
+    if flash.len() < BOOT_AREA || !header_ok(flash) {
+        return vec![];
+    }
     let mut entries = vec![];
     for at in (0x20..BOOT_AT).step_by(0x20) {
         let parsed = entry(&decrypt(&flash[at..at + 32], 0xFFFF));
-        if !parsed.valid { break; }
+        if !parsed.valid {
+            break;
+        }
         entries.push(parsed);
     }
     entries
@@ -101,7 +114,9 @@ fn app_plain(flash: &[u8], offset: usize, length: usize, key: u16) -> Vec<u8> {
     let mut at = offset - offset % 32;
     while at < offset + length {
         let start = BOOT_AREA + at;
-        if start + 32 > flash.len() { break; }
+        if start + 32 > flash.len() {
+            break;
+        }
         output.extend(decrypt(&flash[start..start + 32], key ^ ((at >> 2) as u16)));
         at += 32;
     }
@@ -113,9 +128,13 @@ fn app_table(flash: &[u8], key: u16) -> Vec<Entry> {
     let mut entries = vec![];
     for index in 0..16 {
         let raw = app_plain(flash, index * 32, 32, key);
-        if raw.len() < 32 { break; }
+        if raw.len() < 32 {
+            break;
+        }
         let parsed = entry(&raw);
-        if !parsed.valid { break; }
+        if !parsed.valid {
+            break;
+        }
         entries.push(parsed);
     }
     entries
@@ -124,7 +143,8 @@ fn app_table(flash: &[u8], key: u16) -> Vec<Entry> {
 fn stored_bootloader(flash: &[u8]) -> Option<Vec<u8>> {
     let table = boot_table(flash);
     let first = table.first()?;
-    if first.name != "uboot.boot" || first.addr as usize != BOOT_AT
+    if first.name != "uboot.boot"
+        || first.addr as usize != BOOT_AT
         || BOOT_AT + first.len as usize > flash.len()
     {
         return None;
@@ -136,7 +156,9 @@ fn stored_bootloader(flash: &[u8]) -> Option<Vec<u8>> {
 }
 
 fn bootloader_identity(boot: &[u8]) -> Option<(String, String)> {
-    if boot.len() < 16 { return None; }
+    if boot.len() < 16 {
+        return None;
+    }
     let bank = u16le(boot, 0);
     let size = u16le(boot, 2) as usize;
     let offset = u32le(boot, 8) as usize;
@@ -144,18 +166,29 @@ fn bootloader_identity(boot: &[u8]) -> Option<(String, String)> {
         return None;
     }
     let payload = &boot[offset..offset + size];
-    if crc16(payload) != u16le(boot, 12) || payload.len() < 0x70 || &payload[0x40..0x48] != b"AC79BLID" {
+    if crc16(payload) != u16le(boot, 12)
+        || payload.len() < 0x70
+        || &payload[0x40..0x48] != b"AC79BLID"
+    {
         return None;
     }
     Some((cstr(&payload[0x48..0x50]), cstr(&payload[0x50..0x70])))
 }
 
 fn contains(haystack: &[u8], needle: &[u8]) -> bool {
-    haystack.windows(needle.len()).any(|window| window == needle)
+    haystack
+        .windows(needle.len())
+        .any(|window| window == needle)
 }
 
 fn identity_texts(bytes: &[u8]) -> Vec<(String, String)> {
-    const MODELS: [&[u8]; 5] = [b"FM-1", b"MiniFM", b"SMK-37 Pro", b"SMK-37 Elite", b"SMK-37+VA"];
+    const MODELS: [&[u8]; 5] = [
+        b"FM-1",
+        b"MiniFM",
+        b"SMK-37 Pro",
+        b"SMK-37 Elite",
+        b"SMK-37+VA",
+    ];
     let mut found = vec![];
     for model in MODELS {
         let mut at = 0;
@@ -212,14 +245,20 @@ pub fn analyze(flash: &[u8], flash_id: u32, chip_key: u16) -> Analysis {
         None => "none installed".to_string(),
         Some(item) => {
             let text = app_plain(flash, item.addr as usize, item.len as usize, chip_key);
-            if crc16(&text) == item.data_crc { "OK".to_string() } else { "checksum failed".to_string() }
+            if crc16(&text) == item.data_crc {
+                "OK".to_string()
+            } else {
+                "checksum failed".to_string()
+            }
         }
     };
     let firmware = app_entry.map_or_else(
         || "none".to_string(),
         |item| {
             let text = app_plain(flash, item.addr as usize, item.len as usize, chip_key);
-            let baud = table.iter().any(|entry| entry.name == "VM" && entry.addr == 0xD9000);
+            let baud = table
+                .iter()
+                .any(|entry| entry.name == "VM" && entry.addr == 0xD9000);
             if let Some(version) = after_version(&text, b"SLOOP ") {
                 format!("SLOOP {version}")
             } else if contains(&text, b"Felucca") {
@@ -238,7 +277,14 @@ pub fn analyze(flash: &[u8], flash_id: u32, chip_key: u16) -> Analysis {
             }
         },
     );
-    Analysis { model, model_known: board_key.is_some(), firmware, app, bootloader, board_key }
+    Analysis {
+        model,
+        model_known: board_key.is_some(),
+        firmware,
+        app,
+        bootloader,
+        board_key,
+    }
 }
 
 fn after_version(bytes: &[u8], prefix: &[u8]) -> Option<String> {
@@ -251,7 +297,11 @@ fn after_version(bytes: &[u8], prefix: &[u8]) -> Option<String> {
                 end += 1;
             }
             if end > start && bytes[start].is_ascii_digit() {
-                return Some(String::from_utf8_lossy(&bytes[start..end]).trim_end_matches('.').to_string());
+                return Some(
+                    String::from_utf8_lossy(&bytes[start..end])
+                        .trim_end_matches('.')
+                        .to_string(),
+                );
             }
         }
         at += 1;
@@ -284,7 +334,10 @@ pub fn build_boot_area(flash: &[u8], bootloader: &[u8]) -> Result<Vec<u8>, Strin
     {
         return Err("the boot configuration is not safely contained".into());
     }
-    if table[2..].iter().any(|entry| (entry.addr as usize) < BOOT_AREA) {
+    if table[2..]
+        .iter()
+        .any(|entry| (entry.addr as usize) < BOOT_AREA)
+    {
         return Err("other boot-area data would be overwritten".into());
     }
     let key = &flash[config_at..config_at + CONFIG_KEY];
@@ -311,7 +364,8 @@ pub fn build_boot_area(flash: &[u8], bootloader: &[u8]) -> Result<Vec<u8>, Strin
     area[0x40..0x60].copy_from_slice(&encrypt(&entry1, 0xFFFF));
 
     area[BOOT_AT..BOOT_AT + 16].copy_from_slice(&encrypt(&bootloader[..16], 0xFFFF));
-    area[BOOT_AT + 16..BOOT_AT + bootloader.len()].copy_from_slice(&encrypt(&bootloader[16..], 0xFFFF));
+    area[BOOT_AT + 16..BOOT_AT + bootloader.len()]
+        .copy_from_slice(&encrypt(&bootloader[16..], 0xFFFF));
     area[CONFIG_AT..].copy_from_slice(&config);
     let _ = tag;
     Ok(area)

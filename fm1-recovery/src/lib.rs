@@ -42,11 +42,16 @@ pub struct Probe {
     pub certain: bool,
 }
 
-fn read_flash(command: &mut loader::Loader, progress: &mut dyn FnMut(usize, usize)) -> Result<Vec<u8>, Error> {
+fn read_flash(
+    command: &mut loader::Loader,
+    progress: &mut dyn FnMut(usize, usize),
+) -> Result<Vec<u8>, Error> {
     let flash = command.read_all(&mut |done| progress(done, inspect::FLASH_SIZE))?;
     let chip_crc = command.crc32(0, inspect::FLASH_SIZE)?;
     if !crc32_matches(&flash, chip_crc) {
-        return Err(Error::Refused("the flash read did not match the chip checksum".into()));
+        return Err(Error::Refused(
+            "the flash read did not match the chip checksum".into(),
+        ));
     }
     Ok(flash)
 }
@@ -56,7 +61,11 @@ fn crc32_matches(bytes: &[u8], expected: u32) -> bool {
     for (index, slot) in table.iter_mut().enumerate() {
         let mut value = index as u32;
         for _ in 0..8 {
-            value = if value & 1 != 0 { 0xEDB8_8320 ^ (value >> 1) } else { value >> 1 };
+            value = if value & 1 != 0 {
+                0xEDB8_8320 ^ (value >> 1)
+            } else {
+                value >> 1
+            };
         }
         *slot = value;
     }
@@ -67,7 +76,12 @@ fn crc32_matches(bytes: &[u8], expected: u32) -> bool {
     !crc == expected
 }
 
-pub fn probe(path: &str, backup_dir: PathBuf, log: &mut dyn FnMut(String), progress: &mut dyn FnMut(usize, usize)) -> Result<Probe, Error> {
+pub fn probe(
+    path: &str,
+    backup_dir: PathBuf,
+    log: &mut dyn FnMut(String),
+    progress: &mut dyn FnMut(usize, usize),
+) -> Result<Probe, Error> {
     let _ = backup_dir;
     let mut loader = loader::Loader::open(path, log)?;
     let flash = read_flash(&mut loader, progress)?;
@@ -85,14 +99,23 @@ pub fn probe(path: &str, backup_dir: PathBuf, log: &mut dyn FnMut(String), progr
 
 /// Install the bundled open bootloader after taking a full-flash backup and
 /// verifying the write.
-pub fn install_bootloader(path: &str, backup_dir: PathBuf, log: &mut dyn FnMut(String), progress: &mut dyn FnMut(usize, usize)) -> Result<(), Error> {
+pub fn install_bootloader(
+    path: &str,
+    backup_dir: PathBuf,
+    log: &mut dyn FnMut(String),
+    progress: &mut dyn FnMut(usize, usize),
+) -> Result<(), Error> {
     let mut loader = loader::Loader::open(path, log)?;
     let flash = read_flash(&mut loader, progress)?;
     let analysis = inspect::analyze(&flash, loader.flash_id(), loader.chip_key());
     let bootloader: &[u8] = match analysis.board_key {
         Some("fm1") => include_bytes!("../data/bootloader-fm1.boot"),
         Some("smk37") => include_bytes!("../data/bootloader-smk37.boot"),
-        _ => return Err(Error::Refused("the unit's model could not be identified".into())),
+        _ => {
+            return Err(Error::Refused(
+                "the unit's model could not be identified".into(),
+            ))
+        }
     };
     let area = inspect::build_boot_area(&flash, bootloader).map_err(Error::Refused)?;
     let backup = write_backup(&backup_dir, &flash).map_err(Error::Io)?;

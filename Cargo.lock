@@ -2113,7 +2113,6 @@ dependencies = [
 name = "fm1-recovery"
 version = "0.1.0"
 dependencies = [
- "chrono",
  "libc",
  "rusb",
  "sha2 0.11.1",

@@ -12,7 +12,6 @@ use fm1_performer::keys::{
 use crate::theme::mix_hsla;
 use gpui_kit::base::{ElementExt, v_flex};
 use gpui_kit::component::ActiveTheme;
-use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 
 const KEY_HEIGHT: f32 = 120.0;

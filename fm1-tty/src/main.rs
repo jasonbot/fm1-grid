@@ -24,8 +24,12 @@ fn main() -> std::io::Result<()> {
 
     terminal::enable_raw_mode()?;
     let mut stdout = io::stdout();
-    execute!(stdout, terminal::EnterAlternateScreen, event::EnableMouseCapture)?;
-    osc::title("Synth Firmware Circus");
+    execute!(
+        stdout,
+        terminal::EnterAlternateScreen,
+        event::EnableMouseCapture
+    )?;
+    osc::title("Synth Firmware Zoo");
     let original = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         let _ = restore();
@@ -50,7 +54,11 @@ fn restore() -> std::io::Result<()> {
     osc::progress_clear();
     terminal::disable_raw_mode()?;
     let mut stdout = io::stdout();
-    execute!(stdout, event::DisableMouseCapture, terminal::LeaveAlternateScreen)?;
+    execute!(
+        stdout,
+        event::DisableMouseCapture,
+        terminal::LeaveAlternateScreen
+    )?;
     Ok(())
 }
 
@@ -121,8 +129,12 @@ fn on_key(app: &mut app::TuiApp, key: ratatui::crossterm::event::KeyEvent) {
             }
             KeyCode::Enter => app.focus = Focus::Library,
             KeyCode::Tab => app.focus = Focus::Graph,
-            KeyCode::Up | KeyCode::Down | KeyCode::PageUp | KeyCode::PageDown
-            | KeyCode::Home | KeyCode::End => {
+            KeyCode::Up
+            | KeyCode::Down
+            | KeyCode::PageUp
+            | KeyCode::PageDown
+            | KeyCode::Home
+            | KeyCode::End => {
                 app.focus = Focus::Library;
                 library_nav(app, key.code);
             }
@@ -163,9 +175,7 @@ fn on_key(app: &mut app::TuiApp, key: ratatui::crossterm::event::KeyEvent) {
             KeyCode::Home => app.scroll(isize::MIN),
             KeyCode::End => app.scroll(isize::MAX),
             KeyCode::Char('/') => app.focus = Focus::Filter,
-            KeyCode::Char('v') => {
-                app.popup = Some(Popup::DeviceFilter(app.device_filter.index()))
-            }
+            KeyCode::Char('v') => app.popup = Some(Popup::DeviceFilter(app.device_filter.index())),
             KeyCode::Char('d') => app.download_selected(),
             KeyCode::Char('x') => app.delete_selected(),
             KeyCode::Char('a') => app.toggle_download_all(),
@@ -247,7 +257,9 @@ fn popup_key(app: &mut app::TuiApp, code: ratatui::crossterm::event::KeyCode) {
             KeyCode::Esc => app.popup = None,
             KeyCode::Up => app.popup = Some(Popup::DeviceFilter(sel.saturating_sub(1))),
             KeyCode::Down => {
-                app.popup = Some(Popup::DeviceFilter((sel + 1).min(DeviceFilter::ALL.len() - 1)))
+                app.popup = Some(Popup::DeviceFilter(
+                    (sel + 1).min(DeviceFilter::ALL.len() - 1),
+                ))
             }
             KeyCode::Enter => {
                 app.select_device(sel);
@@ -259,9 +271,7 @@ fn popup_key(app: &mut app::TuiApp, code: ratatui::crossterm::event::KeyCode) {
             let count = app.graph_sinks(&source).len().max(1);
             match code {
                 KeyCode::Esc => app.popup = None,
-                KeyCode::Up => {
-                    app.popup = Some(Popup::GraphSinks(source, sel.saturating_sub(1)))
-                }
+                KeyCode::Up => app.popup = Some(Popup::GraphSinks(source, sel.saturating_sub(1))),
                 KeyCode::Down => {
                     app.popup = Some(Popup::GraphSinks(source, (sel + 1).min(count - 1)))
                 }

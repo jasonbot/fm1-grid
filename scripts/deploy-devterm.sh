@@ -138,7 +138,7 @@ timeout 60 ~/bin/fm1-grid >/tmp/fm1-smoke.log 2>&1 &
 apid=$!
 found=0
 for _ in $(seq 1 30); do
-    if xwininfo -root -tree 2>/dev/null | grep -q '"Synth Firmware Circus"'; then
+    if xwininfo -root -tree 2>/dev/null | grep -q '"Synth Firmware Zoo"'; then
         found=1
         break
     fi

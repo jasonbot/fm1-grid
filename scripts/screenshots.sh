@@ -58,7 +58,7 @@ export FM1_GRID_DATA_DIR=$DATA
 APP=$!
 WID=
 for _ in $(seq 1 60); do
-    WID=$(xdotool search --name "Synth Firmware Circus" 2>/dev/null | head -1 || true)
+    WID=$(xdotool search --name "Synth Firmware Zoo" 2>/dev/null | head -1 || true)
     [[ -n $WID ]] && break
     sleep 0.5
 done

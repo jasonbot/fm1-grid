@@ -5,7 +5,7 @@
 //! GPUI_PORT.md for the egui → gpui-kit split.
 
 /// The window title, shared by the native title bar and the in-app one.
-pub const APP_TITLE: &str = "Synth Firmware Circus";
+pub const APP_TITLE: &str = "Synth Firmware Zoo";
 
 pub mod app;
 mod audio;

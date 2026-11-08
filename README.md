@@ -103,10 +103,10 @@ flowchart LR
 
 - Click the gear at the bottom of the left rail.
 - The search box finds settings by name or keyword.
-- **Theme** picks a color set. Choices include gpui-kit's Default, BeOS, Hot Dog Stand and Japanese Stationery. Influenza, Meltysand, Visualia and Mac Platinum are built from the accent color.
-- **Influenza**, **Meltysand** and **Visualia** are built from the accent color.
+- **Theme** picks a color set: gpui-kit's Default, BeOS, Hot Dog Stand, Japanese Stationery and the computed accent families.
+- **Influenza**, **Meltysand**, **Visualia**, **Mac Platinum** and **Very High Contrast** are built from the accent color.
 - **Mode** follows the OS, or pins Light or Dark.
-- **Accent color** only works for the three computed themes.
+- **Accent color** only works for those computed themes.
 - **Reset** puts the theme and mode back to their defaults.
 
 ## Keyboard

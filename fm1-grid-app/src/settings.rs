@@ -80,6 +80,7 @@ impl GridApp {
                 | crate::theme::MELTYSAND
                 | crate::theme::VISUALIA
                 | crate::theme::MAC_PLATINUM
+                | crate::theme::VERY_HIGH_CONTRAST
         );
         let accent_field = SettingField::render({
             let app = app.clone();
@@ -136,12 +137,11 @@ impl GridApp {
             "This theme doesn't do accents"
         };
 
-        Settings::new("fm1-settings").page(
-            SettingPage::new("General").resettable(true).group(
-                SettingGroup::new().title("Appearance").items(vec![
+        Settings::new("fm1-settings").page(SettingPage::new("General").resettable(true).group(
+            SettingGroup::new().title("Appearance").items(vec![
                     SettingItem::new("Theme", theme_field)
                         .description(
-                            "The colour scheme family: gpui-kit's sets plus the bundled FM-1 ones.",
+                            "Choose your rainbow. Micromanage your button radii.",
                         )
                         .keywords(["colors", "scheme"]),
                     SettingItem::new("Mode", appearance_field)
@@ -152,7 +152,6 @@ impl GridApp {
                         .description(accent_description)
                         .keywords(["colour", "fluent", "windows", "macos"]),
                 ]),
-            ),
-        )
+        ))
     }
 }

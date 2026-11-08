@@ -25,6 +25,10 @@ impl GridApp {
                 Rc::new(crate::themes::mac_platinum::theme(ThemeMode::Light, accent)),
                 Rc::new(crate::themes::mac_platinum::theme(ThemeMode::Dark, accent)),
             ),
+            crate::theme::VERY_HIGH_CONTRAST => (
+                Rc::new(crate::themes::very_high_contrast::theme(ThemeMode::Light, accent)),
+                Rc::new(crate::themes::very_high_contrast::theme(ThemeMode::Dark, accent)),
+            ),
             _ => {
                 let registry = ThemeRegistry::global(cx);
                 let pick = |name: &Option<String>,

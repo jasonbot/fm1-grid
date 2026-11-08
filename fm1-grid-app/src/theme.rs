@@ -129,6 +129,9 @@ pub(crate) const VISUALIA: &str = crate::themes::visualia::FAMILY;
 /// The classic Mac OS Platinum look, computed from the accent.
 pub(crate) const MAC_PLATINUM: &str = crate::themes::mac_platinum::FAMILY;
 
+/// Maximum-contrast square controls, computed from the accent.
+pub(crate) const VERY_HIGH_CONTRAST: &str = crate::themes::very_high_contrast::FAMILY;
+
 /// One picker family: the registered config names that fill the light and dark
 /// slots (the family's first of each mode; a missing side keeps the default theme).
 pub(crate) struct ThemeFamily {
@@ -182,6 +185,12 @@ static FAMILIES: std::sync::LazyLock<Vec<ThemeFamily>> = std::sync::LazyLock::ne
         ThemeFamily {
             id: MAC_PLATINUM,
             label: "Mac Platinum",
+            light: None,
+            dark: None,
+        },
+        ThemeFamily {
+            id: VERY_HIGH_CONTRAST,
+            label: "Very High Contrast",
             light: None,
             dark: None,
         },

@@ -228,8 +228,18 @@ impl Render for GridApp {
             let theme = cx.theme();
             (theme.background, theme.muted_foreground)
         };
+        // The high-contrast family asks for a bold UI; Japanese Stationery's
+        // Linux fallback (Noto Sans CJK JP) reads too thin at the normal weight.
+        let weight = if self.theme_id == crate::theme::VERY_HIGH_CONTRAST {
+            FontWeight::BOLD
+        } else if cfg!(target_os = "linux") && self.theme_id == "japanese-stationery" {
+            FontWeight::SEMIBOLD
+        } else {
+            FontWeight::NORMAL
+        };
         div()
             .size_full()
+            .font_weight(weight)
             .flex()
             .flex_col()
             .bg(background)

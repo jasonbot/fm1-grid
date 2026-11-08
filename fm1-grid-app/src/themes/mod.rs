@@ -16,6 +16,7 @@ use gpui_kit::{Hsla, Rgba, SharedString};
 
 pub(crate) mod influenza;
 pub(crate) mod mac_platinum;
+pub(crate) mod very_high_contrast;
 pub(crate) mod meltysand;
 pub(crate) mod visualia;
 

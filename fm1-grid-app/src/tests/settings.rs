@@ -283,6 +283,21 @@ fn settings_theme_and_appearance(cx: &mut TestAppContext) {
         );
     });
 
+    // Very High Contrast reuses the same red accent with square controls.
+    cx.update_window(window.into(), |_, _window, cx| {
+        app.update(cx, |app, cx| {
+            app.set_theme_family(crate::theme::VERY_HIGH_CONTRAST, cx)
+        });
+    })
+    .unwrap();
+    cx.update(|cx| {
+        let theme = Theme::global(cx);
+        assert_eq!(theme.theme_name().as_ref(), "Very High Contrast Light (Red)");
+        assert_eq!(theme.colors.background, gpui_kit::component::try_parse_color("#ffffff").unwrap());
+        assert_eq!(theme.colors.border, gpui_kit::component::try_parse_color("#000000").unwrap());
+        assert_eq!(theme.radius, px(0.0));
+    });
+
     cx.update_window(window.into(), |_, window, cx| {
         window.click(("tab", 0usize), cx);
         app.update(cx, |app, cx| {
@@ -303,17 +318,18 @@ fn bundled_themes_load(cx: &mut TestAppContext) {
         gpui_kit::init(cx);
         crate::theme::load_bundled_themes(cx);
         let registry = ThemeRegistry::global(cx);
-        // Default, Influenza, Meltysand, Visualia, Mac Platinum, plus every
-        // bundled themes/*.json (listed by build.rs).
+        // Default, Influenza, Meltysand, Visualia, Mac Platinum, Very High
+        // Contrast, plus every bundled themes/*.json (listed by build.rs).
         assert_eq!(
             crate::theme::theme_families().len(),
-            crate::theme::THEME_FILES.len() + 5
+            crate::theme::THEME_FILES.len() + 6
         );
         for id in [
             crate::theme::INFLUENZA,
             crate::theme::MELTYSAND,
             crate::theme::VISUALIA,
             crate::theme::MAC_PLATINUM,
+            crate::theme::VERY_HIGH_CONTRAST,
         ] {
             assert!(crate::theme::theme_families()
                 .iter()

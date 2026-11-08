@@ -117,6 +117,9 @@ fn first_installed(
         .into()
 }
 
+/// The bundled Japanese Stationery family.
+pub(crate) const JAPANESE_STATIONERY: &str = "japanese-stationery";
+
 /// The computed Fluent-UI family; `apply_theme` builds it from the accent colour.
 pub(crate) const INFLUENZA: &str = crate::themes::influenza::FAMILY;
 

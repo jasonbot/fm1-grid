@@ -20,7 +20,8 @@ const SESSION_OBJECT: &str = "session";
 pub(crate) struct Session {
     /// The emulator split's sidebar width; the grid panel takes the rest.
     pub sidebar_width: f32,
-    /// The main tab (0 = Emulator, 1 = Devices, 2 = Library).
+    /// The main tab (0 = Emulator, 1 = Devices, 2 = Library, 3 = Settings,
+    /// 4 = About).
     pub tab: usize,
     /// The Devices tab's section (0 = Devices, 1 = MIDI Graph).
     pub devices_tab: usize,
@@ -65,7 +66,7 @@ impl Session {
             .and_then(|store| store.fetch_object(SESSION_OBJECT).ok())
             .unwrap_or_default();
         session.sidebar_width = session.sidebar_width.clamp(SIDEBAR_MIN, SIDEBAR_MAX);
-        session.tab = session.tab.min(3);
+        session.tab = session.tab.min(4);
         session.devices_tab = session.devices_tab.min(1);
         session.slot = session.slot.min(fm1_performer::MAX_SLOTS - 1);
         // A stale or hand-edited accent id falls back to Blue.
@@ -155,7 +156,7 @@ mod tests {
         store.store_object(SESSION_OBJECT, &record).unwrap();
         let loaded = Session::load(Some(&store));
         assert_eq!(loaded.sidebar_width, SIDEBAR_MAX);
-        assert_eq!(loaded.tab, 3);
+        assert_eq!(loaded.tab, 4);
         assert_eq!(loaded.devices_tab, 1);
         assert_eq!(loaded.theme, "ayu");
         assert_eq!(loaded.appearance, crate::app::Appearance::Dark);

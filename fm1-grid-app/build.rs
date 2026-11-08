@@ -3,7 +3,7 @@
 //! for `src/theme.rs`. Adding a file to themes/ is all it takes to ship a set.
 
 use std::{
-    env, fs,
+    env, fs, io::Write,
     path::{Path, PathBuf},
 };
 
@@ -40,6 +40,7 @@ fn main() {
 
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
     write_third_party_licenses(&manifest_dir);
+    write_compressed_licenses(&manifest_dir);
 }
 
 // ---------------------------------------------------------------------------
@@ -606,5 +607,31 @@ fn write_third_party_licenses(manifest_dir: &Path) {
             ),
         },
         Err(error) => println!("cargo:warning=third-party licenses: {error}"),
+    }
+}
+
+
+/// The About tab embeds the generated licence text as gzip, not the 1.7 MB plain
+/// file. This runs after the text generator so a clean build has it at hand.
+fn write_compressed_licenses(manifest_dir: &Path) {
+    let Some(root) = workspace_root(manifest_dir) else { return };
+    let Some(out) = env::var_os("OUT_DIR") else { return };
+    let input = root.join("3rdparty-licenses.txt");
+    let Ok(text) = fs::read(&input) else {
+        println!("cargo:warning=third-party licenses: {} is missing", input.display());
+        return;
+    };
+    let mut encoder =
+        flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::best());
+    if encoder.write_all(&text).is_err() {
+        println!("cargo:warning=third-party licenses: compression failed");
+        return;
+    }
+    let Ok(gz) = encoder.finish() else {
+        println!("cargo:warning=third-party licenses: compression failed");
+        return;
+    };
+    if let Err(error) = fs::write(PathBuf::from(out).join("3rdparty-licenses.txt.gz"), gz) {
+        println!("cargo:warning=could not write compressed licenses: {error}");
     }
 }

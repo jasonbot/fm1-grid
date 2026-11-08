@@ -8,6 +8,7 @@
 pub const APP_TITLE: &str = "Synth Firmware Zoo";
 
 pub mod app;
+mod about;
 mod audio;
 mod devices;
 mod firmware_picker;

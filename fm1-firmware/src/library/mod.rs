@@ -149,6 +149,14 @@ impl Library {
         &self.view
     }
 
+    fn mark_upgradable(firmware: &mut Firmware, hub: &[Firmware]) {
+        // Hub entries never shadow an installed entry; they flag it upgradable.
+        firmware.upgradable = !matches!(firmware.source, FirmwareSource::File { .. })
+            && hub.iter().any(|offer| {
+                same_firmware(firmware, offer) && version_newer(&offer.version, &firmware.version)
+            });
+    }
+
     /// Rebuild the cached view from the installed entries and the hub listing.
     fn rebuild_view(&mut self) {
         self.last_stat = Instant::now();
@@ -165,11 +173,7 @@ impl Library {
             if superseded {
                 continue;
             }
-            // Hub entries never shadow an installed entry; they flag it upgradable.
-            firmware.upgradable = !matches!(firmware.source, FirmwareSource::File { .. })
-                && hub.iter().any(|offer| {
-                    same_firmware(firmware, offer) && version_newer(&offer.version, &firmware.version)
-                });
+            Self::mark_upgradable(firmware, &hub);
             firmware.status = entry_status(firmware, &self.downloads, &self.store);
             view.push(firmware.clone());
         }
@@ -181,10 +185,7 @@ impl Library {
             }) {
                 continue;
             }
-            firmware.upgradable = !matches!(firmware.source, FirmwareSource::File { .. })
-                && hub.iter().any(|offer| {
-                    same_firmware(firmware, offer) && version_newer(&offer.version, &firmware.version)
-                });
+            Self::mark_upgradable(firmware, &hub);
             firmware.status = entry_status(firmware, &self.downloads, &self.store);
             view.push(firmware.clone());
         }

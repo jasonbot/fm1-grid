@@ -2070,6 +2070,7 @@ name = "fm1-grid-app"
 version = "0.1.0"
 dependencies = [
  "cpal",
+ "flate2",
  "fm1-performer",
  "fm1-recovery",
  "fm1-soc",

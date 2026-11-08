@@ -262,6 +262,8 @@ impl GridApp {
             health: [SlotHealth::default(); MAX_SLOTS],
             active_tab: session.tab,
             devices_tab: session.devices_tab,
+            about_tab: 0,
+            about_scroll: ScrollHandle::new(),
             devices_scroll: ScrollHandle::new(),
             graph_scroll: ScrollHandle::new(),
             devices_view_h: 400.0,

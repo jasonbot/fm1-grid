@@ -102,13 +102,19 @@ flowchart LR
 
 ![Settings tab](./screenshot/settings.png)
 
-- Click the gear at the bottom of the left rail.
+- Click the gear in the left rail.
 - The search box finds settings by name or keyword.
 - **Theme** picks a color set: gpui-kit's Default, BeOS, Hot Dog Stand, Japanese Stationery and the computed accent families.
 - **Influenza**, **Meltysand**, **Visualia**, **Mac Platinum** and **Very High Contrast** are built from the accent color.
 - **Mode** follows the OS, or pins Light or Dark.
 - **Accent color** only works for those computed themes.
 - **Reset** puts the theme and mode back to their defaults.
+
+## About
+
+- The info icon at the bottom of the rail opens About.
+- **About this app** shows the app title, version and release history.
+- **Licenses** scrolls the generated third-party licence text.
 
 ## Keyboard
 

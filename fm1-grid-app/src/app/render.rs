@@ -44,9 +44,9 @@ impl GridApp {
                     .child(self.control_display(cx, compact)),
             )
     }
-    /// The left icon rail: the app tabs as icon-only buttons stacked vertically, the
-    /// gear pinned to the bottom. One chip slides between the buttons on the same
-    /// spring the pill tab bar's indicator uses; the buttons stay transparent —
+    /// The left icon rail: the app tabs as icon-only buttons stacked vertically,
+    /// with About pinned to the bottom. One chip slides between the buttons on the
+    /// same spring the pill tab bar's indicator uses; the buttons stay transparent —
     /// the selected one keeps the tab_active_foreground ink, the rest take a
     /// tab_active wash on hover. Icons run at size_5 (20px).
     pub(super) fn tab_rail(&self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -61,18 +61,19 @@ impl GridApp {
                 theme.tokens.background,
             )
         };
-        const TABS: [(Lucide, usize); 4] = [
+        const TABS: [(Lucide, usize); 5] = [
             (Lucide::Monitor, 0),
             (Lucide::KeyboardMusic, 1),
             (Lucide::Library, 2),
             (Lucide::Settings, 3),
+            (Lucide::Info, 4),
         ];
 
-        // Slot tops: pt_2, then 36px buttons with gap_2; the gear pins to the
+        // Slot tops: pt_2, then 36px buttons with gap_2; About pins to the
         // bottom (its slot needs the rail's height, recorded last frame).
         let slot_top = |ix: usize, rail_h: f32| {
-            if ix == 3 {
-                (rail_h - 8.0 - 36.0).max(8.0 + 3.0 * 44.0)
+            if ix == 4 {
+                (rail_h - 8.0 - 36.0).max(8.0 + 4.0 * 44.0)
             } else {
                 8.0 + ix as f32 * 44.0
             }
@@ -155,9 +156,9 @@ impl GridApp {
                     .pb_2()
                     .items_center()
                     .gap_2()
-                    .children(TABS[..3].iter().map(|&(icon, ix)| button(icon, ix, cx)))
+                    .children(TABS[..4].iter().map(|&(icon, ix)| button(icon, ix, cx)))
                     .child(div().flex_1())
-                    .child(button(TABS[3].0, 3, cx)),
+                    .child(button(TABS[4].0, 4, cx)),
             )
     }
     /// The Devices tab: a centered pill tab bar over the two sections — the live USB
@@ -232,7 +233,7 @@ impl Render for GridApp {
         // Linux fallback (Noto Sans CJK JP) reads too thin at the normal weight.
         let weight = if self.theme_id == crate::theme::VERY_HIGH_CONTRAST {
             FontWeight::BOLD
-        } else if cfg!(target_os = "linux") && self.theme_id == "japanese-stationery" {
+        } else if cfg!(target_os = "linux") && self.theme_id == crate::theme::JAPANESE_STATIONERY {
             FontWeight::SEMIBOLD
         } else {
             FontWeight::NORMAL
@@ -273,7 +274,8 @@ impl Render for GridApp {
                                 0 => self.emulator_tab(window, cx).into_any_element(),
                                 1 => self.devices_tab(window, cx).into_any_element(),
                                 2 => self.library_tab(window, cx).into_any_element(),
-                                _ => self.settings_tab(window, cx).into_any_element(),
+                                3 => self.settings_tab(window, cx).into_any_element(),
+                                _ => self.about_tab(cx).into_any_element(),
                             }),
                     ),
             )

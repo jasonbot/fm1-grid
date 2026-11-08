@@ -20,7 +20,7 @@ use std::borrow::Cow;
 // The macro embeds exactly these SVGs; a misspelled name fails the build.
 icon_assets!(
     ExtraIcons,
-    [Pin, Monitor, KeyboardMusic, Library, Download, Trash, Zap, FilePlus, Save, X, Usb, Waypoints, Power, LifeBuoy, Palette, SunMoon, ListFilter, Settings]
+    [Pin, Monitor, KeyboardMusic, Library, Download, Trash, Zap, FilePlus, Save, X, Usb, Waypoints, Power, LifeBuoy, Palette, SunMoon, ListFilter, Settings, Info, FileText]
 );
 
 actions!(fm1_grid, [Quit]);

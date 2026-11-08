@@ -13,10 +13,8 @@ use gpui_kit::component::{ThemeConfig, ThemeConfigColors, ThemeMode};
 /// The picker id of the computed family (mirrors `theme::VERY_HIGH_CONTRAST`).
 pub(crate) const FAMILY: &str = "very-high-contrast";
 
-const UI_FONT: &str = "JetBrains Mono, Cascadia Mono, SF Mono, Menlo, Consolas, \
-                       DejaVu Sans Mono, Noto Sans Mono, Courier New, monospace";
-const MONO_FONT: &str = "JetBrains Mono, Cascadia Mono, SF Mono, Menlo, Consolas, \
-                         DejaVu Sans Mono, Noto Sans Mono, Courier New, monospace";
+const FONT: &str = "JetBrains Mono, Cascadia Mono, SF Mono, Menlo, Consolas, \
+                    DejaVu Sans Mono, Noto Sans Mono, Courier New, monospace";
 /// Push the chosen accent toward full saturation for this family.
 const ACCENT_SATURATION_BOOST: f32 = 1.5;
 
@@ -41,8 +39,8 @@ pub(crate) fn theme(mode: ThemeMode, accent: &Accent) -> ThemeConfig {
         .into(),
         mode,
         font_size: Some(16.0),
-        font_family: Some(UI_FONT.into()),
-        mono_font_family: Some(MONO_FONT.into()),
+        font_family: Some(FONT.into()),
+        mono_font_family: Some(FONT.into()),
         mono_font_size: Some(14.0),
         radius: Some(0),
         radius_lg: Some(0),

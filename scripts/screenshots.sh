@@ -106,7 +106,7 @@ click 1350 166 2
 shot midi-graph
 
 # Settings (gear at the bottom of the rail).
-click 22 835 2
+click 22 192 2
 shot settings
 
 echo "==> wrote screenshots to $OUT"

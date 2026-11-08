@@ -303,10 +303,13 @@ pub struct GridApp {
     /// Per-slot audio health behind the grid cards' status dot.
     pub(crate) health: [SlotHealth; MAX_SLOTS],
     /// The main area's tab: 0 = Emulator (grid + sidebar split), 1 = Devices, 2 =
-    /// Library.
+    /// Library, 3 = Settings, 4 = About.
     pub(crate) active_tab: usize,
     /// The Devices tab's section: 0 = Devices, 1 = MIDI Graph (saved in the session).
     pub(crate) devices_tab: usize,
+    /// The About tab's section: 0 = About this app, 1 = Licenses.
+    pub(crate) about_tab: usize,
+    pub(crate) about_scroll: ScrollHandle,
     /// The Devices and MIDI Graph sections' scroll state (scrollbars, PgUp/PgDn and
     /// Home/End) and their viewport heights for the page step.
     pub(crate) devices_scroll: ScrollHandle,

@@ -13,6 +13,7 @@ use std::sync::OnceLock;
 const LICENSES_GZ: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/3rdparty-licenses.txt.gz"));
 
 pub(crate) const LICENSE_LINE_H: f32 = 14.0;
+const REPO_URL: &str = "https://github.com/jasonbot/fm1-grid";
 
 pub(crate) fn license_lines() -> Vec<&'static str> {
     licenses_text().lines().collect()
@@ -147,6 +148,18 @@ fn about_app(cx: &mut Context<GridApp>) -> impl IntoElement {
                 .text_size(px(12.0))
                 .text_color(dim)
                 .child(format!("Version {}", env!("CARGO_PKG_VERSION"))),
+        )
+        .child(
+            div()
+                .id("about-repo")
+                .flex()
+                .items_center()
+                .gap_2()
+                .cursor_pointer()
+                .text_color(cx.theme().primary)
+                .on_click(|_, _, cx| cx.open_url(REPO_URL))
+                .child(Icon::new(IconName::Github).size_4())
+                .child("github.com/jasonbot/fm1-grid"),
         )
         .child(
             div()

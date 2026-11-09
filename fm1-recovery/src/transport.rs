@@ -1,7 +1,7 @@
 //! SCSI passthrough to the WL82 ROM's USB disk interface, and its discovery.
 //!
 //! Linux uses SCSI generic devices and SG_IO; Windows uses SCSI pass-through
-//! on physical drives; macOS uses USB bulk-only transport.
+//! on physical drives; macOS uses the IOKit SCSI task user client.
 
 use std::fmt;
 
@@ -312,151 +312,10 @@ mod platform {
 }
 
 #[cfg(target_os = "macos")]
-mod platform {
-    use super::*;
-    use rusb::{Direction as UsbDirection, TransferType};
-    use std::time::Duration;
+mod macos;
 
-    const VID: u16 = 0x4C4A;
-    const PID: u16 = 0x8057;
-    const TIMEOUT: Duration = Duration::from_secs(10);
-    const CBW: u32 = 0x4342_5355;
-    const CSW: u32 = 0x5342_5355;
-
-    pub struct Device {
-        handle: rusb::DeviceHandle<rusb::GlobalContext>,
-        interface: u8,
-        ep_in: u8,
-        ep_out: u8,
-        tag: u32,
-    }
-
-    fn usb_path(device: &rusb::Device<rusb::GlobalContext>) -> String {
-        format!("usb:{}-{}", device.bus_number(), device.address())
-    }
-
-    fn find(path: &str) -> Option<(rusb::Device<rusb::GlobalContext>, u8, u8, u8)> {
-        let devices = rusb::devices().ok()?;
-        for device in devices.iter() {
-            if usb_path(&device) != path {
-                continue;
-            }
-            let config = device.active_config_descriptor().ok()?;
-            for interface in config.interfaces() {
-                for alt in interface.descriptors().filter(|alt| alt.class_code() == 8) {
-                    let endpoint = |direction| {
-                        alt.endpoint_descriptors()
-                            .find(|ep| {
-                                ep.transfer_type() == TransferType::Bulk
-                                    && ep.direction() == direction
-                            })
-                            .map(|ep| ep.address())
-                    };
-                    if let (Some(ep_in), Some(ep_out)) =
-                        (endpoint(UsbDirection::In), endpoint(UsbDirection::Out))
-                    {
-                        return Some((device, alt.interface_number(), ep_in, ep_out));
-                    }
-                }
-            }
-        }
-        None
-    }
-
-    impl Device {
-        pub fn open(path: &str) -> Result<Self, TransportError> {
-            let (device, interface, ep_in, ep_out) = find(path).ok_or_else(|| {
-                TransportError::Failed(format!("{path}: download-mode unit not found"))
-            })?;
-            let handle = device.open().map_err(|error| match error {
-                rusb::Error::Access => TransportError::Permission(
-                    "macOS denied USB access: run FM1-Grid with sudo".into(),
-                ),
-                error => TransportError::Failed(format!("cannot open the unit: {error}")),
-            })?;
-            if handle.kernel_driver_active(interface).unwrap_or(false) {
-                handle.detach_kernel_driver(interface).map_err(|error| {
-                    TransportError::Permission(format!("cannot take the USB interface: {error}"))
-                })?;
-            }
-            handle.claim_interface(interface).map_err(|error| {
-                TransportError::Permission(format!("cannot claim the USB interface: {error}"))
-            })?;
-            Ok(Self {
-                handle,
-                interface,
-                ep_in,
-                ep_out,
-                tag: 0,
-            })
-        }
-    }
-
-    impl Drop for Device {
-        fn drop(&mut self) {
-            let _ = self.handle.release_interface(self.interface);
-        }
-    }
-
-    impl super::Transport for Device {
-        fn command(&mut self, cdb: &[u8], data: Direction<'_>) -> Result<usize, TransportError> {
-            self.tag = self.tag.wrapping_add(1);
-            let (length, flags) = match &data {
-                Direction::In(bytes) => (bytes.len(), 0x80),
-                Direction::Out(bytes) => (bytes.len(), 0),
-            };
-            let mut command = [0u8; 31];
-            command[..4].copy_from_slice(&CBW.to_le_bytes());
-            command[4..8].copy_from_slice(&self.tag.to_le_bytes());
-            command[8..12].copy_from_slice(&(length as u32).to_le_bytes());
-            command[12] = flags;
-            command[14] = cdb.len() as u8;
-            command[15..15 + cdb.len()].copy_from_slice(cdb);
-            self.handle
-                .write_bulk(self.ep_out, &command, TIMEOUT)
-                .map_err(|error| TransportError::Failed(format!("USB command: {error}")))?;
-            let moved = match data {
-                Direction::In(bytes) => self
-                    .handle
-                    .read_bulk(self.ep_in, bytes, TIMEOUT)
-                    .map_err(|error| TransportError::Failed(format!("USB read: {error}")))?,
-                Direction::Out(bytes) => self
-                    .handle
-                    .write_bulk(self.ep_out, bytes, TIMEOUT)
-                    .map_err(|error| TransportError::Failed(format!("USB write: {error}")))?,
-            };
-            let mut status = [0u8; 13];
-            self.handle
-                .read_bulk(self.ep_in, &mut status, TIMEOUT)
-                .map_err(|error| TransportError::Failed(format!("USB status: {error}")))?;
-            if u32::from_le_bytes(status[0..4].try_into().unwrap()) != CSW
-                || u32::from_le_bytes(status[4..8].try_into().unwrap()) != self.tag
-                || status[12] != 0
-            {
-                return Err(TransportError::Failed("invalid USB storage status".into()));
-            }
-            Ok(moved)
-        }
-    }
-
-    pub fn find_devices() -> Vec<(String, String)> {
-        let Ok(devices) = rusb::devices() else {
-            return Vec::new();
-        };
-        let mut found = Vec::new();
-        for device in devices.iter() {
-            let Ok(descriptor) = device.device_descriptor() else {
-                continue;
-            };
-            if descriptor.vendor_id() != VID || descriptor.product_id() != PID {
-                continue;
-            }
-            let path = usb_path(&device);
-            found.push((path.clone(), format!("WL82 UBOOT1.00 ({path})")));
-        }
-        found
-    }
-}
+#[cfg(target_os = "macos")]
+use macos as platform;
 
 #[cfg(not(any(target_os = "linux", windows, target_os = "macos")))]
 mod platform {

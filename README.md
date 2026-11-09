@@ -78,7 +78,7 @@ The `.fwsc` files are gitignored. A fresh build downloads and checks any missing
 - Flash progress stays at the bottom while the unit reboots.
 - **Rescue** adds every MIDI port as a flash target. Use it for a unit that no longer answers to its name.
 - The emulator cannot run SMK-37 firmware. Those rows can only go to a live unit.
-- A unit in ROM download mode shows its model, firmware and bootloader. With Rescue on, it can take m-bootloader. Raw discovery and flashing work on Linux, macOS and Windows; macOS needs sudo and Windows needs administrator access.
+- A unit in ROM download mode shows its model, firmware and bootloader. With Rescue on, it can take m-bootloader. Download-mode discovery and flashing work on Linux, macOS and Windows; macOS needs sudo and an unmounted unit, and Windows needs administrator access.
 
 ## MIDI graph
 
@@ -158,9 +158,9 @@ cargo run --release -p fm1-tty
 
 - Needs Rust 1.91 or newer.
 - Linux also needs ALSA headers and the usual X11/Wayland dev packages for gpui.
-- macOS needs the Xcode command-line tools. Raw recovery needs sudo.
+- macOS needs the Xcode command-line tools. Download-mode recovery needs sudo.
 - The recovery build downloads m-bootloader v2.2 and its loader from the upstream release, verifies their SHA-256, and keeps them gitignored.
-- Windows needs the MSVC build tools. Raw recovery needs administrator access.
+- Windows needs the MSVC build tools. Download-mode recovery needs administrator access.
 - `.cargo/config.toml` uses `target-cpu=native`. Delete it when building for another machine.
 - The emulator crates are pinned to a revision in `Cargo.toml`. Bump it on purpose.
 

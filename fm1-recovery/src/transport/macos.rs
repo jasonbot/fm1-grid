@@ -30,7 +30,7 @@ const USB_PID: i64 = 0x8057;
 const IO_SERVICE_PLANE: &[u8] = b"IOService\0";
 const IO_REGISTRY_RECURSIVE: u32 = 0x1;
 const IO_REGISTRY_PARENTS: u32 = 0x2;
-const SCSI_STATUS_GOOD: u8 = 0;
+const SCSI_STATUS_GOOD: u32 = 0;
 const SCSI_DATA_NONE: u8 = 0;
 const SCSI_DATA_OUT: u8 = 1;
 const SCSI_DATA_IN: u8 = 2;
@@ -92,7 +92,7 @@ struct ScsiTaskInterface {
     set_task_completion_callback:
         unsafe extern "C" fn(*mut c_void, *mut c_void, *mut c_void) -> i32,
     execute_task_async: unsafe extern "C" fn(*mut c_void) -> i32,
-    execute_task_sync: unsafe extern "C" fn(*mut c_void, *mut u8, *mut u8, *mut u64) -> i32,
+    execute_task_sync: unsafe extern "C" fn(*mut c_void, *mut u8, *mut u32, *mut u64) -> i32,
 }
 
 #[repr(C)]
@@ -491,7 +491,7 @@ impl Device {
         }
 
         let mut sense = [0u8; 18];
-        let mut task_status = 0u8;
+        let mut task_status = 0u32;
         let mut moved = 0u64;
         let result = unsafe {
             ((*task).execute_task_sync)(

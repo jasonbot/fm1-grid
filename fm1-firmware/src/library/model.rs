@@ -68,6 +68,48 @@ impl Firmware {
     }
 }
 
+/// Which online listing sources the Library is allowed to fetch. The Hub is the
+/// source of truth; the others are additive. mutant.cloud and Reverbose are off by
+/// default because they are the noisiest mirrors.
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
+#[serde(default)]
+pub struct HubFeeds {
+    pub hub: bool,
+    pub editor: bool,
+    pub mutant: bool,
+    pub reverbose: bool,
+}
+
+impl Default for HubFeeds {
+    fn default() -> Self {
+        Self {
+            hub: true,
+            editor: true,
+            mutant: false,
+            reverbose: false,
+        }
+    }
+}
+
+impl HubFeeds {
+    /// Whether at least one source will be fetched.
+    pub fn any(self) -> bool {
+        self.hub || self.editor || self.mutant || self.reverbose
+    }
+
+    /// Whether an entry carrying `source:<origin>` belongs to an enabled feed.
+    pub fn allows(self, origin: &str) -> bool {
+        match origin {
+            "hub" => self.hub,
+            "fm1-editor" => self.editor,
+            "mutant" => self.mutant,
+            "reverbose" => self.reverbose,
+            // Bundled index metadata is always visible.
+            _ => true,
+        }
+    }
+}
+
 /// A download in flight: the percent the UI shows, and the outcome the next `list()`
 /// picks up.
 pub struct Download {

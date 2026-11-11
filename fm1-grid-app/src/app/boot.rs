@@ -201,6 +201,7 @@ impl GridApp {
         };
         // The hub catalog comes in at app load; later refreshes keep an hourly cadence.
         let mut library = fm1_performer::library::Library::load(store_ref);
+        library.set_feeds(session.feeds);
         if hub_online() {
             library.refresh_hub();
         }
@@ -311,6 +312,7 @@ impl GridApp {
             theme_id: session.theme.clone(),
             appearance: session.appearance,
             accent: session.accent.clone(),
+            feeds_dirty: false,
             rail_h: 740.0,
             recovery: crate::recovery::RecoveryState::start(),
             recovery_generation: 0,

@@ -110,7 +110,13 @@ pub(super) fn merge_listings(mut hub: Vec<Firmware>, editor: Vec<Firmware>) -> V
                     entry.tags.push(tag.clone());
                 }
             }
-            // Either way, links the entry lacks fill in from the offer.
+            // Either way, blank metadata fills in from the offer.
+            if entry.description.is_empty() && !offer.description.is_empty() {
+                entry.description = offer.description.clone();
+            }
+            if entry.byline.is_empty() && !offer.byline.is_empty() {
+                entry.byline = offer.byline.clone();
+            }
             if entry.website.is_none() {
                 entry.website = offer.website.clone();
             }

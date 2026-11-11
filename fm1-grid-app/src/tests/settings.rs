@@ -136,11 +136,26 @@ fn settings_theme_and_appearance(cx: &mut TestAppContext) {
         window.render_frame(cx);
         // The settings component renders both fields as dropdown buttons (scoped:
         // both use the same "btn" id).
-        assert!(window.within("item-0").find("btn").visible());
-        assert!(window.within("item-1").find("btn").visible());
+        assert!(window
+            .within("group-0")
+            .within("item-0")
+            .find("btn")
+            .visible());
+        assert!(window
+            .within("group-0")
+            .within("item-1")
+            .find("btn")
+            .visible());
         // The accent field is a swatch row, not a dropdown.
         assert!(window.find("accent-swatch-blue").visible());
         assert!(window.find("accent-swatch-graphite").visible());
+        // Each source has a checkbox and a globe link. mutant/Revrbose start off.
+        assert!(window.within("group-1").find("feed-check-mutant.cloud").visible());
+        assert!(window.within("group-1").find("feed-link-mutant.cloud").visible());
+        assert!(!app.read(cx).library.feeds().mutant);
+        window.click("feed-check-mutant.cloud", cx);
+        assert!(app.read(cx).library.feeds().mutant);
+        assert!(app.read(cx).feeds_dirty);
         // The default family ignores accents, so the row is disabled and a click
         // must not change the stored choice.
         window.click("accent-swatch-red", cx);

@@ -63,6 +63,8 @@ pub struct Library {
     /// The Library tab's device filter, mirrored from the app: (FM-1, SMK-37).
     /// None allows everything (the TUI, which has no filter).
     devices: Option<DeviceFilter>,
+    /// Which online feeds may be fetched and shown.
+    feeds: HubFeeds,
     /// A hub swap was observed by `list()` but no sweep has run since.
     swap_pending: bool,
     /// What the last `list()` returned. Rebuilt only when its inputs move — the UI
@@ -120,6 +122,7 @@ impl Library {
             download_failed: HashSet::new(),
             download_all: false,
             devices: None,
+            feeds: HubFeeds::default(),
             swap_pending: false,
             view: Vec::new(),
             view_dirty: true,
@@ -128,6 +131,28 @@ impl Library {
             last_stat: Instant::now(),
             generation: 0,
         }
+    }
+
+    /// Enable or disable the individual online feeds. Existing rows from a disabled
+    /// feed disappear immediately; the next refresh (forced by the app on the next
+    /// Library visit) fetches only the enabled ones.
+    pub fn set_feeds(&mut self, feeds: HubFeeds) {
+        if self.feeds == feeds {
+            return;
+        }
+        self.feeds = feeds;
+        self.hub.lock().unwrap().retain(|firmware| {
+            firmware
+                .tags
+                .iter()
+                .find_map(|tag| tag.strip_prefix("source:"))
+                .is_none_or(|origin| feeds.allows(origin))
+        });
+        self.view_dirty = true;
+    }
+
+    pub fn feeds(&self) -> HubFeeds {
+        self.feeds
     }
 
     /// Installed entries first (builtins, then imported/downloaded), then the
@@ -243,14 +268,22 @@ impl Library {
     /// call this; within the hour it's a no-op). A hub failure keeps the old (or
     /// empty) list and shows in the status item.
     pub fn refresh_hub(&mut self) {
-        self.refresh_hub_inner(false);
+        if self.feeds.any() {
+            self.refresh_hub_inner(false);
+        }
     }
 
     /// The reload/retry button's fetch: always goes. A forced refresh also clears
     /// the failed-download marks — the listing may carry fixed URLs.
     pub fn reload_hub(&mut self) {
         self.download_failed.clear();
-        self.refresh_hub_inner(true);
+        if self.feeds.any() {
+            self.refresh_hub_inner(true);
+        } else {
+            *self.hub.lock().unwrap() = index_listing();
+            self.view_dirty = true;
+            *self.hub_status.lock().unwrap() = HubStatus::Idle;
+        }
     }
 
     /// Mirror the Library tab's device filter: Download All only walks the device
@@ -397,38 +430,64 @@ impl Library {
     ) {
         *self.last_refresh.lock().unwrap() = Some(Instant::now());
         *self.hub_status.lock().unwrap() = HubStatus::Loading;
+        let feeds = self.feeds;
         let hub = Arc::clone(&self.hub);
         let status = Arc::clone(&self.hub_status);
         let swapped = Arc::clone(&self.hub_swapped);
         std::thread::spawn(move || {
             let (listing, editor_page, mutant_page, reverbose_page, reverbose_smk_page) =
                 std::thread::scope(|scope| {
-                    let editor_page = scope.spawn(|| editor::fetch_listing(&editor_url));
-                    let mutant_page = scope.spawn(|| mutant::fetch_listing(&mutant_url));
-                    let reverbose_page = scope.spawn(|| {
-                        reverbose::fetch_listing(&reverbose_url, FirmwareDevice::Fm1)
+                    let editor_page = feeds
+                        .editor
+                        .then(|| scope.spawn(|| editor::fetch_listing(&editor_url)));
+                    let mutant_page = feeds
+                        .mutant
+                        .then(|| scope.spawn(|| mutant::fetch_listing(&mutant_url)));
+                    let reverbose_page = feeds.reverbose.then(|| {
+                        scope.spawn(|| reverbose::fetch_listing(&reverbose_url, FirmwareDevice::Fm1))
                     });
-                    let reverbose_smk_page = scope.spawn(|| {
-                        reverbose::fetch_listing(&reverbose_smk_url, FirmwareDevice::Smk37)
+                    let reverbose_smk_page = feeds.reverbose.then(|| {
+                        scope.spawn(|| {
+                            reverbose::fetch_listing(&reverbose_smk_url, FirmwareDevice::Smk37)
+                        })
                     });
-                    let listing = hub::fetch_listing(&url);
+                    let listing = if feeds.hub {
+                        hub::fetch_listing(&url)
+                    } else {
+                        Ok(Vec::new())
+                    };
+                    let editor_page = match editor_page {
+                        Some(handle) => handle
+                            .join()
+                            .unwrap_or_else(|_| Err("editor page thread panicked".to_string())),
+                        None => Ok(Vec::new()),
+                    };
+                    let mutant_page = match mutant_page {
+                        Some(handle) => handle
+                            .join()
+                            .unwrap_or_else(|_| Err("mutant catalog thread panicked".to_string())),
+                        None => Ok(Vec::new()),
+                    };
+                    let reverbose_page = match reverbose_page {
+                        Some(handle) => handle
+                            .join()
+                            .unwrap_or_else(|_| Err("reverbose page thread panicked".to_string())),
+                        None => Ok(Vec::new()),
+                    };
+                    let reverbose_smk_page = match reverbose_smk_page {
+                        Some(handle) => handle.join().unwrap_or_else(|_| {
+                            Err("reverbose SMK-37 page thread panicked".to_string())
+                        }),
+                        None => Ok(Vec::new()),
+                    };
                     (
                         listing,
-                        editor_page.join(),
-                        mutant_page.join(),
-                        reverbose_page.join(),
-                        reverbose_smk_page.join(),
+                        editor_page,
+                        mutant_page,
+                        reverbose_page,
+                        reverbose_smk_page,
                     )
                 });
-            // A panicked scrape thread reads as that source's failure.
-            let editor_page =
-                editor_page.unwrap_or_else(|_| Err("editor page thread panicked".to_string()));
-            let mutant_page =
-                mutant_page.unwrap_or_else(|_| Err("mutant catalog thread panicked".to_string()));
-            let reverbose_page = reverbose_page
-                .unwrap_or_else(|_| Err("reverbose page thread panicked".to_string()));
-            let reverbose_smk_page = reverbose_smk_page
-                .unwrap_or_else(|_| Err("reverbose SMK-37 page thread panicked".to_string()));
             let next = match listing {
                 Err(e) => HubStatus::Failed(e),
                 Ok(listing) => {

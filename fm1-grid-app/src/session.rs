@@ -8,6 +8,7 @@ use gpui_kit::App;
 use serde::{Deserialize, Serialize};
 
 use crate::app::GridApp;
+use fm1_performer::library::HubFeeds;
 use fm1_performer::store::Store;
 use crate::theme::{SIDEBAR_INITIAL, SIDEBAR_MAX, SIDEBAR_MIN};
 
@@ -39,6 +40,8 @@ pub(crate) struct Session {
     pub appearance: crate::app::Appearance,
     /// The accent colour id Influenza is computed from; other families ignore it.
     pub accent: String,
+    /// Which online catalog feeds the Library may use.
+    pub feeds: HubFeeds,
 }
 
 impl Default for Session {
@@ -53,6 +56,7 @@ impl Default for Session {
             theme: crate::theme::DEFAULT_FAMILY.to_string(),
             appearance: crate::app::Appearance::default(),
             accent: crate::themes::accent("blue").id.to_string(),
+            feeds: HubFeeds::default(),
         }
     }
 }
@@ -114,6 +118,7 @@ impl GridApp {
             theme: self.theme_id.clone(),
             appearance: self.appearance,
             accent: self.accent.clone(),
+            feeds: self.library.feeds(),
         };
         if let Err(e) = store.store_object(SESSION_OBJECT, &session) {
             eprintln!("fm1-grid: {e}");
@@ -152,6 +157,7 @@ mod tests {
             theme: "ayu".to_string(),
             appearance: crate::app::Appearance::Dark,
             accent: "not-a-colour".to_string(),
+            feeds: HubFeeds::default(),
         };
         store.store_object(SESSION_OBJECT, &record).unwrap();
         let loaded = Session::load(Some(&store));

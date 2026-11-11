@@ -111,8 +111,14 @@ impl GridApp {
                     }
                     this.active_tab = ix;
                     if ix == 2 && hub_online() {
-                        // Opening the library refreshes the online listing.
-                        this.library.refresh_hub();
+                        if this.feeds_dirty {
+                            // A feed toggle changed: bypass the hourly cadence.
+                            this.library.reload_hub();
+                            this.feeds_dirty = false;
+                        } else {
+                            // Opening the library refreshes the online listing.
+                            this.library.refresh_hub();
+                        }
                     }
                     this.refocus(window, cx);
                     cx.notify();

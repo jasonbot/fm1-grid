@@ -770,6 +770,15 @@
     }
 
     #[test]
+    fn feeds_default_to_the_hub_and_editor_only() {
+        let feeds = HubFeeds::default();
+        assert!(feeds.hub);
+        assert!(feeds.editor);
+        assert!(!feeds.mutant);
+        assert!(!feeds.reverbose);
+    }
+
+    #[test]
     fn hub_refresh_keeps_an_hourly_cadence() {
         let (store, dir) = temp_store("cadence");
         let mut library = Library::load(&store);

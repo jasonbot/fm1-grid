@@ -108,6 +108,7 @@ flowchart LR
 - **Influenza**, **Meltysand**, **Visualia**, **Mac Platinum**, **Very High Contrast** and **Japanese Stationery** are built from the accent color. Japanese Stationery keeps its paper and ink fixed; its blue family follows the accent.
 - **Mode** follows the OS, or pins Light or Dark.
 - **Accent color** only works for those computed themes.
+- **Firmware sources** turns the Firmware Hub, fm1-editor, mutant.cloud and Reverbose listings on or off. Mutant and Reverbose start off; changing a source reloads the Library the next time you open it.
 - **Reset** puts the theme and mode back to their defaults.
 
 ## About

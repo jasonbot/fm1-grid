@@ -20,13 +20,20 @@ struct CatalogEntry {
     byline: String,
     #[serde(default)]
     version: String,
-    #[serde(default, rename = "what")]
+    #[serde(default, rename = "what", alias = "description")]
     description: String,
     /// The hub's kind is one string or a list, depending on the entry.
     #[serde(default)]
     kind: Kind,
     #[serde(default)]
     vintage: bool,
+    /// Extra catalog tags. The Hub uses `kind` alone; mutant.cloud also publishes
+    /// topic tags (`generative`, `groovebox`, ...).
+    #[serde(default)]
+    tags: Vec<String>,
+    /// mutant.cloud's primary topic tag; usually also present in `tags`.
+    #[serde(default, rename = "primaryTag")]
+    primary_tag: Option<String>,
     #[serde(default, rename = "product")]
     device: String,
     /// mutant.cloud's catalog names devices explicitly ("fm1", "smk37"); the hub's
@@ -90,6 +97,11 @@ pub(crate) fn parse_catalog_with(json: &str, origin: &str) -> Result<Vec<Firmwar
                 Kind::One(_) => Vec::new(),
                 Kind::Many(kinds) => kinds,
             };
+            for tag in entry.tags.into_iter().chain(entry.primary_tag.into_iter()) {
+                if !tag.is_empty() && !tags.iter().any(|have| have.eq_ignore_ascii_case(&tag)) {
+                    tags.push(tag);
+                }
+            }
             if entry.vintage {
                 tags.push("vintage".to_string());
             }
@@ -104,7 +116,11 @@ pub(crate) fn parse_catalog_with(json: &str, origin: &str) -> Result<Vec<Firmwar
                 version: entry.version,
                 description: entry.description,
                 tags,
-                device: if entry.devices.iter().any(|d| d.eq_ignore_ascii_case("smk37")) {
+                device: if entry
+                    .devices
+                    .iter()
+                    .any(|d| d.eq_ignore_ascii_case("smk37"))
+                {
                     FirmwareDevice::Smk37
                 } else {
                     parse_device(&entry.device)

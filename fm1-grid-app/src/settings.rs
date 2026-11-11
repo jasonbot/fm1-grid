@@ -4,12 +4,16 @@
 //! the session record on change.
 
 use crate::app::{Appearance, GridApp};
-use gpui_kit::component::h_flex;
+use fm1_performer::library::HubFeeds;
+use gpui_kit::component::checkbox::Checkbox;
+use gpui_kit::component::{Icon, Sizable};
+use gpui_kit::component::{h_flex, v_flex};
 use gpui_kit::component::setting::{
     SettingField, SettingGroup, SettingItem, SettingPage, Settings,
 };
 use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::ActiveTheme;
+use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 
@@ -138,21 +142,140 @@ impl GridApp {
             "This theme doesn't do accents"
         };
 
-        Settings::new("fm1-settings").page(SettingPage::new("General").resettable(true).group(
-            SettingGroup::new().title("Appearance").items(vec![
-                    SettingItem::new("Theme", theme_field)
-                        .description(
-                            "Choose your rainbow. Micromanage your button radii.",
-                        )
-                        .keywords(["colors", "scheme"]),
-                    SettingItem::new("Mode", appearance_field)
-                        .description("Follow the OS light/dark setting, or pin one.")
-                        .keywords(["dark", "light"]),
-                    SettingItem::new("Accent color", accent_field)
-                        .disabled(!accent_active)
-                        .description(accent_description)
-                        .keywords(["colour", "fluent", "windows", "macos"]),
-                ]),
-        ))
+        let source_item = |label: &'static str,
+                           url: &'static str,
+                           description: &'static str,
+                           get: fn(HubFeeds) -> bool,
+                           set: fn(&mut HubFeeds, bool),
+                           default: bool| {
+            let get_app = app.clone();
+            let set_app = app.clone();
+            let reset_app = app.clone();
+            let dirty_app = app.clone();
+            SettingItem::render(move |_options, _window, cx| {
+                let checked = get(get_app.read(cx).library.feeds());
+                let set_app = set_app.clone();
+                let id = label.to_string();
+                h_flex()
+                    .w_full()
+                    .justify_between()
+                    .items_center()
+                    .gap_3()
+                    .child(
+                        v_flex()
+                            .flex_1()
+                            .max_w_3_5()
+                            .child(
+                                h_flex()
+                                    .items_center()
+                                    .gap_2()
+                                    .child(
+                                        div()
+                                            .id(format!("feed-link-{label}"))
+                                            .test_support()
+                                            .cursor_pointer()
+                                            .text_color(cx.theme().muted_foreground)
+                                            .on_click(move |_, _, cx| cx.open_url(url))
+                                            .child(Icon::new(Lucide::Globe).xsmall()),
+                                    )
+                                    .child(div().text_sm().child(label)),
+                            )
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child(description),
+                            ),
+                    )
+                    .child(
+                        Checkbox::new(format!("feed-check-{label}"))
+                            .accessibility_label(id)
+                            .checked(checked)
+                            .on_click(move |checked: &bool, _, cx: &mut App| {
+                                set_app.update(cx, |this, cx| {
+                                    let mut feeds = this.library.feeds();
+                                    set(&mut feeds, *checked);
+                                    this.set_hub_feeds(feeds, cx);
+                                });
+                            }),
+                    )
+            })
+            .keywords([label, description, "catalog", "online"])
+            .on_reset(
+                move |cx: &App| get(dirty_app.read(cx).library.feeds()) != default,
+                move |_, cx: &mut App| {
+                    reset_app.update(cx, |this, cx| {
+                        let mut feeds = this.library.feeds();
+                        set(&mut feeds, default);
+                        this.set_hub_feeds(feeds, cx);
+                    });
+                },
+            )
+        };
+        let hub_item = source_item(
+            "Firmware Hub",
+            "https://thefirmwarehub.com/",
+            "The FM-1 Firmware Hub catalog; the main online listing.",
+            |feeds| feeds.hub,
+            |feeds, on| feeds.hub = on,
+            true,
+        );
+        let editor_item = source_item(
+            "fm1-editor",
+            "https://fm1-editor.com/firmware/",
+            "The fm1-editor firmware page.",
+            |feeds| feeds.editor,
+            |feeds, on| feeds.editor = on,
+            true,
+        );
+        let mutant_item = source_item(
+            "mutant.cloud",
+            "https://mutant.cloud/",
+            "mutant.cloud's catalog, including SMK-37 offers.",
+            |feeds| feeds.mutant,
+            |feeds, on| feeds.mutant = on,
+            false,
+        );
+        let reverbose_item = source_item(
+            "Reverbose",
+            "https://reverbose.com/h/m-vave/fm-1",
+            "Reverbose's FM-1 and SMK-37 firmware pages.",
+            |feeds| feeds.reverbose,
+            |feeds, on| feeds.reverbose = on,
+            false,
+        );
+        let source_group = SettingGroup::new()
+            .title("Firmware sources")
+            .items(vec![hub_item, editor_item, mutant_item, reverbose_item]);
+
+        let appearance_group = SettingGroup::new().title("Appearance").items(vec![
+            SettingItem::new("Theme", theme_field)
+                .description("Choose your rainbow. Micromanage your button radii.")
+                .keywords(["colors", "scheme"]),
+            SettingItem::new("Mode", appearance_field)
+                .description("Follow the OS light/dark setting, or pin one.")
+                .keywords(["dark", "light"]),
+            SettingItem::new("Accent color", accent_field)
+                .disabled(!accent_active)
+                .description(accent_description)
+                .keywords(["colour", "fluent", "windows", "macos"]),
+        ]);
+
+        Settings::new("fm1-settings").page(
+            SettingPage::new("General")
+                .resettable(true)
+                .group(appearance_group)
+                .group(source_group),
+        )
+    }
+
+    pub(crate) fn set_hub_feeds(&mut self, feeds: HubFeeds, cx: &mut Context<Self>) {
+        if self.library.feeds() == feeds {
+            return;
+        }
+        self.library.set_feeds(feeds);
+        self.feeds_dirty = true;
+        self.save_session(cx);
+        cx.notify();
     }
 }

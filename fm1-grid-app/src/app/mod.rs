@@ -393,6 +393,8 @@ pub struct GridApp {
     pub(crate) appearance: Appearance,
     /// The accent colour id (`themes::ACCENTS`); ignored by JSON-backed families.
     pub(crate) accent: String,
+    /// A feed toggle changed; force the next Library visit to reload.
+    pub(crate) feeds_dirty: bool,
     /// The tab rail's rendered height, recorded during prepaint — the sliding chip
     /// aims the gear's bottom slot with it (one frame of lag, like the sidebar's).
     pub(crate) rail_h: f32,

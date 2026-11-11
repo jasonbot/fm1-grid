@@ -26,7 +26,7 @@ mod tests {
         // devices; `kind` may be one string or a list.
         let json = r#"{"hub": "https://mutant.cloud", "firmwares": [
             {"name": "NACHTFAHRT", "author": "FartyPants", "version": "0.9.9",
-             "what": "Berlin School sequencer.", "kind": "groove", "product": "FM-1_900",
+             "what": "Berlin School sequencer.", "kind": "groove", "tags": ["generative"], "product": "FM-1_900",
              "pkg": "https://github.com/o/r/releases/download/v0.9.9/nachtfahrt.fwsc",
              "site": "https://o.github.io/r/", "source": "https://github.com/o/r",
              "devices": ["fm1"]},
@@ -37,7 +37,7 @@ mod tests {
         let listing = hub::parse_catalog_with(json, "source:mutant").unwrap();
         assert_eq!(listing.len(), 2);
         let entry = &listing[0];
-        assert_eq!(entry.tags, vec!["groove", "source:mutant"]);
+        assert_eq!(entry.tags, vec!["groove", "generative", "source:mutant"]);
         assert_eq!(entry.device, FirmwareDevice::Fm1);
         assert_eq!(entry.website.as_deref(), Some("https://o.github.io/r/"));
         match &entry.source {

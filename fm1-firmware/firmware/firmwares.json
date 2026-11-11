@@ -67,8 +67,8 @@
   },
   {
     "name": "ChoralRoot",
-    "version": "0.32",
-    "file": "choralroot-0.32.fwsc",
+    "version": "0.40",
+    "file": "choralroot-0.40.fwsc",
     "tags": [
       "chords",
       "beta"
@@ -76,10 +76,10 @@
     "description": "A Telepathic Orchid-style chord instrument: one hand plays roots, the other shapes chords; voicings, performance modes, bass and a looper.",
     "byline": "Quixotic7",
     "device": "fm-1",
-    "url": "https://thefirmwarehub.com/fw/choralroot-0.32.fwsc",
+    "url": "https://thefirmwarehub.com/fw/choralroot-0.40.fwsc",
     "website": "https://github.com/Quixotic7/ChoralRootFM1",
     "source": "https://github.com/Quixotic7/ChoralRootFM1",
-    "sha256": "a4f88c00142141a40b645162f360696c319f78c0ce032a87d4d014f52ddd12b0",
+    "sha256": "ed860ccac8ab1cc60e3f550a0e207b1e484371ffc96fa120722605c70463466c",
     "license": "GPL-3.0"
   },
   {

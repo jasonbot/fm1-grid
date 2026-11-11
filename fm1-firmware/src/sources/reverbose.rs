@@ -104,13 +104,16 @@ fn parse_page(html: &str, device: FirmwareDevice) -> Result<Vec<Firmware>, Strin
         let byline = between(chunk, "<span class=\"truncate\">@", "</span")
             .map(text_of)
             .unwrap_or_default();
-        let description = between(
-            chunk,
-            "<p class=\"mt-2 line-clamp-2 min-h-[2lh] text-body-s text-text-2\">",
-            "</p",
-        )
-        .map(text_of)
-        .unwrap_or_default();
+        // Reverbose used a `<p>` for this line; it now uses a `<div>` with the same
+        // classes. Match the class marker so either element works.
+        let description = chunk
+            .find("line-clamp-2 min-h-[2lh] text-body-s text-text-2\">")
+            .and_then(|at| {
+                let rest = &chunk[at..];
+                let body = &rest[rest.find('>')? + 1..];
+                Some(text_of(&body[..body.find("</").unwrap_or(body.len())]))
+            })
+            .unwrap_or_default();
         let mut tags = Vec::new();
         // The kind badge: "Runs on top of the factory firmware." marks a mod; the
         // default ("Replaces the factory firmware.") is a full firmware.
@@ -226,7 +229,7 @@ mod tests {
 <time dateTime="2026-10-31T05:08:30+00:00" title="10/31/2026, 5:08:30 AM">9h</time>
 </span>
 </div>
-<p class="mt-2 line-clamp-2 min-h-[2lh] text-body-s text-text-2">Generative sequencer instrument in the 1970s Berlin School style.</p>
+<div class="mt-2 line-clamp-2 min-h-[2lh] text-body-s text-text-2">Generative sequencer instrument in the 1970s Berlin School style.</div>
 </div>
 </article>"#;
 

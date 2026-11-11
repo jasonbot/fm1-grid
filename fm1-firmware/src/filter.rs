@@ -45,9 +45,20 @@ impl DeviceFilter {
         match self {
             Self::All => true,
             Self::Fm1 => firmware.device == FirmwareDevice::Fm1,
-            Self::Smk37Pro => firmware.variant() == Some("SMK-37 Pro"),
-            Self::Smk37Elite => firmware.variant() == Some("SMK-37 Elite"),
-            Self::MkeP37 => firmware.variant() == Some("MKE-P37"),
+            // A generic SMK-37 package may run on every submodel; only a package
+            // explicitly tagged with another submodel is excluded.
+            Self::Smk37Pro => {
+                firmware.device == FirmwareDevice::Smk37
+                    && matches!(firmware.variant(), None | Some("SMK-37 Pro"))
+            }
+            Self::Smk37Elite => {
+                firmware.device == FirmwareDevice::Smk37
+                    && matches!(firmware.variant(), None | Some("SMK-37 Elite"))
+            }
+            Self::MkeP37 => {
+                firmware.device == FirmwareDevice::Smk37
+                    && matches!(firmware.variant(), None | Some("MKE-P37"))
+            }
         }
     }
 }
@@ -112,11 +123,21 @@ mod tests {
         let pro = firmware(FirmwareDevice::Smk37, Some("SMK-37 Pro"));
         let elite = firmware(FirmwareDevice::Smk37, Some("SMK-37 Elite"));
         let mke = firmware(FirmwareDevice::Smk37, Some("MKE-P37"));
+        let generic = firmware(FirmwareDevice::Smk37, None);
         assert!(DeviceFilter::All.shows(&pro) && DeviceFilter::All.shows(&fm1));
         assert!(DeviceFilter::Fm1.shows(&fm1) && !DeviceFilter::Fm1.shows(&pro));
         assert!(DeviceFilter::Smk37Pro.shows(&pro) && !DeviceFilter::Smk37Pro.shows(&elite));
         assert!(DeviceFilter::Smk37Elite.shows(&elite) && !DeviceFilter::Smk37Elite.shows(&mke));
         assert!(DeviceFilter::MkeP37.shows(&mke) && !DeviceFilter::MkeP37.shows(&fm1));
+        // Unspecified SMK-37 builds are valid for every submodel.
+        for filter in [
+            DeviceFilter::Smk37Pro,
+            DeviceFilter::Smk37Elite,
+            DeviceFilter::MkeP37,
+        ] {
+            assert!(filter.shows(&generic), "generic SMK-37 row hidden from {filter:?}");
+        }
+        assert!(!DeviceFilter::Fm1.shows(&generic));
     }
 
     #[test]

@@ -16,7 +16,7 @@ pub(crate) const FAMILY: &str = "mac-platinum";
 
 fn gradient(top: Rgb, bottom: Rgb) -> String {
     format!(
-        "linear-gradient(180deg, {} 15%, {} 85%)",
+        "linear-gradient(180deg, {} 25%, {} 75%)",
         top.hex(),
         bottom.hex()
     )
@@ -24,7 +24,7 @@ fn gradient(top: Rgb, bottom: Rgb) -> String {
 
 fn horizontal_gradient(left: Rgb, right: Rgb) -> String {
     format!(
-        "linear-gradient(90deg, {} 15%, {} 85%)",
+        "linear-gradient(90deg, {} 25%, {} 75%)",
         left.hex(),
         right.hex()
     )

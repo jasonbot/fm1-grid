@@ -568,7 +568,7 @@ fn collect_licenses(root: &Path) -> Result<String, String> {
 
     out.push_str("\nLicense texts\n=============\n\n");
     for (number, (title, body)) in texts.iter().enumerate() {
-        out.push_str(&format!("--- text {} ({title}) ---\n\n", number + 1));
+        out.push_str(&format!("--- {title} ({}) ---\n\n", number + 1));
         out.push_str(body);
         if !body.ends_with('\n') {
             out.push('\n');

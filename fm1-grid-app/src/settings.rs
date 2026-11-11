@@ -167,16 +167,16 @@ impl GridApp {
                             .max_w_3_5()
                             .child(
                                 h_flex()
+                                    .id(format!("feed-link-{label}"))
+                                    .test_support()
                                     .items_center()
                                     .gap_2()
+                                    .cursor_pointer()
+                                    .on_click(move |_, _, cx| cx.open_url(url))
                                     .child(
-                                        div()
-                                            .id(format!("feed-link-{label}"))
-                                            .test_support()
-                                            .cursor_pointer()
-                                            .text_color(cx.theme().muted_foreground)
-                                            .on_click(move |_, _, cx| cx.open_url(url))
-                                            .child(Icon::new(Lucide::Globe).xsmall()),
+                                        Icon::new(Lucide::Globe)
+                                            .xsmall()
+                                            .text_color(cx.theme().muted_foreground),
                                     )
                                     .child(div().text_sm().child(label)),
                             )

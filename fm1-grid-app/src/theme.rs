@@ -1,9 +1,9 @@
 //! The look. App chrome follows the gpui-kit theme (`cx.theme()` tokens at the call
 //! site), and the front panel's colours are derived from it in `panel.rs`; this
 //! module keeps only the colour helpers they share, the bundled theme catalog and
-//! the layout constants. The runtime "Influenza" and "Meltysand" families are
-//! computed in their own modules, not loaded from JSON. The one computed colour in
-//! the app is the grid background (see `grid.rs`).
+//! the layout constants. The runtime accent families are computed in their own
+//! modules, not loaded from JSON. The one computed colour in the app is the grid
+//! background (see `grid.rs`).
 
 /// Linear per-channel mix of two theme colours, `t` of the way from `a` to `b`.
 pub(crate) fn mix_hsla(a: gpui_kit::Hsla, b: gpui_kit::Hsla, t: f32) -> gpui_kit::Hsla {
@@ -117,8 +117,9 @@ fn first_installed(
         .into()
 }
 
-/// The bundled Japanese Stationery family.
-pub(crate) const JAPANESE_STATIONERY: &str = "japanese-stationery";
+/// The computed Japanese Stationery family; its paper stays fixed and its blue
+/// family is built from the accent.
+pub(crate) const JAPANESE_STATIONERY: &str = crate::themes::japanese_stationery::FAMILY;
 
 /// The computed Fluent-UI family; `apply_theme` builds it from the accent colour.
 pub(crate) const INFLUENZA: &str = crate::themes::influenza::FAMILY;
@@ -215,6 +216,14 @@ static FAMILIES: std::sync::LazyLock<Vec<ThemeFamily>> = std::sync::LazyLock::ne
             dark: take("dark"),
         });
     }
+    // Keep the historical picker position: Japanese Stationery used to be the
+    // last bundled JSON set.
+    families.push(ThemeFamily {
+        id: JAPANESE_STATIONERY,
+        label: "Japanese Stationery",
+        light: None,
+        dark: None,
+    });
     families
 });
 

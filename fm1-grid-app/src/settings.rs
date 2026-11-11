@@ -81,6 +81,7 @@ impl GridApp {
                 | crate::theme::VISUALIA
                 | crate::theme::MAC_PLATINUM
                 | crate::theme::VERY_HIGH_CONTRAST
+                | crate::theme::JAPANESE_STATIONERY
         );
         let accent_field = SettingField::render({
             let app = app.clone();

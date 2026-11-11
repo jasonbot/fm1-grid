@@ -319,10 +319,11 @@ fn bundled_themes_load(cx: &mut TestAppContext) {
         crate::theme::load_bundled_themes(cx);
         let registry = ThemeRegistry::global(cx);
         // Default, Influenza, Meltysand, Visualia, Mac Platinum, Very High
-        // Contrast, plus every bundled themes/*.json (listed by build.rs).
+        // Contrast, Japanese Stationery, plus every bundled themes/*.json
+        // (listed by build.rs).
         assert_eq!(
             crate::theme::theme_families().len(),
-            crate::theme::THEME_FILES.len() + 6
+            crate::theme::THEME_FILES.len() + 7
         );
         for id in [
             crate::theme::INFLUENZA,
@@ -330,6 +331,7 @@ fn bundled_themes_load(cx: &mut TestAppContext) {
             crate::theme::VISUALIA,
             crate::theme::MAC_PLATINUM,
             crate::theme::VERY_HIGH_CONTRAST,
+            crate::theme::JAPANESE_STATIONERY,
         ] {
             assert!(crate::theme::theme_families()
                 .iter()

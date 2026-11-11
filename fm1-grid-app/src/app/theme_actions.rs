@@ -4,7 +4,7 @@ impl GridApp {
     /// Apply the theme family and appearance override: swap the family's configs
     /// into the registry's light/dark slots, then load the side the mode points at.
     /// `Theme::change` reloads the current mode's config, so this repaints at once.
-    /// Influenza has no registry entry: both sides are computed from the accent.
+    /// Computed families have no registry entry: both sides come from the accent.
     pub(crate) fn apply_theme(&self, cx: &mut Context<Self>) {
         let family = crate::theme::family(&self.theme_id);
         let accent = crate::themes::accent(&self.accent);
@@ -28,6 +28,10 @@ impl GridApp {
             crate::theme::VERY_HIGH_CONTRAST => (
                 Rc::new(crate::themes::very_high_contrast::theme(ThemeMode::Light, accent)),
                 Rc::new(crate::themes::very_high_contrast::theme(ThemeMode::Dark, accent)),
+            ),
+            crate::theme::JAPANESE_STATIONERY => (
+                Rc::new(crate::themes::japanese_stationery::theme(ThemeMode::Light, accent)),
+                Rc::new(crate::themes::japanese_stationery::theme(ThemeMode::Dark, accent)),
             ),
             _ => {
                 let registry = ThemeRegistry::global(cx);

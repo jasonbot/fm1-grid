@@ -1,7 +1,8 @@
 //! The computed accent families — Influenza (Fluent UI), Meltysand (macOS
-//! Tahoe/Liquid Glass) and Visualia — plus the accent palette and colour maths
-//! they share. None of these are JSON-backed: `GridApp::apply_theme` builds both
-//! light and dark `ThemeConfig`s at runtime.
+//! Tahoe/Liquid Glass), Visualia, Mac Platinum, Very High Contrast and Japanese
+//! Stationery — plus the accent palette and colour maths they share. None of
+//! these are JSON-backed: `GridApp::apply_theme` builds both light and dark
+//! `ThemeConfig`s at runtime.
 //!
 //! The accent palette merges the accent choices of Windows 11 and macOS. Windows
 //! 11 ships the 48-swatch user palette (the Windows 11 25H2 list); macOS ships
@@ -15,6 +16,7 @@
 use gpui_kit::{Hsla, Rgba, SharedString};
 
 pub(crate) mod influenza;
+pub(crate) mod japanese_stationery;
 pub(crate) mod mac_platinum;
 pub(crate) mod very_high_contrast;
 pub(crate) mod meltysand;

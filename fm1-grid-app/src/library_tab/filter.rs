@@ -127,10 +127,10 @@ pub(crate) fn toggle_tag(filter: &str, tag: &str) -> String {
 
 /// The list's sections, in order: installed first, hub offers at the bottom.
 pub(crate) const SECTIONS: [(&str, Section); 4] = [
-    ("INSTALLED", Section::Installed),
-    ("DOWNLOADING", Section::Downloading),
-    ("MISSING", Section::Missing),
-    ("AVAILABLE ON THE HUB", Section::Hub),
+    ("Installed", Section::Installed),
+    ("Downloading", Section::Downloading),
+    ("Missing", Section::Missing),
+    ("Downloadable From Firmware Hubs", Section::Hub),
 ];
 
 #[derive(Clone, Copy, PartialEq)]

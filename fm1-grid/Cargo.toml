@@ -8,3 +8,6 @@ license = "MIT"
 [dependencies]
 fm1-grid-app = { path = "../fm1-grid-app" }
 gpui-kit = "=0.8.0"
+
+[build-dependencies]
+winresource = "0.1"

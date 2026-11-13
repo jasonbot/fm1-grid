@@ -1,4 +1,4 @@
-# FM-1 Grid
+# FM-1 Firmware Zoo
 
 ![Logo Image](./logo.svg)
 

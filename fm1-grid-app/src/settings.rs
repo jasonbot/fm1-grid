@@ -228,6 +228,14 @@ impl GridApp {
             |feeds, on| feeds.editor = on,
             true,
         );
+        let shrub_item = source_item(
+            "shrub.audio",
+            "https://shrub.audio/",
+            "SHRUB by Xfer Records; a single hosted FM-1 firmware.",
+            |feeds| feeds.shrub,
+            |feeds, on| feeds.shrub = on,
+            true,
+        );
         let mutant_item = source_item(
             "mutant.cloud",
             "https://mutant.cloud/",
@@ -246,7 +254,7 @@ impl GridApp {
         );
         let source_group = SettingGroup::new()
             .title("Firmware sources")
-            .items(vec![hub_item, editor_item, mutant_item, reverbose_item]);
+            .items(vec![hub_item, editor_item, shrub_item, mutant_item, reverbose_item]);
 
         let appearance_group = SettingGroup::new().title("Appearance").items(vec![
             SettingItem::new("Theme", theme_field)

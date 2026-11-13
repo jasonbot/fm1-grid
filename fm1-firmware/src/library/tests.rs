@@ -776,6 +776,7 @@
         assert!(feeds.editor);
         assert!(!feeds.mutant);
         assert!(!feeds.reverbose);
+        assert!(feeds.shrub);
     }
 
     #[test]
@@ -788,6 +789,8 @@
             "http://127.0.0.1:1/mutant.json".to_string(),
             "http://127.0.0.1:1/h/m-vave/fm-1".to_string(),
             "http://127.0.0.1:1/h/m-vave/smk-37".to_string(),
+            "http://127.0.0.1:1/shrub/".to_string(),
+            "http://127.0.0.1:1/shrub/build.json".to_string(),
         );
         for _ in 0..50 {
             std::thread::sleep(Duration::from_millis(50));
@@ -817,6 +820,8 @@
             "http://127.0.0.1:1/mutant.json".to_string(),
             "http://127.0.0.1:1/h/m-vave/fm-1".to_string(),
             "http://127.0.0.1:1/h/m-vave/smk-37".to_string(),
+            "http://127.0.0.1:1/shrub/".to_string(),
+            "http://127.0.0.1:1/shrub/build.json".to_string(),
         );
         assert!(matches!(library.hub_status(), HubStatus::Loading));
         for _ in 0..50 {

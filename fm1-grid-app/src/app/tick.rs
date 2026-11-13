@@ -43,6 +43,7 @@ impl GridApp {
         // row's Download button it leaves lib_scroll_to alone — the list doesn't
         // chase automatic fetches.
         self.library.pump_downloads();
+        self.updates.auto_check(cx);
 
         let mut dirty = self.sync_held();
         dirty |= self.upload_lcds();

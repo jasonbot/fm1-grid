@@ -8,6 +8,7 @@
 
 use crate::app::GridApp;
 use gpui_kit::Context;
+use std::time::{Duration, Instant};
 
 pub(crate) mod platform;
 
@@ -75,8 +76,11 @@ impl UpdateAction {
     }
 }
 
+const AUTO_CHECK_INTERVAL: Duration = Duration::from_secs(60 * 60);
+
 pub(crate) struct Updates {
     backend: platform::Backend,
+    last_auto_check: Option<Instant>,
     checking: bool,
     available: bool,
     updating: bool,
@@ -88,6 +92,7 @@ impl Updates {
     pub(crate) fn new() -> Self {
         Self {
             backend: platform::Backend,
+            last_auto_check: None,
             checking: false,
             available: false,
             updating: false,
@@ -112,6 +117,27 @@ impl Updates {
 
     pub(crate) fn progress(&self) -> Option<&UpdateProgress> {
         self.progress.as_ref()
+    }
+
+    /// Once an hour, ask the platform updater for a new release. The first tick
+    /// checks immediately, then the timer re-arms after each check.
+    pub(crate) fn auto_check(&mut self, cx: &mut Context<GridApp>) {
+        if !self.backend.updates_enabled()
+            || self.checking
+            || self.updating
+            || self.available
+            || self.restart_ready
+        {
+            return;
+        }
+        if self
+            .last_auto_check
+            .is_some_and(|last| last.elapsed() < AUTO_CHECK_INTERVAL)
+        {
+            return;
+        }
+        self.last_auto_check = Some(Instant::now());
+        self.check(cx);
     }
 
     pub(crate) fn activate(&mut self, cx: &mut Context<GridApp>) {

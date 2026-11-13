@@ -256,8 +256,8 @@ impl GridApp {
             .text_size(px(10.5))
             .text_color(if enabled { ink } else { dim })
             .when(enabled, |this| {
-                this.cursor_pointer().on_click(move |_, _, cx| {
-                    app.update(cx, |this, cx| this.updates.activate(cx));
+                this.cursor_pointer().on_click(move |_, window, cx| {
+                    app.update(cx, |this, cx| this.updates.activate(window, cx));
                 })
             });
         if let Some(percentage) = self

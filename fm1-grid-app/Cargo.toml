@@ -27,3 +27,15 @@ ureq = "3"
 
 [dev-dependencies]
 gpui-kit = { version = "=0.8.0", features = ["test-support"] }
+
+[target.'cfg(windows)'.dependencies]
+raw-window-handle = "0.6"
+windows-future = "0.2"
+windows = { version = "0.61", features = [
+    "Foundation",
+    "Foundation_Collections",
+    "Services_Store",
+    "Win32_Foundation",
+    "Win32_Storage_Packaging_Appx",
+    "Win32_UI_Shell",
+] }

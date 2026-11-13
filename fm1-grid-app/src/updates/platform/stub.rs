@@ -1,4 +1,4 @@
-use crate::updates::{PlatformUpdater, UpdateOutcome, UpdateProgress};
+use crate::updates::{PlatformUpdater, UpdateOutcome};
 
 /// The no-op updater used until a platform implementation exists.
 #[derive(Clone, Copy, Debug, Default)]
@@ -9,7 +9,7 @@ impl PlatformUpdater for Backend {
         false
     }
 
-    async fn check_for_updates(&self) -> bool {
+    async fn check_for_updates(&self, _window: Option<isize>) -> bool {
         false
     }
 
@@ -19,7 +19,8 @@ impl PlatformUpdater for Backend {
 
     async fn install_update(
         &self,
-        _progress: &mut (dyn FnMut(UpdateProgress) + Send),
+        _window: Option<isize>,
+        _progress: crate::updates::ProgressCallback,
     ) -> UpdateOutcome {
         UpdateOutcome::Fail
     }

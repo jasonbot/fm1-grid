@@ -2078,11 +2078,14 @@ dependencies = [
  "gpui-kit",
  "hqx",
  "image",
+ "raw-window-handle",
  "rfd",
  "serde",
  "serde_json",
  "toml 0.8.23",
  "ureq 3.5.0",
+ "windows 0.61.3",
+ "windows-future 0.2.1",
 ]
 
 [[package]]

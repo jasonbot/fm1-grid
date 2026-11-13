@@ -7,8 +7,9 @@
 //! window chrome.
 
 use crate::app::GridApp;
-use gpui_kit::Context;
+use gpui_kit::{Context, Window};
 use std::time::{Duration, Instant};
+use std::sync::{Arc, Mutex};
 
 pub(crate) mod platform;
 
@@ -38,15 +39,17 @@ pub(crate) enum UpdateOutcome {
 
 /// The platform-specific updater contract. The async methods are intentionally
 /// stubbed today; a real backend can run in the platform's native updater.
+pub(crate) type ProgressCallback = Arc<Mutex<dyn FnMut(UpdateProgress) + Send>>;
+
 #[allow(async_fn_in_trait)]
 pub(crate) trait PlatformUpdater {
     fn updates_enabled(&self) -> bool;
-    async fn check_for_updates(&self) -> bool;
+    async fn check_for_updates(&self, window: Option<isize>) -> bool;
     fn can_update(&self) -> bool;
-    #[allow(dead_code)]
     async fn install_update(
         &self,
-        progress: &mut (dyn FnMut(UpdateProgress) + Send),
+        window: Option<isize>,
+        progress: ProgressCallback,
     ) -> UpdateOutcome;
     fn restart_app(&self);
 }
@@ -86,6 +89,7 @@ pub(crate) struct Updates {
     updating: bool,
     restart_ready: bool,
     progress: Option<UpdateProgress>,
+    progress_shared: Option<Arc<Mutex<Option<UpdateProgress>>>>,
 }
 
 impl Updates {
@@ -98,6 +102,7 @@ impl Updates {
             updating: false,
             restart_ready: false,
             progress: None,
+            progress_shared: None,
         }
     }
 
@@ -119,9 +124,80 @@ impl Updates {
         self.progress.as_ref()
     }
 
-    /// Once an hour, ask the platform updater for a new release. The first tick
-    /// checks immediately, then the timer re-arms after each check.
-    pub(crate) fn auto_check(&mut self, cx: &mut Context<GridApp>) {
+    pub(crate) fn activate(&mut self, window: &Window, cx: &mut Context<GridApp>) {
+        let window = native_window_handle(window);
+        match self.action() {
+            UpdateAction::Check if !self.checking => self.check(window, cx),
+            UpdateAction::Update if self.backend.can_update() => self.install(window, cx),
+            UpdateAction::Restart => self.backend.restart_app(),
+            _ => {}
+        }
+    }
+
+    fn check(&mut self, window: Option<isize>, cx: &mut Context<GridApp>) {
+        if !self.backend.updates_enabled() {
+            return;
+        }
+        self.checking = true;
+        cx.notify();
+        let backend = self.backend;
+        cx.spawn(async move |this, cx| {
+            let found = backend.check_for_updates(window).await;
+            let _ = this.update(cx, |this, cx| {
+                this.updates.checking = false;
+                this.updates.available = found;
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    fn install(&mut self, window: Option<isize>, cx: &mut Context<GridApp>) {
+        if self.updating || !self.backend.can_update() {
+            return;
+        }
+        self.updating = true;
+        self.progress = Some(UpdateProgress {
+            stage: UpdateStage::Downloading,
+            message: None,
+            percentage: None,
+        });
+        cx.notify();
+        let backend = self.backend;
+        let shared = Arc::new(Mutex::new(None));
+        let slot = Arc::clone(&shared);
+        let progress: ProgressCallback = Arc::new(Mutex::new(move |value| {
+            *slot.lock().unwrap() = Some(value);
+        }));
+        self.progress_shared = Some(shared);
+        cx.spawn(async move |this, cx| {
+            let outcome = backend.install_update(window, progress).await;
+            let _ = this.update(cx, |this, cx| {
+                this.updates.updating = false;
+                this.updates.restart_ready = outcome == UpdateOutcome::Success;
+                this.updates.progress = None;
+                this.updates.progress_shared = None;
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// Move the latest backend progress (written by the platform callback) into the
+    /// UI state. Returns true when the indicator changed.
+    pub(crate) fn sync_progress(&mut self) -> bool {
+        let Some(shared) = &self.progress_shared else {
+            return false;
+        };
+        let Some(progress) = shared.lock().unwrap().take() else {
+            return false;
+        };
+        let changed = self.progress.as_ref() != Some(&progress);
+        self.progress = Some(progress);
+        changed
+    }
+
+    pub(crate) fn auto_check(&mut self, window: &Window, cx: &mut Context<GridApp>) {
         if !self.backend.updates_enabled()
             || self.checking
             || self.updating
@@ -137,51 +213,22 @@ impl Updates {
             return;
         }
         self.last_auto_check = Some(Instant::now());
-        self.check(cx);
+        self.check(native_window_handle(window), cx);
     }
+}
 
-    pub(crate) fn activate(&mut self, cx: &mut Context<GridApp>) {
-        match self.action() {
-            UpdateAction::Check if !self.checking => self.check(cx),
-            UpdateAction::Update if self.backend.can_update() => self.install(cx),
-            UpdateAction::Restart => self.backend.restart_app(),
-            _ => {}
-        }
+#[cfg(windows)]
+fn native_window_handle(window: &Window) -> Option<isize> {
+    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+    match window.window_handle().ok()?.as_raw() {
+        RawWindowHandle::Win32(handle) => Some(handle.hwnd.get()),
+        _ => None,
     }
+}
 
-    fn check(&mut self, cx: &mut Context<GridApp>) {
-        if !self.backend.updates_enabled() {
-            return;
-        }
-        self.checking = true;
-        cx.notify();
-        let backend = self.backend;
-        cx.spawn(async move |this, cx| {
-            let found = backend.check_for_updates().await;
-            let _ = this.update(cx, |this, cx| {
-                this.updates.checking = false;
-                this.updates.available = found;
-                cx.notify();
-            });
-        })
-        .detach();
-    }
-
-    fn install(&mut self, cx: &mut Context<GridApp>) {
-        if self.updating || !self.backend.can_update() {
-            return;
-        }
-        self.updating = true;
-        self.progress = Some(UpdateProgress {
-            stage: UpdateStage::Downloading,
-            message: None,
-            percentage: None,
-        });
-        cx.notify();
-        // A real backend streams through the callback and then sets `restart_ready`;
-        // the stubs never reach this branch because `can_update()` is false.
-        let _ = &self.backend;
-    }
+#[cfg(not(windows))]
+fn native_window_handle(_: &Window) -> Option<isize> {
+    None
 }
 
 #[cfg(test)]

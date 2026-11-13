@@ -25,6 +25,7 @@ mod sidebar;
 mod theme;
 mod themes;
 mod transport;
+mod updates;
 
 #[cfg(test)]
 mod tests;

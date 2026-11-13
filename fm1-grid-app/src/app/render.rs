@@ -1,4 +1,7 @@
 use super::*;
+use crate::updates::UpdateAction;
+use gpui_kit::component::progress::ProgressCircle;
+use gpui_kit::component::Sizable;
 
 /// Space above and below the front panel.
 const PANEL_PAD_Y: f32 = 2.0;
@@ -229,6 +232,51 @@ impl GridApp {
     }
 }
 
+impl GridApp {
+    /// The title bar's update pill: a platform-neutral state machine, with a
+    /// circular indicator when the backend reports progress.
+    fn update_pill(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let action = self.updates.action();
+        let (ink, dim, border) = {
+            let theme = cx.theme();
+            (theme.foreground, theme.muted_foreground, theme.border)
+        };
+        let app = cx.entity().clone();
+        let enabled = action != UpdateAction::Current && !action.busy();
+        let mut pill = h_flex()
+            .id("update-pill")
+            .test_support()
+            .items_center()
+            .gap_1()
+            .px_2()
+            .py_1()
+            .rounded_full()
+            .border_1()
+            .border_color(border)
+            .text_size(px(10.5))
+            .text_color(if enabled { ink } else { dim })
+            .when(enabled, |this| {
+                this.cursor_pointer().on_click(move |_, _, cx| {
+                    app.update(cx, |this, cx| this.updates.activate(cx));
+                })
+            });
+        if let Some(percentage) = self
+            .updates
+            .progress()
+            .and_then(|progress| progress.percentage)
+        {
+            let mut indicator = ProgressCircle::new("update-progress").xsmall();
+            if percentage < 0 {
+                indicator = indicator.loading(true);
+            } else {
+                indicator = indicator.value(percentage as f32);
+            }
+            pill = pill.child(indicator);
+        }
+        pill.child(action.label())
+    }
+}
+
 impl Render for GridApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let (background, dim) = {
@@ -257,13 +305,15 @@ impl Render for GridApp {
             // The in-app title bar: draws the window controls where the compositor
             // doesn't supply decorations (GNOME), and owns window dragging.
             .child(
-                TitleBar::new().child(
-                    div()
-                        .text_size(px(10.5))
-                        .font_weight(FontWeight::BOLD)
-                        .text_color(dim)
-                        .child(crate::APP_TITLE),
-                ),
+                TitleBar::new()
+                    .child(
+                        div()
+                            .text_size(px(10.5))
+                            .font_weight(FontWeight::BOLD)
+                            .text_color(dim)
+                            .child(crate::APP_TITLE),
+                    )
+                    .child(self.update_pill(cx)),
             )
             .child(
                 h_flex()

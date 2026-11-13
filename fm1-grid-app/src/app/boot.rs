@@ -313,6 +313,7 @@ impl GridApp {
             appearance: session.appearance,
             accent: session.accent.clone(),
             feeds_dirty: false,
+            updates: crate::updates::Updates::new(),
             rail_h: 740.0,
             recovery: crate::recovery::RecoveryState::start(),
             recovery_generation: 0,

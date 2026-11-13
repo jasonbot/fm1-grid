@@ -182,7 +182,7 @@ fn on_key(app: &mut app::TuiApp, key: ratatui::crossterm::event::KeyEvent) {
             KeyCode::Char('f') => app.flash_selected(),
             KeyCode::Char('r') => app.reload_hub(),
             KeyCode::Char('R') => app.toggle_rescue(),
-            KeyCode::Char('q') | KeyCode::Esc => app.quit = true,
+            KeyCode::Char('q') => app.quit = true,
             _ => {}
         },
         Focus::Graph => match key.code {

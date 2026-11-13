@@ -12,7 +12,10 @@ use fm1_performer::session::DeviceFilter;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Clear, Gauge, List, ListItem, Paragraph};
+use ratatui::widgets::{
+    Block, Clear, Gauge, List, ListItem, Paragraph, Scrollbar, ScrollbarOrientation,
+    ScrollbarState,
+};
 use ratatui::Frame;
 
 const ACCENT: Color = Color::Cyan;
@@ -245,8 +248,18 @@ fn library(frame: &mut Frame, app: &mut TuiApp, area: Rect) {
     };
     let focused = app.focus == Focus::Library;
     let all = if app.download_all { " · ALL" } else { "" };
+    let position = if app.view.is_empty() {
+        String::new()
+    } else {
+        let visible = (area.height.saturating_sub(3) / 2).max(1) as usize;
+        let first = app.list_state.offset() + 1;
+        let last = (first + visible - 1).min(app.view.len());
+        format!(" · {first}-{last}/{}", app.view.len())
+    };
     let block = Block::bordered()
-        .title(format!(" LIBRARY — {installed} installed · {hub}{all} "))
+        .title(format!(
+            " LIBRARY — {installed} installed · {hub}{all}{position} "
+        ))
         .border_style(Style::default().fg(if focused { ACCENT } else { DIM }));
     let inner = block.inner(area);
     frame.render_widget(block, area);
@@ -296,6 +309,25 @@ fn library(frame: &mut Frame, app: &mut TuiApp, area: Rect) {
     app.list_state
         .select((!app.view.is_empty()).then_some(app.sel));
     frame.render_stateful_widget(list, list_area, &mut app.list_state);
+
+    // A second column-width's worth of space is not reserved: the scrollbar sits on
+    // the right edge, like the GUI's list scrollbar.
+    let visible_rows = (list_area.height as usize / 2).max(1);
+    let mut scrollbar = ScrollbarState::new(app.view.len())
+        .position(app.list_state.offset())
+        .viewport_content_length(visible_rows);
+    frame.render_stateful_widget(
+        Scrollbar::new(ScrollbarOrientation::VerticalRight)
+            .thumb_symbol("█")
+            .thumb_style(Style::default().fg(ACCENT))
+            .track_symbol(Some("│"))
+            .track_style(Style::default().fg(DIM))
+            .begin_symbol(None)
+            .end_symbol(None),
+        list_area,
+        &mut scrollbar,
+    );
+
     app.regions.lib_rows = list_area;
     app.regions.lib_offset = app.list_state.offset();
 }

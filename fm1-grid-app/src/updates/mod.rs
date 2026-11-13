@@ -1,15 +1,14 @@
 //! The platform boundary for automatic updates.
 //!
-//! Each target picks its own [`platform::Backend`]. The current backends are
-//! deliberately stubs: updates are disabled, checking reports nothing, installing
-//! is unavailable and restart is a no-op. The UI and the update state machine are
-//! complete so a real platform backend can replace the stub without touching the
-//! window chrome.
+//! Each target picks its own [`platform::Backend`]: Windows drives the Store or a
+//! hosted MSIX, Linux drives Flatpak, and other targets keep a disabled stub.
+//! The UI and the update state machine own the pill, the hourly check and the
+//! progress plumbing so platforms only implement check/install/restart.
 
 use crate::app::GridApp;
 use gpui_kit::{Context, Window};
-use std::time::{Duration, Instant};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 pub(crate) mod platform;
 
@@ -37,10 +36,10 @@ pub(crate) enum UpdateOutcome {
     TryAgain,
 }
 
-/// The platform-specific updater contract. The async methods are intentionally
-/// stubbed today; a real backend can run in the platform's native updater.
 pub(crate) type ProgressCallback = Arc<Mutex<dyn FnMut(UpdateProgress) + Send>>;
 
+/// The platform-specific updater contract. Checks and installs run on the
+/// platform's native updater; a disabled backend reports Current.
 #[allow(async_fn_in_trait)]
 pub(crate) trait PlatformUpdater {
     fn updates_enabled(&self) -> bool;
@@ -129,7 +128,13 @@ impl Updates {
         match self.action() {
             UpdateAction::Check if !self.checking => self.check(window, cx),
             UpdateAction::Update if self.backend.can_update() => self.install(window, cx),
-            UpdateAction::Restart => self.backend.restart_app(),
+            UpdateAction::Restart => {
+                self.backend.restart_app();
+                // A staged update only applies to a fresh process: quit once
+                // the backend has armed its relaunch (a host watcher on
+                // Flatpak, `RegisterApplicationRestart` on MSIX).
+                cx.quit();
+            }
             _ => {}
         }
     }

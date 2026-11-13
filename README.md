@@ -162,6 +162,8 @@ cargo run --release -p fm1-tty
 - macOS needs the Xcode command-line tools. Download-mode recovery needs sudo.
 - The recovery build downloads m-bootloader v2.2 and its loader from the upstream release, verifies their SHA-256, and keeps them gitignored.
 - Windows needs the MSVC build tools. Download-mode recovery needs administrator access.
+- Windows MSIX builds: set `FM1_GRID_MSIX_URL` at build time to enable the hosted vanilla-MSIX updater. Store installs update through the Store and need no variable.
+- Linux Flatpak builds enable updates inside the sandbox; other Linux builds stay on `Current`.
 - `.cargo/config.toml` uses `target-cpu=native`. Delete it when building for another machine.
 - The emulator crates are pinned to a revision in `Cargo.toml`. Bump it on purpose.
 

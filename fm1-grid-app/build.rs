@@ -9,6 +9,16 @@ use std::{
 };
 
 fn main() {
+    // A hosted vanilla-MSIX build stamps its update feed in. Left unset, the
+    // updater has no hosted path and only Store packages update.
+    println!("cargo:rerun-if-env-changed=FM1_GRID_MSIX_URL");
+    if let Ok(url) = env::var("FM1_GRID_MSIX_URL") {
+        let url = url.trim();
+        if !url.is_empty() {
+            println!("cargo:rustc-env=FM1_GRID_MSIX_URL={url}");
+        }
+    }
+
     let themes_dir = Path::new(&env::var("CARGO_MANIFEST_DIR").unwrap()).join("themes");
     println!("cargo:rerun-if-changed={}", themes_dir.display());
 

@@ -32,10 +32,14 @@ gpui-kit = { version = "=0.8.0", features = ["test-support"] }
 raw-window-handle = "0.6"
 windows-future = "0.2"
 windows = { version = "0.61", features = [
+    "ApplicationModel",
     "Foundation",
     "Foundation_Collections",
+    "Management_Deployment",
     "Services_Store",
     "Win32_Foundation",
+    "Win32_Networking_WinHttp",
     "Win32_Storage_Packaging_Appx",
+    "Win32_System_Recovery",
     "Win32_UI_Shell",
 ] }

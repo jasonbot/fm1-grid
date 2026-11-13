@@ -599,9 +599,13 @@ impl PlatformUpdater for Backend {
         }
     }
 
-    fn restart_app(&self) {
-        // A successful MSIX install force-shuts this process down after arming
-        // `RegisterApplicationRestart`; the OS performs the relaunch. Nothing
-        // is left to do from the UI thread.
+    fn restart_app(&self) -> bool {
+        // Store and MSIX both relaunch through the Windows Restart Manager.
+        // Arm it here as well as during MSIX install so a Restart click after a
+        // Store update cannot simply close the app.
+        match mode() {
+            Mode::Store | Mode::Hosted(_) => arm_restart(),
+            Mode::Disabled => false,
+        }
     }
 }

@@ -222,17 +222,17 @@ impl PlatformUpdater for Backend {
         }
     }
 
-    fn restart_app(&self) {
+    fn restart_app(&self) -> bool {
         // The sandbox cannot recreate itself: hand a detached watcher to the
         // host before the UI loop quits. Without an instance id the update
-        // still applies on the next manual launch.
+        // still applies on the next manual launch, but the app must not quit.
         let Some(instance) = detected() else {
-            return;
+            return false;
         };
         let (Some(instance_id), Some(app_id)) = (&instance.instance_id, &instance.app_id) else {
-            return;
+            return false;
         };
-        let _ = Command::new("flatpak-spawn")
+        Command::new("flatpak-spawn")
             .args([
                 "--host",
                 "bash",
@@ -245,7 +245,8 @@ impl PlatformUpdater for Backend {
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .process_group(0)
-            .spawn();
+            .spawn()
+            .is_ok()
     }
 }
 

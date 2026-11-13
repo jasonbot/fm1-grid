@@ -25,5 +25,7 @@ impl PlatformUpdater for Backend {
         UpdateOutcome::Fail
     }
 
-    fn restart_app(&self) {}
+    fn restart_app(&self) -> bool {
+        false
+    }
 }

@@ -50,7 +50,7 @@ pub(crate) trait PlatformUpdater {
         window: Option<isize>,
         progress: ProgressCallback,
     ) -> UpdateOutcome;
-    fn restart_app(&self);
+    fn restart_app(&self) -> bool;
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -129,11 +129,10 @@ impl Updates {
             UpdateAction::Check if !self.checking => self.check(window, cx),
             UpdateAction::Update if self.backend.can_update() => self.install(window, cx),
             UpdateAction::Restart => {
-                self.backend.restart_app();
-                // A staged update only applies to a fresh process: quit once
-                // the backend has armed its relaunch (a host watcher on
-                // Flatpak, `RegisterApplicationRestart` on MSIX).
-                cx.quit();
+                // A staged update only applies to a fresh process. Do not quit
+                // if the platform could not arm a relaunch; the user keeps the
+                // running app instead of silently closing it.
+                restart_or_quit(&self.backend, || cx.quit());
             }
             _ => {}
         }
@@ -147,7 +146,10 @@ impl Updates {
         cx.notify();
         let backend = self.backend;
         cx.spawn(async move |this, cx| {
-            let found = backend.check_for_updates(window).await;
+            let found = cx
+                .background_executor()
+                .spawn(async move { backend.check_for_updates(window).await })
+                .await;
             let _ = this.update(cx, |this, cx| {
                 this.updates.checking = false;
                 this.updates.available = found;
@@ -176,6 +178,15 @@ impl Updates {
         }));
         self.progress_shared = Some(shared);
         cx.spawn(async move |this, cx| {
+            // The Flatpak backend runs a blocking host command. Windows WinRT
+            // futures are not Send, so keep its install on the foreground
+            // executor and let the WinRT operation yield.
+            #[cfg(target_os = "linux")]
+            let outcome = cx
+                .background_executor()
+                .spawn(async move { backend.install_update(window, progress).await })
+                .await;
+            #[cfg(not(target_os = "linux"))]
             let outcome = backend.install_update(window, progress).await;
             let _ = this.update(cx, |this, cx| {
                 this.updates.updating = false;
@@ -222,6 +233,12 @@ impl Updates {
     }
 }
 
+fn restart_or_quit<B: PlatformUpdater>(backend: &B, quit: impl FnOnce()) {
+    if backend.restart_app() {
+        quit();
+    }
+}
+
 #[cfg(windows)]
 fn native_window_handle(window: &Window) -> Option<isize> {
     use raw_window_handle::{HasWindowHandle, RawWindowHandle};
@@ -256,5 +273,28 @@ mod tests {
         assert_eq!(updates.action(), UpdateAction::Updating);
         updates.restart_ready = true;
         assert_eq!(updates.action(), UpdateAction::Restart);
+    }
+
+    #[derive(Clone, Copy)]
+    struct FakeBackend(bool);
+
+    #[allow(async_fn_in_trait)]
+    impl PlatformUpdater for FakeBackend {
+        fn updates_enabled(&self) -> bool { true }
+        async fn check_for_updates(&self, _: Option<isize>) -> bool { false }
+        fn can_update(&self) -> bool { true }
+        async fn install_update(&self, _: Option<isize>, _: ProgressCallback) -> UpdateOutcome {
+            UpdateOutcome::Success
+        }
+        fn restart_app(&self) -> bool { self.0 }
+    }
+
+    #[test]
+    fn restart_only_quits_after_a_relaunch_is_armed() {
+        let mut quit = false;
+        restart_or_quit(&FakeBackend(false), || quit = true);
+        assert!(!quit, "a backend that cannot relaunch must not close the app");
+        restart_or_quit(&FakeBackend(true), || quit = true);
+        assert!(quit);
     }
 }

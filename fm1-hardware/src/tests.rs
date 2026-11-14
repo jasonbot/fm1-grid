@@ -41,6 +41,7 @@
     #[test]
     fn post_flash_identity_accepts_the_model_family() {
         assert!(same_identity("SMK-37 Pro_300", "SMK-37 Pro_300"));
+        assert!(same_identity("SMK-37 Pro_20", "SMK-37 Pro_20519591"));
         assert!(same_identity("STARRYKEY-37 PLAY_300", "SMK-37 Pro_300"));
         assert!(!same_identity("STARRYKEY-37 PLAY_301", "SMK-37 Pro_300"));
         assert!(!same_identity("FM-1_300", "SMK-37 Pro_300"));

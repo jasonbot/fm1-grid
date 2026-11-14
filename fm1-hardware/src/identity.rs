@@ -67,7 +67,12 @@ pub(crate) fn same_identity(reported: &str, product: &str) -> bool {
     let (reported_model, reported_version) =
         reported.split_once('_').unwrap_or((reported, ""));
     let (product_model, product_version) = product.split_once('_').unwrap_or((product, ""));
-    same_model(reported_model, product_model) && reported_version == product_version
+    // Some firmware builds report only the first few digits of their identity
+    // version. The package's full version is authoritative, so a non-empty
+    // reported prefix is a match. A missing version is not a prefix.
+    same_model(reported_model, product_model)
+        && (reported_version == product_version
+            || (!reported_version.is_empty() && product_version.starts_with(reported_version)))
 }
 
 /// Pack 8-bit data into SysEx 7-bit words (a little-endian bit stream), as the update

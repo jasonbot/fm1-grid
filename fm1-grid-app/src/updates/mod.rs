@@ -242,7 +242,7 @@ fn restart_or_quit<B: PlatformUpdater>(backend: &B, quit: impl FnOnce()) {
 #[cfg(windows)]
 fn native_window_handle(window: &Window) -> Option<isize> {
     use raw_window_handle::{HasWindowHandle, RawWindowHandle};
-    match window.window_handle().ok()?.as_raw() {
+    match HasWindowHandle::window_handle(window).ok()?.as_raw() {
         RawWindowHandle::Win32(handle) => Some(handle.hwnd.get()),
         _ => None,
     }

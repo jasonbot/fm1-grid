@@ -17,20 +17,19 @@
   },
   {
     "name": "Felucca",
-    "version": "1.8.2-beta",
-    "file": "felucca-1.8.2-beta.fwsc",
+    "version": "1.8.2",
+    "file": "felucca-1.8.2.fwsc",
     "tags": [
       "groove",
-      "dev",
-      "beta"
+      "dev"
     ],
     "description": "The custom firmware the others build on: the FM-1's own synth engines, a sequencer, effects and a better panel, with an editor in the browser.",
     "byline": "Leo Kuroshita (Hügelton Instruments)",
     "device": "fm-1",
-    "url": "https://thefirmwarehub.com/fw/felucca-1.8.2-beta.fwsc",
+    "url": "https://thefirmwarehub.com/fw/felucca-1.8.2.fwsc",
     "website": "https://github.com/hugelton/Felucca",
     "source": "https://github.com/hugelton/Felucca",
-    "sha256": "b57724fff5a9b55b67d6f8a7d852e68d5d5814ed6fb769ec80a274fb44958e12",
+    "sha256": "770ea7c756088d08ac59a193f1ae78126476c3c8251a86938c837ead5ab0048a",
     "license": "GPL-3.0"
   },
   {
@@ -67,8 +66,8 @@
   },
   {
     "name": "ChoralRoot",
-    "version": "0.40",
-    "file": "choralroot-0.40.fwsc",
+    "version": "0.41",
+    "file": "choralroot-0.41.fwsc",
     "tags": [
       "chords",
       "beta"
@@ -76,10 +75,10 @@
     "description": "A Telepathic Orchid-style chord instrument: one hand plays roots, the other shapes chords; voicings, performance modes, bass and a looper.",
     "byline": "Quixotic7",
     "device": "fm-1",
-    "url": "https://thefirmwarehub.com/fw/choralroot-0.40.fwsc",
+    "url": "https://thefirmwarehub.com/fw/choralroot-0.41.fwsc",
     "website": "https://github.com/Quixotic7/ChoralRootFM1",
     "source": "https://github.com/Quixotic7/ChoralRootFM1",
-    "sha256": "ed860ccac8ab1cc60e3f550a0e207b1e484371ffc96fa120722605c70463466c",
+    "sha256": "8da570760712796eef54aa840f7acdaaf5fc5939bb8d46e8432efd1cd1ce0652",
     "license": "GPL-3.0"
   },
   {

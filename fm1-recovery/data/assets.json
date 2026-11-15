@@ -1,21 +1,21 @@
 {
-  "source": "https://github.com/jvitkauskas/m-bootloader/releases/tag/v2.2",
-  "version": "m-bootloader 2.2-64f7c9c",
+  "source": "https://github.com/jvitkauskas/m-bootloader/releases/tag/v2.4",
+  "version": "m-bootloader 2.4-395e6cc",
   "files": [
     {
       "file": "bootloader-fm1.boot",
-      "sha256": "cedc9c17648bdeecda5c8d0ffffe2211849f8a36ab615fe49d6cc46d249baf44",
-      "url": "https://github.com/jvitkauskas/m-bootloader/releases/download/v2.2/fm1-uboot.boot"
+      "sha256": "677ae52a11721b1811b2688b45f6f0cfae51882810e0a4f4b409da08ce5b49e4",
+      "url": "https://github.com/jvitkauskas/m-bootloader/releases/download/v2.4/fm1-uboot.boot"
     },
     {
       "file": "bootloader-smk37.boot",
-      "sha256": "c82b52a87203f038e2a04510af869c6a3c4df7f240e6806cb32cc03fcaf247de",
-      "url": "https://github.com/jvitkauskas/m-bootloader/releases/download/v2.2/smk37-uboot.boot"
+      "sha256": "27ca3680a2d8ab7377d6394dcc102c49b4d30785ed6deb5cf469993f660f3337",
+      "url": "https://github.com/jvitkauskas/m-bootloader/releases/download/v2.4/smk37-uboot.boot"
     },
     {
       "file": "mflr-loader-a.bin",
-      "sha256": "ae0cdf4965cc2438a362e933ccf11d41159322d67f2dc630a61ab84cc58e04d7",
-      "url": "https://github.com/jvitkauskas/m-bootloader/releases/download/v2.2/mflr-loader-a.bin"
+      "sha256": "972ca2719a07ece109f67a764907efd46e0650bb35d0c6625ef6a621f06def1b",
+      "url": "https://github.com/jvitkauskas/m-bootloader/releases/download/v2.4/mflr-loader-a.bin"
     }
   ]
 }

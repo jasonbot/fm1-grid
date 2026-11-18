@@ -33,9 +33,9 @@ time.
 ## Where the packages come from
 
 * Everything except the packages below is mirrored by The FM-1 Firmware Hub; hashes
-  were checked against the hub's catalogue on 2026-11-15 and the manifest was
-  refreshed from it on 2026-11-15 (SLOOP 2.8.5, Felucca 1.8.2, ChoralRoot 0.41;
-  FM1 Stock and FM1 Open were unchanged).
+  were checked against the hub's catalogue on 2026-11-18 and the manifest was
+  refreshed from it on 2026-11-18 (SLOOP 2.8.5, Felucca 1.8.2, ChoralRoot 0.41;
+  FM1 Stock V16, FM1 Open V14 and Baud Girl 102 were unchanged too).
 * **Felucca** tracks the hub's stable 1.8.2 package.
 * **JIANT FM** downloads from its own site (juanjiant-bit.github.io): the hub's cache
   was serving a build older than its catalogue. Hash recorded on download on

@@ -415,34 +415,34 @@ impl GridApp {
         let mut out = v_flex()
             .w_full()
             .child(name.into_any_element());
-        if rescue_on && row.flash.is_none() {
-            let name = row.name.clone();
-            out = out.child(
-                Button::new(("dev-download", ix))
-                    .label("Download mode")
-                    .icon(Icon::new(Lucide::Usb))
-                    .small()
-                    .w(px(132.0))
-                    .m(px(4.0))
-                    .px(px(6.0))
-                    .py(px(2.0))
-                    .tooltip(
-                        "Ask the running firmware to restart into the chip's USB download mode, as M-Flasher's DOWNLOAD MODE does.",
-                    )
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.hardware.request_download_mode(&name);
-                        cx.notify();
-                    })),
-            );
-        }
         if row.flash.is_none() {
             let armed = self.flash_armed.get(&row.name).copied().unwrap_or(false);
             let combo = self.flash_combos.get(&row.name).cloned();
-            out = out.child(
-                div()
-                    .w_full()
-                    .child(self.flash_control(("dev-flash", ix), &row.name, armed, combo, cx)),
-            );
+            let name = row.name.clone();
+            let mut controls = h_flex()
+                .items_center()
+                .gap_2()
+                .child(self.flash_control(("dev-flash", ix), &row.name, armed, combo, cx));
+            if rescue_on {
+                controls = controls.child(
+                    Button::new(("dev-download", ix))
+                        .label("Download mode")
+                        .icon(Icon::new(Lucide::Usb))
+                        .small()
+                        .w(px(132.0))
+                        .m(px(4.0))
+                        .px(px(6.0))
+                        .py(px(2.0))
+                        .tooltip(
+                            "Ask the running firmware to restart into the chip's USB download mode, as M-Flasher's DOWNLOAD MODE does.",
+                        )
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.hardware.request_download_mode(&name);
+                            cx.notify();
+                        })),
+                );
+            }
+            out = out.child(controls.w_full());
         }
 
         if let Some(outcome) = &row.outcome {

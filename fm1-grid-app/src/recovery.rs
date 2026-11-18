@@ -165,6 +165,46 @@ impl RecoveryState {
         });
     }
 
+    /// Install a library `.fwsc` package over the unit's application area. The
+    /// boot area and the unit's data outside the package stay as they are.
+    pub fn flash_firmware(&self, path: &str, bytes: Vec<u8>, probe: Probe) {
+        let store = self.store.clone();
+        let backups = self.backups.clone();
+        let task_path = path.to_string();
+        self.run(path, "Flashing firmware…", move || {
+            let mut backup = String::new();
+            let result = fm1_recovery::install_firmware(
+                &task_path,
+                &bytes,
+                &mut |flash| save_backup(&store, &backups, &probe, flash),
+                &mut |line| {
+                    if let Some(path) = line.strip_prefix("backup saved: ") {
+                        backup = path.to_string();
+                    }
+                },
+                &mut |_, _| {},
+            );
+            match result {
+                Ok(()) if backup.is_empty() => Ok("firmware is already installed".into()),
+                Ok(()) => Ok(format!(
+                    "firmware flashed; power-cycle the unit; backup {backup}"
+                )),
+                Err(error) if backup.is_empty() => Err(error.to_string()),
+                Err(error) => Err(format!("{error}; backup {backup}")),
+            }
+        });
+    }
+
+    /// Put a message on one recovery row.
+    pub fn report(&self, path: &str, message: String) {
+        let rows = self.rows.clone();
+        let generation = self.generation.clone();
+        if let Some(row) = rows.lock().unwrap().iter_mut().find(|row| row.path == path) {
+            row.outcome = Some(message);
+        }
+        generation.fetch_add(1, Ordering::Relaxed);
+    }
+
     /// Write a stored full-flash backup back to the unit. Only backups belonging to
     /// the row's own unit are offered.
     pub fn restore_backup(&self, path: &str, key: &str) {

@@ -8,7 +8,9 @@
 
 use crate::app::GridApp;
 use crate::firmware_picker::FirmwareDelegate;
+use fm1_performer::firmware_picker::{pick_of, FirmwarePick};
 use fm1_performer::hardware::{device_type, DeviceRow};
+use fm1_performer::library::{FirmwareDevice, Status};
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::base::{ElementExt, h_flex, v_flex};
 use gpui_kit::component::button::{Button, Toggle, ToggleVariants};
@@ -243,14 +245,36 @@ impl GridApp {
         if rescue_on && row.probe.is_some() && !row.busy {
             let probe = row.probe.clone().unwrap();
             let backups = self.recovery.backups_for(&probe);
+            let firmware_picks: Vec<(String, FirmwarePick)> = self
+                .library
+                .list_clone()
+                .into_iter()
+                .filter_map(|firmware| {
+                    if firmware.status != Status::Available {
+                        return None;
+                    }
+                    let fits = match firmware.device {
+                        FirmwareDevice::Fm1 => probe.model == "FM-1",
+                        FirmwareDevice::Smk37 => probe.model.starts_with("SMK-37"),
+                    };
+                    fits.then(|| pick_of(&firmware).map(|pick| {
+                        (format!("{} {}", firmware.name, firmware.version), pick)
+                    }))
+                    .flatten()
+                })
+                .collect();
             let path = row.path.clone();
             let backup_path = path.clone();
             let backup_probe = probe.clone();
             let install_path = path.clone();
             let install_probe = probe.clone();
-            let restore_path = path;
+            let restore_path = path.clone();
             let restore_backups = backups.clone();
             let restore_app = cx.entity().clone();
+            let flash_picks = firmware_picks.clone();
+            let flash_path = path;
+            let flash_probe = probe.clone();
+            let flash_app = cx.entity().clone();
             out = out.child(
                 h_flex()
                     .items_center()
@@ -266,6 +290,44 @@ impl GridApp {
                                 this.recovery.backup(&backup_path, backup_probe.clone());
                                 cx.notify();
                             })),
+                    )
+                    .child(
+                        Button::new(("recovery-firmware", ix))
+                            .label("Flash firmware…")
+                            .icon(Icon::new(Lucide::Zap))
+                            .small()
+                            .disabled(firmware_picks.is_empty())
+                            .tooltip(if firmware_picks.is_empty() {
+                                "No library firmware matches this unit; add one on the Library tab."
+                            } else {
+                                "Install a library .fwsc package over the application area;                                  the boot area stays."
+                            })
+                            .dropdown_menu(move |menu, _, _| {
+                                let mut menu = menu;
+                                for (label, pick) in flash_picks.clone() {
+                                    let app = flash_app.clone();
+                                    let path = flash_path.clone();
+                                    let probe = flash_probe.clone();
+                                    menu = menu.item(PopupMenuItem::new(label).on_click(
+                                        move |_, _, cx| {
+                                            app.update(cx, |this, cx| {
+                                                match pick.bytes(this.store.as_ref()) {
+                                                    Ok(bytes) => this.recovery.flash_firmware(
+                                                        &path,
+                                                        bytes,
+                                                        probe.clone(),
+                                                    ),
+                                                    Err(error) => {
+                                                        this.recovery.report(&path, error)
+                                                    }
+                                                }
+                                                cx.notify();
+                                            });
+                                        },
+                                    ));
+                                }
+                                menu
+                            }),
                     )
                     .child(
                         Button::new(("recovery-boot", ix))
@@ -323,7 +385,12 @@ impl GridApp {
             );
         }
         if let Some(outcome) = &row.outcome {
-            let color = if outcome.starts_with("m-bootloader installed") {
+            let color = if outcome.starts_with("m-bootloader installed")
+                || outcome.starts_with("firmware flashed")
+                || outcome.starts_with("firmware is already installed")
+                || outcome.starts_with("backup saved:")
+                || outcome.starts_with("restored ")
+            {
                 ink
             } else {
                 danger
@@ -421,6 +488,7 @@ impl GridApp {
             let name = row.name.clone();
             let mut controls = h_flex()
                 .items_center()
+                .flex_wrap()
                 .gap_2()
                 .child(self.flash_control(("dev-flash", ix), &row.name, armed, combo, cx));
             if rescue_on {

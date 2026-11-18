@@ -2,6 +2,7 @@
 
 mod inspect;
 mod loader;
+mod package;
 mod transport;
 
 pub use transport::find_devices;
@@ -142,6 +143,79 @@ pub fn backup_flash(
 /// Write a full-flash backup back to a download-mode unit, then verify the write
 /// against the chip's own CRC32. The caller supplies the bytes; the backup is not
 /// rewritten, so restoring is safe to retry.
+pub fn install_firmware(
+    path: &str,
+    raw: &[u8],
+    save_backup: &mut dyn FnMut(&[u8]) -> Result<String, String>,
+    log: &mut dyn FnMut(String),
+    progress: &mut dyn FnMut(usize, usize),
+) -> Result<(), Error> {
+    let package = package::Package::parse(raw).map_err(Error::Refused)?;
+    if package.flash.len() > FLASH_SIZE {
+        return Err(Error::Refused(
+            "the package is larger than the flash".into(),
+        ));
+    }
+    let mut loader = loader::Loader::open(path, log)?;
+    let current = read_flash(&mut loader, progress)?;
+    let analysis = inspect::analyze(&current, loader.flash_id(), loader.chip_key());
+    let expected = analysis.model.as_str();
+    let package_model = package.model();
+    let model_fits = match expected {
+        "FM-1" => package_model == "FM-1" || package_model == "MiniFM",
+        "SMK-37 Pro / Elite" => package_model.starts_with("SMK-37"),
+        _ => false,
+    };
+    if !model_fits {
+        return Err(Error::Refused(format!(
+            "the package is for {package_model}, the unit is {expected}"
+        )));
+    }
+    let pkg_analysis = inspect::analyze(&package.flash, loader.flash_id(), loader.chip_key());
+    if pkg_analysis.app != "OK" {
+        return Err(Error::Refused(
+            "the package's firmware does not decrypt with this unit's chip key".into(),
+        ));
+    }
+    let end = package.flash.len();
+    if end <= inspect::BOOT_AREA {
+        return Err(Error::Refused(
+            "the package has no application image".into(),
+        ));
+    }
+    let mut target = current.clone();
+    target[inspect::BOOT_AREA..end].copy_from_slice(&package.flash[inspect::BOOT_AREA..end]);
+    let mut runs = Vec::new();
+    for at in (inspect::BOOT_AREA..end).step_by(0x1000) {
+        if current[at..at + 0x1000] != target[at..at + 0x1000] {
+            match runs.last_mut() {
+                Some((_, run_end)) if *run_end == at => *run_end = at + 0x1000,
+                _ => runs.push((at, at + 0x1000)),
+            }
+        }
+    }
+    if runs.is_empty() {
+        log("the firmware is already installed".into());
+        return Ok(());
+    }
+    let backup = save_backup(&current).map_err(Error::Io)?;
+    log(format!("backup saved: {backup}"));
+    for (start, run_end) in runs {
+        loader.erase(start, run_end - start)?;
+        loader.write(start, &target[start..run_end], &mut |done| {
+            progress(done, end - inspect::BOOT_AREA)
+        })?;
+    }
+    log("checking the written flash".into());
+    let actual = loader.crc32(0, FLASH_SIZE)?;
+    if !crc32_matches(&target, actual) {
+        return Err(Error::Refused(
+            "the written firmware did not match its checksum".into(),
+        ));
+    }
+    Ok(())
+}
+
 pub fn restore_flash(
     path: &str,
     bytes: &[u8],

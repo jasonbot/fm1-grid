@@ -28,7 +28,7 @@ pub fn crc16(bytes: &[u8]) -> u16 {
     crc
 }
 
-fn decrypt(bytes: &[u8], mut key: u16) -> Vec<u8> {
+pub(crate) fn decrypt(bytes: &[u8], mut key: u16) -> Vec<u8> {
     bytes
         .iter()
         .map(|&byte| {

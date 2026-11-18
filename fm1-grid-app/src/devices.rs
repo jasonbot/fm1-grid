@@ -420,9 +420,14 @@ impl GridApp {
             out = out.child(
                 Button::new(("dev-download", ix))
                     .label("Download mode")
+                    .icon(Icon::new(Lucide::Usb))
                     .small()
+                    .w(px(132.0))
+                    .m(px(4.0))
+                    .px(px(6.0))
+                    .py(px(2.0))
                     .tooltip(
-                        "Ask the running firmware to restart into the chip's USB download                          mode, as M-Flasher's DOWNLOAD MODE does.",
+                        "Ask the running firmware to restart into the chip's USB download mode, as M-Flasher's DOWNLOAD MODE does.",
                     )
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.hardware.request_download_mode(&name);

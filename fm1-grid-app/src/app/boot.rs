@@ -219,6 +219,7 @@ impl GridApp {
             .map(|f| f.name.clone())
             .collect();
 
+        let recovery = crate::recovery::RecoveryState::start(store_ref.clone());
         let mut app = Self {
             slots: std::array::from_fn(|_| Slot::default()),
             core_cpus,
@@ -315,7 +316,7 @@ impl GridApp {
             feeds_dirty: false,
             updates: crate::updates::Updates::new(),
             rail_h: 740.0,
-            recovery: crate::recovery::RecoveryState::start(),
+            recovery,
             recovery_generation: 0,
             combos_at_generation: 0,
             _tick: tick,

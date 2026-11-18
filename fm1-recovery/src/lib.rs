@@ -4,10 +4,10 @@ mod inspect;
 mod loader;
 mod transport;
 
-use sha2::{Digest, Sha256};
-use std::path::{Path, PathBuf};
-
 pub use transport::find_devices;
+
+/// The FM-1's full flash size. A backup must be exactly this long.
+pub const FLASH_SIZE: usize = inspect::FLASH_SIZE;
 
 #[derive(Debug)]
 pub enum Error {
@@ -78,11 +78,9 @@ fn crc32_matches(bytes: &[u8], expected: u32) -> bool {
 
 pub fn probe(
     path: &str,
-    backup_dir: PathBuf,
     log: &mut dyn FnMut(String),
     progress: &mut dyn FnMut(usize, usize),
 ) -> Result<Probe, Error> {
-    let _ = backup_dir;
     let mut loader = loader::Loader::open(path, log)?;
     let flash = read_flash(&mut loader, progress)?;
     let analysis = inspect::analyze(&flash, loader.flash_id(), loader.chip_key());
@@ -101,7 +99,7 @@ pub fn probe(
 /// verifying the write.
 pub fn install_bootloader(
     path: &str,
-    backup_dir: PathBuf,
+    save_backup: &mut dyn FnMut(&[u8]) -> Result<String, String>,
     log: &mut dyn FnMut(String),
     progress: &mut dyn FnMut(usize, usize),
 ) -> Result<(), Error> {
@@ -118,8 +116,8 @@ pub fn install_bootloader(
         }
     };
     let area = inspect::build_boot_area(&flash, bootloader).map_err(Error::Refused)?;
-    let backup = write_backup(&backup_dir, &flash).map_err(Error::Io)?;
-    log(format!("backup saved: {}", backup.display()));
+    let backup = save_backup(&flash).map_err(Error::Io)?;
+    log(format!("backup saved: {backup}"));
     loader.erase(0, inspect::BOOT_AREA)?;
     loader.write(0, &area, &mut |done| progress(done, inspect::BOOT_AREA))?;
     let verify = loader.read(0, inspect::BOOT_AREA, &mut |_| {})?;
@@ -131,37 +129,44 @@ pub fn install_bootloader(
     Ok(())
 }
 
-fn write_backup(dir: &Path, flash: &[u8]) -> Result<PathBuf, String> {
-    std::fs::create_dir_all(dir).map_err(|error| error.to_string())?;
-    let seconds = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|value| value.as_secs())
-        .unwrap_or(0);
-    let path = dir.join(format!("fm1-flash-{seconds}.bin"));
-    std::fs::write(&path, flash).map_err(|error| error.to_string())?;
-    let hash = Sha256::digest(flash);
-    let hash: String = hash.iter().map(|byte| format!("{byte:02x}")).collect();
-    std::fs::write(
-        path.with_extension("json"),
-        format!(
-            "{{\"file\":\"{}\",\"sha256\":\"{hash}\",\"bytes\":{}}}\n",
-            path.file_name().unwrap_or_default().to_string_lossy(),
-            flash.len()
-        ),
-    )
-    .map_err(|error| error.to_string())?;
-    Ok(path)
+/// Read the whole flash, for a datestamped backup.
+pub fn backup_flash(
+    path: &str,
+    log: &mut dyn FnMut(String),
+    progress: &mut dyn FnMut(usize, usize),
+) -> Result<Vec<u8>, Error> {
+    let mut loader = loader::Loader::open(path, log)?;
+    read_flash(&mut loader, progress)
 }
 
-pub fn backup_dir() -> PathBuf {
-    let home = std::env::var_os("HOME")
-        .or_else(|| std::env::var_os("USERPROFILE"))
-        .map(PathBuf::from)
-        .unwrap_or_default();
-    let documents = home.join("Documents");
-    (if documents.is_dir() { documents } else { home })
-        .join("FM1-Grid")
-        .join("recovery")
+/// Write a full-flash backup back to a download-mode unit, then verify the write
+/// against the chip's own CRC32. The caller supplies the bytes; the backup is not
+/// rewritten, so restoring is safe to retry.
+pub fn restore_flash(
+    path: &str,
+    bytes: &[u8],
+    log: &mut dyn FnMut(String),
+    progress: &mut dyn FnMut(usize, usize),
+) -> Result<(), Error> {
+    if bytes.len() != FLASH_SIZE {
+        return Err(Error::Refused(format!(
+            "the backup is {} bytes, not the FM-1's {FLASH_SIZE} bytes",
+            bytes.len()
+        )));
+    }
+    let mut loader = loader::Loader::open(path, log)?;
+    log("erasing the unit's flash".into());
+    loader.erase(0, FLASH_SIZE)?;
+    log("writing the backup".into());
+    loader.write(0, bytes, &mut |done| progress(done, FLASH_SIZE))?;
+    log("checking the written flash".into());
+    let actual = loader.crc32(0, FLASH_SIZE)?;
+    if !crc32_matches(bytes, actual) {
+        return Err(Error::Refused(
+            "the written flash did not match the backup's CRC32".into(),
+        ));
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -169,7 +174,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn backup_directory_is_under_the_user_documents() {
-        assert!(backup_dir().ends_with("recovery"));
+    fn restore_rejects_a_backup_of_the_wrong_size() {
+        let mut log = |_| {};
+        let mut progress = |_, _| {};
+        let error = restore_flash("no-device", &[], &mut log, &mut progress).unwrap_err();
+        assert!(error.to_string().contains("not the FM-1"));
     }
 }

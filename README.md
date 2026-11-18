@@ -79,6 +79,7 @@ The `.fwsc` files are gitignored. A fresh build downloads and checks any missing
 - **Rescue** adds every MIDI port as a flash target. Use it for a unit that no longer answers to its name.
 - The emulator cannot run SMK-37 firmware. Those rows can only go to a live unit.
 - A unit in ROM download mode shows its model, firmware and bootloader. With Rescue on, it can take m-bootloader. Download-mode discovery and flashing work on Linux, macOS and Windows; macOS needs sudo and an unmounted unit, and Windows needs administrator access.
+- **Back up flash** stores a datestamped, full-flash backup in the app data store; installing m-bootloader also makes one. **Restore backup…** lists backups that match the unit’s model, chip key and flash, and writes the whole flash back.
 - The newer UC25HQ80 flash (`0xB36014`) does not change the bootloader install: upstream says m-bootloader behaves the same on both flash chips and should work. Back up the full flash before installing it.
 
 ## MIDI graph

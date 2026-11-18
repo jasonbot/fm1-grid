@@ -13,11 +13,12 @@ use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::base::{ElementExt, h_flex, v_flex};
 use gpui_kit::component::button::{Button, Toggle, ToggleVariants};
 use gpui_kit::component::combobox::{Combobox, ComboboxEvent, ComboboxState};
+use gpui_kit::component::menu::{DropdownMenu, PopupMenuItem};
 use gpui_kit::component::scroll::ScrollableElement;
 use gpui_kit::component::searchable_list::SearchableListItem;
 use gpui_kit::component::switch::Switch;
 use gpui_kit::component::tooltip::Tooltip;
-use gpui_kit::component::{ActiveTheme, Icon, Sizable};
+use gpui_kit::component::{ActiveTheme, Disableable, Icon, Sizable};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{TestSupportExt as _, *};
 
@@ -240,20 +241,73 @@ impl GridApp {
             );
         }
         if rescue_on && row.probe.is_some() && !row.busy {
+            let probe = row.probe.clone().unwrap();
+            let backups = self.recovery.backups_for(&probe);
             let path = row.path.clone();
+            let backup_path = path.clone();
+            let backup_probe = probe.clone();
+            let install_path = path.clone();
+            let install_probe = probe.clone();
+            let restore_path = path;
+            let restore_backups = backups.clone();
+            let restore_app = cx.entity().clone();
             out = out.child(
-                div().child(
-                    Button::new(("recovery-boot", ix))
-                        .label("Install m-bootloader")
-                        .small()
-                        .tooltip(
-                            "Write m-bootloader to this unit's boot area; the full flash                              is backed up first",
-                        )
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.recovery.install_bootloader(&path);
-                            cx.notify();
-                        })),
-                ),
+                h_flex()
+                    .items_center()
+                    .gap_2()
+                    .child(
+                        Button::new(("recovery-backup", ix))
+                            .label("Back up flash")
+                            .small()
+                            .tooltip(
+                                "Read the whole flash and store a datestamped backup in the app data store.",
+                            )
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.recovery.backup(&backup_path, backup_probe.clone());
+                                cx.notify();
+                            })),
+                    )
+                    .child(
+                        Button::new(("recovery-boot", ix))
+                            .label("Install m-bootloader")
+                            .small()
+                            .tooltip(
+                                "Write m-bootloader to this unit's boot area; the full flash is backed up first",
+                            )
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.recovery
+                                    .install_bootloader(&install_path, install_probe.clone());
+                                cx.notify();
+                            })),
+                    )
+                    .child(
+                        Button::new(("recovery-restore", ix))
+                            .label("Restore backup…")
+                            .small()
+                            .disabled(backups.is_empty())
+                            .tooltip(if backups.is_empty() {
+                                "No stored full-flash backups for this unit yet; installing m-bootloader makes one."
+                            } else {
+                                "Restore a full-flash backup: firmware, settings, projects and boot area. The backup must belong to this unit."
+                            })
+                            .dropdown_menu(move |menu, _, _| {
+                                let mut menu = menu;
+                                for backup in restore_backups.clone() {
+                                    let app = restore_app.clone();
+                                    let path = restore_path.clone();
+                                    let key = backup.key;
+                                    menu = menu.item(PopupMenuItem::new(backup.label).on_click(
+                                        move |_, _, cx| {
+                                            app.update(cx, |this, cx| {
+                                                this.recovery.restore_backup(&path, &key);
+                                                cx.notify();
+                                            });
+                                        },
+                                    ));
+                                }
+                                menu
+                            }),
+                    ),
             );
         }
         if row.busy {
@@ -261,7 +315,11 @@ impl GridApp {
                 div()
                     .text_size(px(10.0))
                     .text_color(accent)
-                    .child("Installing m-bootloader…"),
+                    .child(
+                        row.busy_label
+                            .clone()
+                            .unwrap_or_else(|| "Working…".to_string()),
+                    ),
             );
         }
         if let Some(outcome) = &row.outcome {

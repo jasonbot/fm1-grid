@@ -2150,6 +2150,7 @@ name = "fm1-tty"
 version = "0.1.0"
 dependencies = [
  "fm1-performer",
+ "fm1-recovery",
  "ratatui",
  "winresource",
 ]

@@ -9,6 +9,8 @@ mod app;
 #[cfg(not(target_arch = "wasm32"))]
 mod osc;
 #[cfg(not(target_arch = "wasm32"))]
+mod recovery;
+#[cfg(not(target_arch = "wasm32"))]
 mod ui;
 
 use fm1_performer::session::DeviceFilter;
@@ -245,8 +247,8 @@ fn popup_key(app: &mut app::TuiApp, code: ratatui::crossterm::event::KeyCode) {
                 app.popup = Some(Popup::FlashTarget(next, names, pick));
             }
             KeyCode::Enter => {
-                if let Some((unit, rescue)) = names.get(sel).cloned() {
-                    app.start_flash(&unit, rescue, &pick);
+                if let Some(target) = names.get(sel).cloned() {
+                    app.start_flash(&target, &pick);
                 } else {
                     app.popup = None;
                 }
@@ -289,8 +291,8 @@ fn popup_click(app: &mut app::TuiApp, index: usize) {
     use app::Popup;
     match app.popup.clone() {
         Some(Popup::FlashTarget(_, names, pick)) => {
-            if let Some((unit, rescue)) = names.get(index).cloned() {
-                app.start_flash(&unit, rescue, &pick);
+            if let Some(target) = names.get(index).cloned() {
+                app.start_flash(&target, &pick);
             } else {
                 app.popup = None;
             }

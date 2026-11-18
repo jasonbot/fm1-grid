@@ -243,6 +243,11 @@ pub struct GridApp {
     pub(crate) rescue_ports: Vec<String>,
     pub(crate) rescue_combos:
         std::collections::HashMap<String, Entity<ComboboxState<FirmwareDelegate>>>,
+    /// Download-mode units' firmware comboboxes, keyed by their SCSI path.
+    pub(crate) recovery_combos:
+        std::collections::HashMap<String, Entity<ComboboxState<FirmwareDelegate>>>,
+    /// The model each recovery picker was built for.
+    pub(crate) recovery_models: std::collections::HashMap<String, String>,
     rings: [Arc<AudioRing>; MAX_SLOTS],
     /// Kept alive for as long as the app wants sound.
     _audio: Option<cpal::Stream>,

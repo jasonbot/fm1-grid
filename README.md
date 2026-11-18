@@ -80,7 +80,7 @@ The `.fwsc` files are gitignored. A fresh build downloads and checks any missing
 - The emulator cannot run SMK-37 firmware. Those rows can only go to a live unit.
 - A unit in ROM download mode shows its model, firmware and bootloader. With Rescue on, it can take m-bootloader. Download-mode discovery and flashing work on Linux, macOS and Windows; macOS needs sudo and an unmounted unit, and Windows needs administrator access.
 - **Back up flash** stores a datestamped, full-flash backup in the app data store; installing m-bootloader also makes one. **Restore backup…** lists backups that match the unit’s model, chip key and flash, and writes the whole flash back.
-- With Rescue on, **Flash firmware…** installs a `.fwsc` package from the Library over the unit’s application area; the boot area and factory data stay.
+- With Rescue on, a download-mode unit gets the same searchable firmware combobox as an emulator pane; picking a Library `.fwsc` flashes its application area, keeping the boot area and factory data.
 - The newer UC25HQ80 flash (`0xB36014`) does not change the bootloader install: upstream says m-bootloader behaves the same on both flash chips and should work. Back up the full flash before installing it.
 
 ## MIDI graph
@@ -151,9 +151,9 @@ A terminal version for real FM-1 units over USB. It has no emulators.
 cargo run --release -p fm1-tty
 ```
 
-- **Devices**: live USB units. `R` toggles rescue mode.
+- **Devices**: live USB units and download-mode units. `R` toggles MIDI rescue mode; `f` on a selected library firmware also targets a download-mode unit.
 - **MIDI graph**: sources and their sink links. `Enter` removes a link or opens Connect.
-- **Library**: the same firmware list. `/` filters, `v` picks a device, `d` downloads, `x` deletes, `a` downloads all, `f` flashes. The flash picker shows each unit’s USB path. Arrow, Page and Home/End keys in the filter jump back to the list.
+- **Library**: the same firmware list. `/` filters, `v` picks a device, `d` downloads, `x` deletes, `a` downloads all, `f` flashes. The flash picker shows each unit’s USB path and any download-mode units. Arrow, Page and Home/End keys in the filter jump back to the list.
 - **Metronome**: `Space` starts and stops it. `-`/`+` change the tempo.
 - `Tab` moves around. `q` quits. `Ctrl-C` quits from anywhere.
 - It shares the library, tempo, device filter and Download All setting with the GUI.

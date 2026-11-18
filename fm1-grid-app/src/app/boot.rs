@@ -235,6 +235,8 @@ impl GridApp {
             rescue_warn: false,
             rescue_ports: Default::default(),
             rescue_combos: Default::default(),
+            recovery_combos: Default::default(),
+            recovery_models: Default::default(),
             rings,
             _audio: audio,
             audio_error,

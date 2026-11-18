@@ -7,7 +7,7 @@
 
 use crate::app::GridApp;
 use fm1_performer::builtin::BUILTINS;
-use fm1_performer::firmware_picker::{FirmwarePick, pick_of};
+use fm1_performer::firmware_picker::{pick_of, FirmwarePick};
 use fm1_performer::library::{FirmwareDevice, Status};
 use gpui_kit::component::searchable_list::{SearchableListDelegate, SearchableListItem};
 use gpui_kit::component::tooltip::Tooltip;
@@ -16,9 +16,8 @@ use gpui_kit::prelude::FluentBuilder;
 // Explicit imports, no glob: the glob imports GPUI's `test` attribute macro under
 // test-support builds, which then re-expands this module's own `#[test]`s.
 use gpui_kit::{
-    AnyElement, App, ElementId, FontWeight, InteractiveElement as _, IntoElement as _,
-    ParentElement as _, SharedString, StatefulInteractiveElement as _, Styled as _, Task,
-    Window, div, px,
+    div, px, AnyElement, App, ElementId, FontWeight, InteractiveElement as _, IntoElement as _,
+    ParentElement as _, SharedString, StatefulInteractiveElement as _, Styled as _, Task, Window,
 };
 
 #[derive(Clone)]
@@ -60,6 +59,16 @@ impl FirmwareDelegate {
     /// The library's available entries as pickable items. Called when a combobox is
     /// built and again whenever the library changes (`GridApp::refresh_firmware_combos`).
     pub(crate) fn from_app(app: &mut GridApp) -> Self {
+        Self::build(app, false)
+    }
+
+    /// The same picker, for a unit whose model is known: a download-mode SMK-37
+    /// can use SMK packages; the emulator selector stays FM-1 only.
+    pub(crate) fn from_app_for(app: &mut GridApp, model: &str) -> Self {
+        Self::build(app, model.starts_with("SMK-37"))
+    }
+
+    fn build(app: &mut GridApp, include_smk: bool) -> Self {
         let mut items = Vec::new();
         for firmware in app.library.list_clone() {
             if firmware.status != Status::Available {
@@ -67,7 +76,7 @@ impl FirmwareDelegate {
             }
             // The emulator runs FM-1 firmware only; SMK-37 packages belong to the
             // Library listing (their installers are the makers' own).
-            if firmware.device == FirmwareDevice::Smk37 {
+            if !include_smk && firmware.device == FirmwareDevice::Smk37 {
                 continue;
             }
             let Some(pick) = pick_of(&firmware) else {
@@ -198,19 +207,10 @@ impl SearchableListDelegate for FirmwareDelegate {
             .gap_2()
             .px_2()
             .py_1()
-            .child(
-                div()
-                    .truncate()
-                    .text_color(ink)
-                    .child(item.title()),
-            )
-            .when(checked, |el| {
-                el.child(div().text_color(accent).child("✓"))
-            });
+            .child(div().truncate().text_color(ink).child(item.title()))
+            .when(checked, |el| el.child(div().text_color(accent).child("✓")));
         if !tip.is_empty() {
-            row = row.tooltip(move |window, cx| {
-                Tooltip::new(tip.clone()).build(window, cx)
-            });
+            row = row.tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx));
         }
         Some(row.into_any_element())
     }
@@ -227,15 +227,18 @@ impl SearchableListDelegate for FirmwareDelegate {
             let theme = cx.theme();
             (theme.muted_foreground, theme.border)
         };
-        let header = div().px_2().pt_2().pb_1().text_size(px(9.0)).text_color(muted);
+        let header = div()
+            .px_2()
+            .pt_2()
+            .pb_1()
+            .text_size(px(9.0))
+            .text_color(muted);
         Some(
             match category {
                 Some(category) => header
                     .font_weight(FontWeight::BOLD)
                     .child(category.to_uppercase()),
-                None => header.child(
-                    div().h(px(1.0)).w_full().bg(border),
-                ),
+                None => header.child(div().h(px(1.0)).w_full().bg(border)),
             }
             .into_any_element(),
         )

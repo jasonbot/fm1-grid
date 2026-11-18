@@ -28,12 +28,19 @@ pub enum Focus {
     Filter,
 }
 
+/// One target in the flash picker: a live MIDI unit/rescue port, or a unit in the
+/// chip's USB download mode.
+#[derive(Clone)]
+pub enum FlashTarget {
+    Midi { name: String, rescue: bool },
+    Recovery { path: String },
+}
+
 /// A modal over the main screen; while one is up it gets every key.
 #[derive(Clone)]
 pub enum Popup {
-    /// The flash target picker: (selected row, (target name, is rescue target) rows,
-    /// what to flash).
-    FlashTarget(usize, Vec<(String, bool)>, FirmwarePick),
+    /// The flash target picker: selected row, targets, and what to flash.
+    FlashTarget(usize, Vec<FlashTarget>, FirmwarePick),
     /// The library's device filter: the highlighted row (0 FM-1, 1 SMK-37).
     DeviceFilter(usize),
     /// The MIDI graph's connect menu: the source and the highlighted sink candidate.
@@ -119,6 +126,8 @@ pub struct TuiApp {
     pub rescue_ports: Vec<String>,
     /// The rescue port sweep's cadence (the hardware scanner's own poll rate).
     rescue_at: Instant,
+    /// Raw download-mode units and their firmware flashing.
+    pub recovery: crate::recovery::Recovery,
     /// A transient footer message and when it was set.
     status: Option<(String, Instant)>,
     /// Mouse hit regions from the last draw.
@@ -270,6 +279,7 @@ impl TuiApp {
             rescue: false,
             rescue_ports: Vec::new(),
             rescue_at: Instant::now() - Duration::from_secs(1),
+            recovery: crate::recovery::Recovery::start(),
             status: None,
             regions: Regions::default(),
             list_state: ListState::default().with_selected(Some(0)),
@@ -729,45 +739,71 @@ impl TuiApp {
                     .is_some_and(|identity| package_fits(identity, &format!("{model}_0")))
             })
         };
-        let mut targets: Vec<(String, bool)> = self
+        let mut targets: Vec<FlashTarget> = self
             .devices
             .iter()
             .filter(|device| device.flash.is_none() && compatible(device))
-            .map(|device| (device.name.clone(), false))
+            .map(|device| FlashTarget::Midi {
+                name: device.name.clone(),
+                rescue: false,
+            })
             .collect();
         if self.rescue {
-            targets.extend(self.rescue_ports.iter().map(|port| (port.clone(), true)));
+            targets.extend(self.rescue_ports.iter().map(|port| FlashTarget::Midi {
+                name: port.clone(),
+                rescue: true,
+            }));
+        }
+        for unit in self.recovery.units() {
+            let Some(probe) = &unit.probe else { continue };
+            if unit.busy {
+                continue;
+            }
+            let fits = match package_model {
+                Some("FM-1") => probe.model == "FM-1",
+                Some(model) => probe.model.starts_with(model),
+                None => true,
+            };
+            if fits {
+                targets.push(FlashTarget::Recovery { path: unit.path });
+            }
         }
         match targets.len() {
             0 => self.say(if self.rescue {
-                "no MIDI port in sight".to_string()
+                "no MIDI port or download-mode unit in sight".to_string()
             } else {
                 "no matching unit on USB — R offers every MIDI port as a rescue target"
                     .to_string()
             }),
-            1 => {
-                let (unit, rescue) = targets[0].clone();
-                self.start_flash(&unit, rescue, &pick);
-            }
+            1 => self.start_flash(&targets[0], &pick),
             _ => self.popup = Some(Popup::FlashTarget(0, targets, pick)),
         }
     }
 
-    /// Flash the package to the named target; a rescue target is a bare MIDI port no
-    /// FM-1 answered from, flashed through `Hardware::rescue_flash` with failures on
-    /// the pane-level board. A live unit's failures land on its row.
-    pub fn start_flash(&mut self, unit: &str, rescue: bool, pick: &FirmwarePick) {
+    /// Flash the package to a live/rescue MIDI target or a raw download-mode unit.
+    pub fn start_flash(&mut self, target: &FlashTarget, pick: &FirmwarePick) {
+        let (name, rescue) = match target {
+            FlashTarget::Midi { name, rescue } => (name.as_str(), *rescue),
+            FlashTarget::Recovery { path } => {
+                match pick.bytes(self.store.as_ref()) {
+                    Ok(bytes) => self.recovery.flash(path, bytes, self.store.clone()),
+                    Err(error) => self.say(error),
+                }
+                self.popup = None;
+                return;
+            }
+        };
         match pick.bytes(self.store.as_ref()) {
             Ok(bytes) => {
                 if rescue {
-                    self.hardware.rescue_flash(unit, bytes);
+                    self.hardware.rescue_flash(name, bytes);
                 } else {
-                    self.hardware.flash(unit, bytes);
+                    self.hardware.flash(name, bytes);
                 }
                 self.flash_dismissed = false;
             }
             Err(e) if rescue => self.hardware.report_board(e),
-            Err(e) => self.hardware.report(unit, e),
+            Err(e) => self.hardware.report(name, e),
         }
         self.popup = None;
     }

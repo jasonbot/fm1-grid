@@ -45,9 +45,12 @@ impl GridApp {
                 (FirmwareSource::File { path }, Source::File(file)) => {
                     std::path::Path::new(path) == file.as_path()
                 }
-                (FirmwareSource::Hub { blob: Some(key), .. }, Source::Blob { key: blob, .. }) => {
-                    key == blob
-                }
+                (
+                    FirmwareSource::Hub {
+                        blob: Some(key), ..
+                    },
+                    Source::Blob { key: blob, .. },
+                ) => key == blob,
                 _ => false,
             };
             matches.then(|| format!("{} {}", firmware.name, firmware.version))
@@ -75,7 +78,11 @@ impl GridApp {
         self.install(slot, label, bytes, package, Source::File(path));
     }
     /// What a picker selected, installed into the slot.
-    pub(crate) fn install_pick(&mut self, slot: usize, pick: fm1_performer::firmware_picker::FirmwarePick) {
+    pub(crate) fn install_pick(
+        &mut self,
+        slot: usize,
+        pick: fm1_performer::firmware_picker::FirmwarePick,
+    ) {
         use fm1_performer::firmware_picker::FirmwarePick;
         match pick {
             FirmwarePick::Builtin(index) => self.load_builtin(slot, index),
@@ -120,15 +127,15 @@ impl GridApp {
         for slot in 0..MAX_SLOTS {
             let delegate = crate::firmware_picker::FirmwareDelegate::from_app(self);
             let selected = match &self.slots[slot].source {
-                Some(Source::Builtin(index)) => {
-                    Some(fm1_performer::firmware_picker::FirmwarePick::Builtin(*index))
-                }
-                Some(Source::File(path)) => {
-                    Some(fm1_performer::firmware_picker::FirmwarePick::File(path.clone()))
-                }
-                Some(Source::Blob { key, .. }) => {
-                    Some(fm1_performer::firmware_picker::FirmwarePick::HubBlob(key.clone()))
-                }
+                Some(Source::Builtin(index)) => Some(
+                    fm1_performer::firmware_picker::FirmwarePick::Builtin(*index),
+                ),
+                Some(Source::File(path)) => Some(
+                    fm1_performer::firmware_picker::FirmwarePick::File(path.clone()),
+                ),
+                Some(Source::Blob { key, .. }) => Some(
+                    fm1_performer::firmware_picker::FirmwarePick::HubBlob(key.clone()),
+                ),
                 None => None,
             };
             self.firmware_combos[slot].update(cx, |state, cx| {
@@ -148,6 +155,22 @@ impl GridApp {
             .collect();
         for combo in flash_combos {
             let delegate = crate::firmware_picker::FirmwareDelegate::from_app(self);
+            combo.update(cx, |state, cx| {
+                state.set_items(delegate, window, cx);
+            });
+        }
+        let recovery: Vec<_> = self
+            .recovery_combos
+            .iter()
+            .map(|(path, combo)| (path.clone(), combo.clone()))
+            .collect();
+        for (path, combo) in recovery {
+            let model = self
+                .recovery_models
+                .get(&path)
+                .cloned()
+                .unwrap_or_else(|| "FM-1".to_string());
+            let delegate = crate::firmware_picker::FirmwareDelegate::from_app_for(self, &model);
             combo.update(cx, |state, cx| {
                 state.set_items(delegate, window, cx);
             });
@@ -320,7 +343,7 @@ impl GridApp {
     /// to it — running ones power off first — picks a random firmware that's still
     /// available (a stale selection would fail the slot's next boot).
     pub(crate) fn remove_firmware(&mut self, name: &str) {
-        use fm1_performer::firmware_picker::{FirmwarePick, pick_of};
+        use fm1_performer::firmware_picker::{pick_of, FirmwarePick};
         use std::hash::{BuildHasher as _, Hasher as _};
         // What the entry installs, captured before the library forgets it; builtins
         // can't be removed, so the pick is a file or a hub blob.

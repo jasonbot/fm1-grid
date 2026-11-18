@@ -81,7 +81,25 @@ impl GridApp {
             };
         dirty |= std::mem::replace(&mut self.grid_scale, scale) != scale;
         // Raw download-mode probes arrive on their own thread.
-        dirty |= self.recovery.changed(&mut self.recovery_generation);
+        let recovery_changed = self.recovery.changed(&mut self.recovery_generation);
+        dirty |= recovery_changed;
+        if recovery_changed {
+            let paths: Vec<String> = self
+                .recovery
+                .rows()
+                .into_iter()
+                .filter(|row| row.probe.is_some() && !row.busy)
+                .map(|row| row.path)
+                .collect();
+            self.recovery_combos.retain(|path, _| paths.contains(path));
+            self.recovery_models.retain(|path, _| paths.contains(path));
+            for path in paths {
+                if !self.recovery_combos.contains_key(&path) {
+                    self.open_recovery_picker(&path, window, cx);
+                    dirty = true;
+                }
+            }
+        }
         // Flash progress and hotplugged USB devices arrive on the hardware module's
         // threads; sweep them up twice a second.
         self.tick_count = self.tick_count.wrapping_add(1);

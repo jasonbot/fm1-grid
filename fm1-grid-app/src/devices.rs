@@ -8,11 +8,9 @@
 
 use crate::app::GridApp;
 use crate::firmware_picker::FirmwareDelegate;
-use fm1_performer::firmware_picker::{pick_of, FirmwarePick};
 use fm1_performer::hardware::{device_type, DeviceRow};
-use fm1_performer::library::{FirmwareDevice, Status};
 use gpui_kit::assets::IconName as Lucide;
-use gpui_kit::base::{ElementExt, h_flex, v_flex};
+use gpui_kit::base::{h_flex, v_flex, ElementExt};
 use gpui_kit::component::button::{Button, Toggle, ToggleVariants};
 use gpui_kit::component::combobox::{Combobox, ComboboxEvent, ComboboxState};
 use gpui_kit::component::menu::{DropdownMenu, PopupMenuItem};
@@ -87,10 +85,7 @@ impl GridApp {
                             }),
                     )
                     .child(match error {
-                        Some(error) => div()
-                            .text_size(px(9.5))
-                            .text_color(danger)
-                            .child(error),
+                        Some(error) => div().text_size(px(9.5)).text_color(danger).child(error),
                         None => div()
                             .text_size(px(9.0))
                             .text_color(dim)
@@ -110,16 +105,11 @@ impl GridApp {
                     .child("No FM-1 connected — plug one in and it shows up here."),
             );
             if rescue_warn && !rescue_on {
-                content = content.child(
-                    div()
-                        .text_size(px(9.5))
-                        .text_color(dim)
-                        .child(
-                            "A unit stuck in its update loader never answers to its name \
+                content = content.child(div().text_size(px(9.5)).text_color(dim).child(
+                    "A unit stuck in its update loader never answers to its name \
                              — the Rescue toggle above offers every MIDI port as a flash \
                              target.",
-                        ),
-                );
+                ));
             }
         }
         if rescue_on {
@@ -224,15 +214,10 @@ impl GridApp {
                 ),
         );
         if let Some(probe) = &row.probe {
-            out = out.child(
-                div()
-                    .text_size(px(10.0))
-                    .text_color(dim)
-                    .child(format!(
-                        "firmware {} · bootloader {} · {} · {}",
-                        probe.firmware, probe.bootloader, probe.chip_key, probe.flash
-                    )),
-            );
+            out = out.child(div().text_size(px(10.0)).text_color(dim).child(format!(
+                "firmware {} · bootloader {} · {} · {}",
+                probe.firmware, probe.bootloader, probe.chip_key, probe.flash
+            )));
         }
         if let Some(error) = &row.error {
             out = out.child(
@@ -245,36 +230,15 @@ impl GridApp {
         if rescue_on && row.probe.is_some() && !row.busy {
             let probe = row.probe.clone().unwrap();
             let backups = self.recovery.backups_for(&probe);
-            let firmware_picks: Vec<(String, FirmwarePick)> = self
-                .library
-                .list_clone()
-                .into_iter()
-                .filter_map(|firmware| {
-                    if firmware.status != Status::Available {
-                        return None;
-                    }
-                    let fits = match firmware.device {
-                        FirmwareDevice::Fm1 => probe.model == "FM-1",
-                        FirmwareDevice::Smk37 => probe.model.starts_with("SMK-37"),
-                    };
-                    fits.then(|| pick_of(&firmware).map(|pick| {
-                        (format!("{} {}", firmware.name, firmware.version), pick)
-                    }))
-                    .flatten()
-                })
-                .collect();
+            let combo = self.recovery_combos.get(&row.path).cloned();
             let path = row.path.clone();
             let backup_path = path.clone();
             let backup_probe = probe.clone();
             let install_path = path.clone();
             let install_probe = probe.clone();
-            let restore_path = path.clone();
+            let restore_path = path;
             let restore_backups = backups.clone();
             let restore_app = cx.entity().clone();
-            let flash_picks = firmware_picks.clone();
-            let flash_path = path;
-            let flash_probe = probe.clone();
-            let flash_app = cx.entity().clone();
             out = out.child(
                 h_flex()
                     .items_center()
@@ -291,44 +255,28 @@ impl GridApp {
                                 cx.notify();
                             })),
                     )
-                    .child(
-                        Button::new(("recovery-firmware", ix))
-                            .label("Flash firmware…")
-                            .icon(Icon::new(Lucide::Zap))
-                            .small()
-                            .disabled(firmware_picks.is_empty())
-                            .tooltip(if firmware_picks.is_empty() {
-                                "No library firmware matches this unit; add one on the Library tab."
-                            } else {
-                                "Install a library .fwsc package over the application area;                                  the boot area stays."
-                            })
-                            .dropdown_menu(move |menu, _, _| {
-                                let mut menu = menu;
-                                for (label, pick) in flash_picks.clone() {
-                                    let app = flash_app.clone();
-                                    let path = flash_path.clone();
-                                    let probe = flash_probe.clone();
-                                    menu = menu.item(PopupMenuItem::new(label).on_click(
-                                        move |_, _, cx| {
-                                            app.update(cx, |this, cx| {
-                                                match pick.bytes(this.store.as_ref()) {
-                                                    Ok(bytes) => this.recovery.flash_firmware(
-                                                        &path,
-                                                        bytes,
-                                                        probe.clone(),
-                                                    ),
-                                                    Err(error) => {
-                                                        this.recovery.report(&path, error)
-                                                    }
-                                                }
-                                                cx.notify();
-                                            });
-                                        },
-                                    ));
-                                }
-                                menu
-                            }),
-                    )
+                    .child(match combo {
+                        Some(state) => div()
+                            .w(px(FLASH_COMBO_W))
+                            .child(
+                                Combobox::new(&state)
+                                    .placeholder("flash firmware…")
+                                    .search_placeholder("Filter…")
+                                    .menu_width(px(crate::theme::COMBO_MENU_W))
+                                    .empty(|_, cx| {
+                                        div()
+                                            .p_2()
+                                            .text_size(px(10.0))
+                                            .text_color(cx.theme().muted_foreground)
+                                            .child("No firmware matches")
+                                    }),
+                            )
+                            .into_any_element(),
+                        None => div()
+                            .w(px(FLASH_COMBO_W))
+                            .h(px(28.0))
+                            .into_any_element(),
+                    })
                     .child(
                         Button::new(("recovery-boot", ix))
                             .label("Install m-bootloader")
@@ -374,14 +322,11 @@ impl GridApp {
         }
         if row.busy {
             out = out.child(
-                div()
-                    .text_size(px(10.0))
-                    .text_color(accent)
-                    .child(
-                        row.busy_label
-                            .clone()
-                            .unwrap_or_else(|| "Working…".to_string()),
-                    ),
+                div().text_size(px(10.0)).text_color(accent).child(
+                    row.busy_label
+                        .clone()
+                        .unwrap_or_else(|| "Working…".to_string()),
+                ),
             );
         }
         if let Some(outcome) = &row.outcome {
@@ -458,8 +403,7 @@ impl GridApp {
                         .text_color(dim)
                         .child(format!("client {number}"))
                         .tooltip(|window, cx| {
-                            Tooltip::new("The ALSA client number of the device")
-                                .build(window, cx)
+                            Tooltip::new("The ALSA client number of the device").build(window, cx)
                         }),
                 )
             })
@@ -479,9 +423,7 @@ impl GridApp {
         // The flash control's own row: the "Flash" toggle arms the always-present
         // firmware combobox. While a flash runs, the row hides and the dialog carries
         // the state.
-        let mut out = v_flex()
-            .w_full()
-            .child(name.into_any_element());
+        let mut out = v_flex().w_full().child(name.into_any_element());
         if row.flash.is_none() {
             let armed = self.flash_armed.get(&row.name).copied().unwrap_or(false);
             let combo = self.flash_combos.get(&row.name).cloned();
@@ -607,12 +549,68 @@ impl GridApp {
                     .into_any_element(),
                 // The sweep builds the combobox the moment a target appears; hold its
                 // space until then so the row doesn't jump.
-                None => div()
-                    .w(px(FLASH_COMBO_W))
-                    .h(px(28.0))
-                    .into_any_element(),
+                None => div().w(px(FLASH_COMBO_W)).h(px(28.0)).into_any_element(),
             })
             .into_any_element()
+    }
+
+    /// Build a download-mode unit's firmware combobox. Its entries are the same
+    /// library delegate as the emulator pane; picking one flashes the .fwsc over
+    /// the unit's application area.
+    pub(crate) fn open_recovery_picker(
+        &mut self,
+        path: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(model) = self
+            .recovery
+            .rows()
+            .into_iter()
+            .find(|row| row.path == path)
+            .and_then(|row| row.probe)
+            .map(|probe| probe.model)
+        else {
+            return;
+        };
+        let delegate = FirmwareDelegate::from_app_for(self, &model);
+        let state = cx.new(|cx| ComboboxState::new(delegate, vec![], window, cx).searchable(true));
+        let picked = path.to_string();
+        self._subscriptions.push(cx.subscribe_in(
+            &state,
+            window,
+            move |this, _, event, _window, cx| {
+                let ComboboxEvent::Change(values) = event else {
+                    return;
+                };
+                let Some(pick) = values.last() else {
+                    return;
+                };
+                let Some(probe) = this
+                    .recovery
+                    .rows()
+                    .into_iter()
+                    .find(|row| row.path == picked)
+                    .and_then(|row| row.probe)
+                else {
+                    return;
+                };
+                match pick.bytes(this.store.as_ref()) {
+                    Ok(bytes) => this.recovery.flash_firmware(&picked, bytes, probe),
+                    Err(error) => this.recovery.report(&picked, error),
+                }
+                cx.notify();
+            },
+        ));
+        self._subscriptions.push(cx.subscribe_in(
+            &state,
+            window,
+            |this, _, _: &DismissEvent, window, cx| {
+                this.focus.focus(window, cx);
+            },
+        ));
+        self.recovery_models.insert(path.to_string(), model);
+        self.recovery_combos.insert(path.to_string(), state);
     }
 
     /// Build a row's flash combobox with its subscriptions: a pick flashes the device.
@@ -622,11 +620,15 @@ impl GridApp {
     /// library's flash dialog; a package that cannot be read lands there as an error.
     /// shortcut: each combo leaves two inert Subscriptions in `_subscriptions` after
     /// its device goes away; worth pruning only if hotplug churn ever runs hot.
-    pub(crate) fn open_flash_picker(&mut self, device: &str, rescue: bool, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn open_flash_picker(
+        &mut self,
+        device: &str,
+        rescue: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let delegate = FirmwareDelegate::from_app(self);
-        let state = cx.new(|cx| {
-            ComboboxState::new(delegate, vec![], window, cx).searchable(true)
-        });
+        let state = cx.new(|cx| ComboboxState::new(delegate, vec![], window, cx).searchable(true));
         let picked = device.to_string();
         self._subscriptions.push(cx.subscribe_in(
             &state,

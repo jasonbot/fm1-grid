@@ -3,7 +3,7 @@
 //! this reads it and refills the mouse hit regions (`app.regions`) for the next event
 //! pass.
 
-use crate::app::{Focus, GraphRow, Popup, Regions, TuiApp};
+use crate::app::{FlashTarget, Focus, GraphRow, Popup, Regions, TuiApp};
 use fm1_performer::clock::{MAX_BPM, MIN_BPM};
 use fm1_performer::hardware::{device_type, DeviceRow, FlashState};
 use fm1_performer::library::{Firmware, FirmwareDevice, FirmwareSource, HubStatus, Status};
@@ -40,9 +40,10 @@ fn bold(text: impl Into<String>) -> Span<'static> {
 /// The frame: every section, then whichever modal is up.
 pub fn draw(frame: &mut Frame, app: &mut TuiApp) {
     let area = frame.area();
-    let device_rows =
-        app.devices.len() + if app.rescue { app.rescue_ports.len() } else { 0 };
-    let devices_h = (device_rows as u16 + 2).clamp(3, 6);
+    let device_rows = app.devices.len()
+        + if app.rescue { app.rescue_ports.len() } else { 0 }
+        + app.recovery.units().len();
+    let devices_h = (device_rows as u16 + 2).clamp(3, 10);
     // The graph takes the piano's old space, growing with its rows (and scrolling
     // past that) so the library keeps the rest.
     let graph_h = (app.graph_rows().len() as u16 + 3).clamp(4, 12);
@@ -91,15 +92,17 @@ fn devices(frame: &mut Frame, app: &mut TuiApp, area: Rect) {
         ));
     }
     let block = Block::bordered().title(Line::from(title));
-    if let Some(error) = &app.hardware.error {
-        frame.render_widget(Paragraph::new(dim(error.clone())).block(block), area);
-        return;
-    }
     let mut rows: Vec<ListItem> = app
         .devices
         .iter()
         .map(|device| ListItem::new(device_row(device)))
         .collect();
+    if let Some(error) = &app.hardware.error {
+        rows.push(ListItem::new(Span::styled(
+            error.clone(),
+            Style::default().fg(ERR),
+        )));
+    }
     if app.rescue {
         rows.extend(app.rescue_ports.iter().map(|port| {
             ListItem::new(Line::from(vec![
@@ -109,6 +112,7 @@ fn devices(frame: &mut Frame, app: &mut TuiApp, area: Rect) {
             ]))
         }));
     }
+    rows.extend(app.recovery.units().iter().map(|unit| ListItem::new(recovery_row(unit))));
     if rows.is_empty() {
         let text = if app.rescue {
             "no MIDI port in sight"
@@ -121,6 +125,35 @@ fn devices(frame: &mut Frame, app: &mut TuiApp, area: Rect) {
         return;
     }
     frame.render_widget(List::new(rows).block(block), area);
+}
+
+fn recovery_row(unit: &crate::recovery::Unit) -> Line<'static> {
+    let mut spans = vec![
+        Span::styled(" ⬇ ", Style::default().fg(ACCENT)),
+        bold(unit.path.clone()),
+    ];
+    if let Some(probe) = &unit.probe {
+        spans.push(dim(format!(
+            "  {} · {} · {}",
+            probe.model, probe.firmware, probe.flash
+        )));
+    }
+    if let Some(error) = &unit.error {
+        spans.push(Span::styled(
+            format!("  ·  {error}"),
+            Style::default().fg(ERR),
+        ));
+    }
+    if unit.busy {
+        spans.push(Span::styled("  ·  writing…", Style::default().fg(ACCENT)));
+    } else if let Some(outcome) = &unit.outcome {
+        let good = outcome.starts_with("firmware flashed");
+        spans.push(Span::styled(
+            format!("  ·  {outcome}"),
+            Style::default().fg(if good { OK } else { ERR }),
+        ));
+    }
+    Line::from(spans)
 }
 
 fn device_row(device: &DeviceRow) -> Line<'static> {
@@ -531,21 +564,35 @@ fn graph_sinks_popup(frame: &mut Frame, app: &mut TuiApp, sel: usize, source: &P
 
 /// Pick which target gets the firmware: the live units, plus every MIDI port while
 /// the rescue toggle is on (flagged, in warning yellow).
-fn flash_target_popup(frame: &mut Frame, app: &mut TuiApp, sel: usize, targets: &[(String, bool)]) {
+fn flash_target_popup(frame: &mut Frame, app: &mut TuiApp, sel: usize, targets: &[FlashTarget]) {
     let items: Vec<Line> = targets
         .iter()
-        .map(|(name, rescue)| {
-            let device = (!*rescue)
-                .then(|| app.devices.iter().find(|device| &device.name == name))
-                .flatten();
-            let label = flash_target_text(name, device);
-            if *rescue {
+        .map(|target| match target {
+            FlashTarget::Midi { name, rescue } => {
+                let device = (!*rescue)
+                    .then(|| app.devices.iter().find(|device| &device.name == name))
+                    .flatten();
+                let label = flash_target_text(name, device);
+                if *rescue {
+                    Line::from(Span::styled(
+                        format!("RESCUE: {label}"),
+                        Style::default().fg(Color::Yellow),
+                    ))
+                } else {
+                    Line::from(label)
+                }
+            }
+            FlashTarget::Recovery { path } => {
+                let unit = app.recovery.units().into_iter().find(|unit| &unit.path == path);
+                let label = unit
+                    .as_ref()
+                    .and_then(|unit| unit.probe.as_ref())
+                    .map(|probe| format!("{} · {} · {}", probe.model, probe.firmware, probe.flash))
+                    .unwrap_or_else(|| path.clone());
                 Line::from(Span::styled(
-                    format!("RESCUE: {label}"),
-                    Style::default().fg(Color::Yellow),
+                    format!("DOWNLOAD: {label}"),
+                    Style::default().fg(Color::Cyan),
                 ))
-            } else {
-                Line::from(label)
             }
         })
         .collect();

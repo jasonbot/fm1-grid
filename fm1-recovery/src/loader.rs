@@ -33,7 +33,10 @@ fn retry<T>(mut action: impl FnMut() -> Result<T, TransportError>) -> Result<T, 
 }
 
 pub fn crc16(bytes: &[u8]) -> u16 {
-    let mut crc = 0u16;
+    crc16_update(0, bytes)
+}
+
+fn crc16_update(mut crc: u16, bytes: &[u8]) -> u16 {
     for byte in bytes {
         crc ^= u16::from(*byte) << 8;
         for _ in 0..8 {
@@ -52,12 +55,12 @@ fn cipher(bytes: &[u8], key: u32) -> Vec<u8> {
         0xC3, 0xCF, 0xC0, 0xE8, 0xCE, 0xD2, 0xB0, 0xAE, 0xC4, 0xE3, 0xA3, 0xAC, 0xD3, 0xF1, 0xC1,
         0xD6,
     ];
-    let mut crc = crc16(&(key >> 16).to_le_bytes());
+    let mut crc = crc16_update((key & 0xFFFF) as u16, &(key >> 16).to_le_bytes());
     bytes
         .iter()
         .enumerate()
         .map(|(index, byte)| {
-            crc = crc16(&[MAGIC[index % MAGIC.len()]]);
+            crc = crc16_update(crc, &[MAGIC[index % MAGIC.len()]]);
             byte ^ (crc as u8)
         })
         .collect()
@@ -258,5 +261,18 @@ impl Loader {
         Ok(u32::from_be_bytes([
             answer[0], answer[1], answer[2], answer[3],
         ]))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cipher_chains_the_crc_and_seeds_it_from_the_key() {
+        assert_eq!(
+            cipher(&[0, 1, 2, 3, 4, 5, 6, 7], 0xFFFF_FFFF),
+            [0x2F, 0xA5, 0x83, 0xCF, 0x4A, 0xC4, 0x5B, 0xED]
+        );
     }
 }

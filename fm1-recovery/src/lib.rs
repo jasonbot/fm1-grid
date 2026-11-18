@@ -31,15 +31,6 @@ impl From<transport::TransportError> for Error {
     }
 }
 
-/// The FM-1's newer flash part. m-bootloader 2.4 is documented as untested on it,
-/// with at least one unit that no longer started; the app does not write the boot
-/// area on this part.
-pub const NEW_CHIP_FLASH_ID: u32 = 0xB36014;
-
-pub fn bootloader_supported(flash_id: u32) -> bool {
-    flash_id != NEW_CHIP_FLASH_ID
-}
-
 #[derive(Clone, Debug)]
 pub struct Probe {
     pub model: String,
@@ -48,7 +39,6 @@ pub struct Probe {
     pub bootloader: String,
     pub chip_key: String,
     pub flash: String,
-    pub flash_id: u32,
     pub certain: bool,
 }
 
@@ -103,7 +93,6 @@ pub fn probe(
         bootloader: analysis.bootloader,
         chip_key: format!("0x{:04X}", loader.chip_key()),
         flash: format!("0x{:06X}", loader.flash_id()),
-        flash_id: loader.flash_id(),
         certain: analysis.model_known,
     })
 }
@@ -117,14 +106,6 @@ pub fn install_bootloader(
     progress: &mut dyn FnMut(usize, usize),
 ) -> Result<(), Error> {
     let mut loader = loader::Loader::open(path, log)?;
-    if !bootloader_supported(loader.flash_id()) {
-        return Err(Error::Refused(format!(
-            "the newer UC25HQ80 flash ({:#08X}) is not supported by the bundled \
-             m-bootloader: upstream warns that units can stop starting. Nothing was \
-             written; install firmware instead, or use M-Flasher at your own risk.",
-            loader.flash_id()
-        )));
-    }
     let flash = read_flash(&mut loader, progress)?;
     let analysis = inspect::analyze(&flash, loader.flash_id(), loader.chip_key());
     let bootloader: &[u8] = match analysis.board_key {
@@ -190,12 +171,5 @@ mod tests {
     #[test]
     fn backup_directory_is_under_the_user_documents() {
         assert!(backup_dir().ends_with("recovery"));
-    }
-
-    #[test]
-    fn bootloader_is_refused_only_on_the_new_flash() {
-        assert!(bootloader_supported(0x856014));
-        assert!(bootloader_supported(0xEB6014));
-        assert!(!bootloader_supported(NEW_CHIP_FLASH_ID));
     }
 }

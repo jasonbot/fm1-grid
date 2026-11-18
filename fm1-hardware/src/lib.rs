@@ -86,6 +86,7 @@ pub(crate) struct Device {
 
 pub(crate) enum Command {
     Flash { name: String, bytes: Vec<u8> },
+    DownloadMode { name: String },
     /// Flash a port the scanner never registered (a unit too bricked to answer to an
     /// FM-1-looking name). The name is any MIDI port on the system.
     RescueFlash { name: String, bytes: Vec<u8> },
@@ -173,6 +174,15 @@ impl Hardware {
         let _ = self.commands.send(Command::Flash {
             name: name.to_string(),
             bytes,
+        });
+    }
+
+    /// Ask a running unit's firmware to restart into the chip's ROM USB download
+    /// mode. The command is handled on the scanner thread so the clock is detached
+    /// before the SysEx goes out; the unit then appears under recovery.
+    pub fn request_download_mode(&self, name: &str) {
+        let _ = self.commands.send(Command::DownloadMode {
+            name: name.to_string(),
         });
     }
 

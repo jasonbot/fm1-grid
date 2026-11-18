@@ -76,7 +76,7 @@ The `.fwsc` files are gitignored. A fresh build downloads and checks any missing
 - Lists live FM-1 units on USB.
 - Each unit has a flash switch and firmware picker.
 - Flashing opens the same progress dialog as the Library tab, with a terminal that follows the unit through its reboot.
-- **Rescue** adds every MIDI port as a flash target. Use it for a unit that no longer answers to its name.
+- **Rescue** adds every MIDI port as a flash target. Use it for a unit that no longer answers to its name. With Rescue on, each live unit also gets **Download mode**, which sends the firmware soft key that restarts it into the chip’s USB download mode.
 - The emulator cannot run SMK-37 firmware. Those rows can only go to a live unit.
 - A unit in ROM download mode shows its model, firmware and bootloader. With Rescue on, it can take m-bootloader. Download-mode discovery and flashing work on Linux, macOS and Windows; macOS needs sudo and an unmounted unit, and Windows needs administrator access.
 - **Back up flash** stores a datestamped, full-flash backup in the app data store; installing m-bootloader also makes one. **Restore backup…** lists backups that match the unit’s model, chip key and flash, and writes the whole flash back.

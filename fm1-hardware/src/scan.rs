@@ -99,6 +99,28 @@ pub(crate) fn scan_loop(
                         })
                         .expect("spawn rescue flash thread");
                 }
+                Command::DownloadMode { name } => {
+                    let found = devices.lock().ok().and_then(|list| {
+                        list.iter()
+                            .find(|device| device.name == name)
+                            .map(|device| {
+                                (device.hw_id, device.link.clone(), device.outcome.clone())
+                            })
+                    });
+                    let Some((hw_id, link, outcome)) = found else {
+                        continue;
+                    };
+                    // The clock's bytes would interrupt the SysEx between its bytes.
+                    clock.set_hw_target(hw_id, None);
+                    let sent = link.send(&DOWNLOAD_MODE);
+                    if let Ok(mut outcome) = outcome.lock() {
+                        *outcome = Some(if sent {
+                            "download mode requested: watch DOWNLOAD-MODE UNITS".into()
+                        } else {
+                            "could not send the download-mode command".into()
+                        });
+                    };
+                }
                 Command::Flash { name, bytes } => {
                     let found = devices.lock().ok().and_then(|list| {
                         list.iter()

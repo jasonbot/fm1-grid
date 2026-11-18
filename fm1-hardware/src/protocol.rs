@@ -1,6 +1,9 @@
 pub(crate) const HS_QUERY: [u8; 10] = [0xF0, 0x00, 0x32, 0x45, 0x00, 0x00, 0x00, 0x40, 0x7F, 0xF7];
 /// The upgrade command: the device starts pulling the image (fm1ota.js UPGRADE).
 pub(crate) const UPGRADE: [u8; 6] = [0xF0, 0x22, 0x24, 0x35, 0x7F, 0xF7];
+/// The firmware's soft key into the chip's ROM USB download mode (M-Flasher's
+/// DOWNLOAD MODE; M-VAVE firmware and SLOOP handle it).
+pub(crate) const DOWNLOAD_MODE: [u8; 6] = [0xF0, 0x22, 0x24, 0x35, 0x7D, 0xF7];
 /// The largest data packet a device may ask for.
 pub(crate) const MAXDATA: usize = 512;
 /// The "I am done" addresses: step 1 (staging the loader) and step 2 (writing).

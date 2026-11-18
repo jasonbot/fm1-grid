@@ -147,7 +147,7 @@ impl GridApp {
             }
         }
         for (ix, row) in rows.into_iter().enumerate() {
-            content = content.child(self.device_row(ix, row, cx));
+            content = content.child(self.device_row(ix, row, rescue_on, cx));
         }
 
         let app = cx.entity().clone();
@@ -340,7 +340,13 @@ impl GridApp {
 
     /// One live unit: the name row (what it runs, then the dim port facts), the flash
     /// control on its own row, and the flash outcome report under it.
-    fn device_row(&mut self, ix: usize, row: DeviceRow, cx: &mut Context<Self>) -> AnyElement {
+    fn device_row(
+        &mut self,
+        ix: usize,
+        row: DeviceRow,
+        rescue_on: bool,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let (ink, dim, danger, accent) = {
             let theme = cx.theme();
             (
@@ -409,6 +415,21 @@ impl GridApp {
         let mut out = v_flex()
             .w_full()
             .child(name.into_any_element());
+        if rescue_on && row.flash.is_none() {
+            let name = row.name.clone();
+            out = out.child(
+                Button::new(("dev-download", ix))
+                    .label("Download mode")
+                    .small()
+                    .tooltip(
+                        "Ask the running firmware to restart into the chip's USB download                          mode, as M-Flasher's DOWNLOAD MODE does.",
+                    )
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.hardware.request_download_mode(&name);
+                        cx.notify();
+                    })),
+            );
+        }
         if row.flash.is_none() {
             let armed = self.flash_armed.get(&row.name).copied().unwrap_or(false);
             let combo = self.flash_combos.get(&row.name).cloned();

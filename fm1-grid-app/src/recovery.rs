@@ -25,7 +25,6 @@ pub struct BackupItem {
     pub model: String,
     pub chip_key: String,
     pub flash: String,
-    pub bytes: usize,
 }
 
 #[derive(Clone)]
@@ -126,37 +125,13 @@ impl RecoveryState {
     pub fn backup(&self, path: &str, probe: Probe) {
         let store = self.store.clone();
         let backups = self.backups.clone();
-        let path = path.to_string();
-        let rows = self.rows.clone();
-        let generation = self.generation.clone();
-        if let Some(row) = rows.lock().unwrap().iter_mut().find(|row| row.path == path) {
-            if row.busy {
-                return;
-            }
-            row.busy = true;
-            row.busy_label = Some("Backing up flash…".into());
-            row.outcome = None;
-        }
-        generation.fetch_add(1, Ordering::Relaxed);
-        std::thread::Builder::new()
-            .name("fm1-recovery-backup".into())
-            .spawn(move || {
-                let result = fm1_recovery::backup_flash(&path, &mut |_| {}, &mut |_, _| {})
-                    .and_then(|flash| {
-                        save_backup(&store, &backups, &probe, &flash)
-                            .map_err(fm1_recovery::Error::Io)
-                    });
-                if let Some(row) = rows.lock().unwrap().iter_mut().find(|row| row.path == path) {
-                    row.busy = false;
-                    row.busy_label = None;
-                    row.outcome = Some(match result {
-                        Ok(label) => format!("backup saved: {label}"),
-                        Err(error) => error.to_string(),
-                    });
-                }
-                generation.fetch_add(1, Ordering::Relaxed);
-            })
-            .ok();
+        let task_path = path.to_string();
+        self.run(path, "Backing up flash…", move || {
+            let flash = fm1_recovery::backup_flash(&task_path, &mut |_| {}, &mut |_, _| {})
+                .map_err(|error| error.to_string())?;
+            let label = save_backup(&store, &backups, &probe, &flash)?;
+            Ok(format!("backup saved: {label}"))
+        });
     }
 
     /// Write m-bootloader on the chip, in the background. The install path takes a
@@ -164,51 +139,34 @@ impl RecoveryState {
     pub fn install_bootloader(&self, path: &str, probe: Probe) {
         let store = self.store.clone();
         let backups = self.backups.clone();
-        let path = path.to_string();
-        let rows = self.rows.clone();
-        let generation = self.generation.clone();
-        if let Some(row) = rows.lock().unwrap().iter_mut().find(|row| row.path == path) {
-            if row.busy {
-                return;
-            }
-            row.busy = true;
-            row.busy_label = Some("Installing m-bootloader…".into());
-            row.outcome = None;
-        }
-        generation.fetch_add(1, Ordering::Relaxed);
-        std::thread::Builder::new()
-            .name("fm1-recovery-install".into())
-            .spawn(move || {
-                let mut backup = String::new();
-                let result = fm1_recovery::install_bootloader(
-                    &path,
-                    &mut |flash| save_backup(&store, &backups, &probe, flash),
-                    &mut |line| {
-                        if let Some(path) = line.strip_prefix("backup saved: ") {
-                            backup = path.to_string();
-                        }
-                    },
-                    &mut |_, _| {},
-                );
-                if let Some(row) = rows.lock().unwrap().iter_mut().find(|row| row.path == path) {
-                    row.busy = false;
-                    row.busy_label = None;
-                    row.outcome = Some(match result {
-                        Ok(()) if backup.is_empty() => {
-                            "m-bootloader installed and the boot area verified".into()
-                        }
-                        Ok(()) => format!("m-bootloader installed and verified; backup {backup}"),
-                        Err(error) if backup.is_empty() => error.to_string(),
-                        Err(error) => format!("{error}; backup {backup}"),
-                    });
+        let task_path = path.to_string();
+        self.run(path, "Installing m-bootloader…", move || {
+            let mut backup = String::new();
+            let result = fm1_recovery::install_bootloader(
+                &task_path,
+                &mut |flash| save_backup(&store, &backups, &probe, flash),
+                &mut |line| {
+                    if let Some(path) = line.strip_prefix("backup saved: ") {
+                        backup = path.to_string();
+                    }
+                },
+                &mut |_, _| {},
+            );
+            match result {
+                Ok(()) if backup.is_empty() => {
+                    Ok("m-bootloader installed and the boot area verified".into())
                 }
-                generation.fetch_add(1, Ordering::Relaxed);
-            })
-            .ok();
+                Ok(()) => Ok(format!(
+                    "m-bootloader installed and verified; backup {backup}"
+                )),
+                Err(error) if backup.is_empty() => Err(error.to_string()),
+                Err(error) => Err(format!("{error}; backup {backup}")),
+            }
+        });
     }
 
-    /// Write a stored full-flash backup back to the unit. Only the backup chosen
-    /// from the row's own list reaches this, so model, chip key and flash match.
+    /// Write a stored full-flash backup back to the unit. Only backups belonging to
+    /// the row's own unit are offered.
     pub fn restore_backup(&self, path: &str, key: &str) {
         let Some(item) = self
             .backups
@@ -221,6 +179,24 @@ impl RecoveryState {
             return;
         };
         let store = self.store.clone();
+        let task_path = path.to_string();
+        self.run(path, &format!("Restoring {}…", item.label), move || {
+            let bytes = store
+                .fetch_blob(&item.key)
+                .map_err(fm1_recovery::Error::Io)
+                .map_err(|error| error.to_string())?;
+            fm1_recovery::restore_flash(&task_path, &bytes, &mut |_| {}, &mut |_, _| {})
+                .map_err(|error| error.to_string())?;
+            Ok(format!("restored {}; power-cycle the unit", item.label))
+        });
+    }
+
+    fn run(
+        &self,
+        path: &str,
+        busy_label: &str,
+        task: impl FnOnce() -> Result<String, String> + Send + 'static,
+    ) {
         let path = path.to_string();
         let rows = self.rows.clone();
         let generation = self.generation.clone();
@@ -229,26 +205,23 @@ impl RecoveryState {
                 return;
             }
             row.busy = true;
-            row.busy_label = Some(format!("Restoring {}…", item.label));
+            row.busy_label = Some(busy_label.to_string());
             row.outcome = None;
+        } else {
+            return;
         }
         generation.fetch_add(1, Ordering::Relaxed);
         std::thread::Builder::new()
-            .name("fm1-recovery-restore".into())
+            .name("fm1-recovery-task".into())
             .spawn(move || {
-                let result = store
-                    .fetch_blob(&item.key)
-                    .map_err(fm1_recovery::Error::Io)
-                    .and_then(|bytes| {
-                        fm1_recovery::restore_flash(&path, &bytes, &mut |_| {}, &mut |_, _| {})
-                    });
+                let outcome = match task() {
+                    Ok(message) => message,
+                    Err(error) => error,
+                };
                 if let Some(row) = rows.lock().unwrap().iter_mut().find(|row| row.path == path) {
                     row.busy = false;
                     row.busy_label = None;
-                    row.outcome = Some(match result {
-                        Ok(()) => format!("restored {}; power-cycle the unit", item.label),
-                        Err(error) => error.to_string(),
-                    });
+                    row.outcome = Some(outcome);
                 }
                 generation.fetch_add(1, Ordering::Relaxed);
             })
@@ -292,7 +265,6 @@ fn save_backup(
         model: probe.model.clone(),
         chip_key: probe.chip_key.clone(),
         flash: probe.flash.clone(),
-        bytes: flash.len(),
     };
     store.store_blob(&key, flash)?;
     let meta = format!("{BACKUP_PREFIX}{stamp}.json");

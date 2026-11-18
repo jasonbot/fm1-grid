@@ -45,6 +45,8 @@ pub enum Popup {
     DeviceFilter(usize),
     /// The MIDI graph's connect menu: the source and the highlighted sink candidate.
     GraphSinks(Port, usize),
+    /// Live units to switch into the chip's download mode.
+    DownloadMode(usize, Vec<String>),
 }
 
 /// Which device families the library lists, shared with the GUI.
@@ -710,6 +712,32 @@ impl TuiApp {
     /// Where the hub refresh stands, for the library block's title.
     pub fn hub_status(&self) -> Option<HubStatus> {
         self.library.as_ref().map(|library| library.hub_status())
+    }
+
+    /// Ask a live unit's firmware to restart into the chip's USB download mode.
+    /// One unit goes straight there; several open a picker.
+    pub fn prompt_download_mode(&mut self) {
+        let units: Vec<String> = self
+            .devices
+            .iter()
+            .filter(|device| device.flash.is_none())
+            .map(|device| device.name.clone())
+            .collect();
+        match units.len() {
+            0 => self.say("no live unit on USB".to_string()),
+            1 => self.enter_download_mode(&units[0]),
+            _ => self.popup = Some(Popup::DownloadMode(0, units)),
+        }
+    }
+
+    /// Send the firmware soft key to the named live unit.
+    pub fn enter_download_mode(&mut self, name: &str) {
+        self.hardware.request_download_mode(name);
+        self.say(format!(
+            "download mode requested for {}",
+            fm1_performer::routing::label_of(name)
+        ));
+        self.popup = None;
     }
 
     /// Flash the selected firmware: pick the target when several are around, flash

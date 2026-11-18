@@ -154,6 +154,7 @@ fn on_key(app: &mut app::TuiApp, key: ratatui::crossterm::event::KeyEvent) {
     // Global keys, both focuses.
     match key.code {
         KeyCode::Char(' ') => return app.toggle_clock(),
+        KeyCode::Char('D') => return app.prompt_download_mode(),
         KeyCode::Char('-') | KeyCode::Char('_') => return app.bump_bpm(-1),
         KeyCode::Char('=') | KeyCode::Char('+') => return app.bump_bpm(1),
         KeyCode::Char('[') => return app.bump_bpm(-10),
@@ -255,6 +256,24 @@ fn popup_key(app: &mut app::TuiApp, code: ratatui::crossterm::event::KeyCode) {
             }
             _ => {}
         },
+        Some(Popup::DownloadMode(sel, units)) => match code {
+            KeyCode::Esc => app.popup = None,
+            KeyCode::Up => {
+                app.popup = Some(Popup::DownloadMode(sel.saturating_sub(1), units));
+            }
+            KeyCode::Down => {
+                let next = (sel + 1).min(units.len().saturating_sub(1));
+                app.popup = Some(Popup::DownloadMode(next, units));
+            }
+            KeyCode::Enter => {
+                if let Some(name) = units.get(sel) {
+                    app.enter_download_mode(name);
+                } else {
+                    app.popup = None;
+                }
+            }
+            _ => {}
+        },
         Some(Popup::DeviceFilter(sel)) => match code {
             KeyCode::Esc => app.popup = None,
             KeyCode::Up => app.popup = Some(Popup::DeviceFilter(sel.saturating_sub(1))),
@@ -293,6 +312,13 @@ fn popup_click(app: &mut app::TuiApp, index: usize) {
         Some(Popup::FlashTarget(_, names, pick)) => {
             if let Some(target) = names.get(index).cloned() {
                 app.start_flash(&target, &pick);
+            } else {
+                app.popup = None;
+            }
+        }
+        Some(Popup::DownloadMode(_, units)) => {
+            if let Some(name) = units.get(index) {
+                app.enter_download_mode(name);
             } else {
                 app.popup = None;
             }

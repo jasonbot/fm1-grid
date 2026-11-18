@@ -66,6 +66,7 @@ pub fn draw(frame: &mut Frame, app: &mut TuiApp) {
         Some(Popup::FlashTarget(sel, names, _)) => flash_target_popup(frame, app, sel, &names),
         Some(Popup::DeviceFilter(sel)) => device_popup(frame, app, sel),
         Some(Popup::GraphSinks(source, sel)) => graph_sinks_popup(frame, app, sel, &source),
+        Some(Popup::DownloadMode(sel, units)) => download_mode_popup(frame, app, sel, &units),
         None => {}
     }
     if let Some(board) = app.flash_board() {
@@ -483,7 +484,7 @@ fn footer(frame: &mut Frame, app: &mut TuiApp, area: Rect) {
                 if app.selected_deletable() {
                     hints.push_str(" · x delete");
                 }
-                hints.push_str(" · / filter · v devices · a all · f flash · R rescue · r refresh hub · space clock · −/+ tempo · Tab graph · q quit");
+                hints.push_str(" · / filter · v devices · a all · f flash · R rescue · D download mode · r refresh hub · space clock · −/+ tempo · Tab graph · q quit");
                 hints
             }
             Focus::Graph => " ↑↓ select · Enter connect/unroute · Tab filter/list · space clock · −/+ tempo · q quit".to_string(),
@@ -560,6 +561,18 @@ fn graph_sinks_popup(frame: &mut Frame, app: &mut TuiApp, sel: usize, source: &P
     }
     let title = format!("Connect {}", app.graph_source_label(source));
     list_popup(frame, app, &title, &items, sel);
+}
+
+/// Pick a live unit to switch into the chip's download mode.
+fn download_mode_popup(frame: &mut Frame, app: &mut TuiApp, sel: usize, units: &[String]) {
+    let items: Vec<Line> = units
+        .iter()
+        .map(|name| {
+            let device = app.devices.iter().find(|device| &device.name == name);
+            Line::from(flash_target_text(name, device))
+        })
+        .collect();
+    list_popup(frame, app, "Download mode", &items, sel);
 }
 
 /// Pick which target gets the firmware: the live units, plus every MIDI port while

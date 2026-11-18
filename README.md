@@ -151,7 +151,7 @@ A terminal version for real FM-1 units over USB. It has no emulators.
 cargo run --release -p fm1-tty
 ```
 
-- **Devices**: live USB units and download-mode units. `R` toggles MIDI rescue mode; `f` on a selected library firmware also targets a download-mode unit.
+- **Devices**: live USB units and download-mode units. `R` toggles MIDI rescue mode; `D` switches a live unit into download mode; `f` on a selected library firmware also targets a download-mode unit.
 - **MIDI graph**: sources and their sink links. `Enter` removes a link or opens Connect.
 - **Library**: the same firmware list. `/` filters, `v` picks a device, `d` downloads, `x` deletes, `a` downloads all, `f` flashes. The flash picker shows each unit’s USB path and any download-mode units. Arrow, Page and Home/End keys in the filter jump back to the list.
 - **Metronome**: `Space` starts and stops it. `-`/`+` change the tempo.

@@ -117,9 +117,9 @@ fn rescue_flow(
         Some(FINISH_WRITE) => {}
         Some(FINISH_STAGE) => {
             publish(&flash, board, "step 1 done: waiting for the update loader…", None);
-            let Some(loader_name) = wait_new_port(Duration::from_secs(30)) else {
+            let Some(loader_name) = wait_new_port(Duration::from_secs(90)) else {
                 return Err(
-                    "the update loader did not appear within 30 s: replug the USB cable \
+                    "the update loader did not appear within 90 s: replug the USB cable \
                      and press Flash again — the device stays in update mode until the \
                      update is finished"
                         .to_string(),
@@ -146,7 +146,9 @@ fn rescue_flow(
             if served.finish != Some(FINISH_WRITE) {
                 return Err(format!(
                     "the loader stopped after {} requests: replug and press Flash again \
-                     to resume",
+                     to resume. On a newer FM-1 with the UC25HQ80 flash (0xB36014), its \
+                     update loader may be timing out on the slower chip; use a build with \
+                     the newer flash driver.",
                     served.count
                 ));
             }
@@ -166,7 +168,9 @@ fn rescue_flow(
         }
         None => {
             return Err(format!(
-                "the device stopped after {} requests: nothing was written",
+                "the device stopped after {} requests: nothing was written. If this is a \
+                 newer FM-1 with the UC25HQ80 flash (0xB36014), its running firmware may \
+                 not support that chip; install a build that does, or restore with M-Flasher.",
                 served.count
             ));
         }
@@ -175,9 +179,9 @@ fn rescue_flow(
     // new (or reappearing) port. The handshake verifies it — both the loader and a
     // healthy firmware answer it, so a silent port means the write did not take.
     publish(&flash, board, "written: waiting for the device to come back…", None);
-    let Some(back_name) = wait_new_port(Duration::from_secs(40)) else {
+    let Some(back_name) = wait_new_port(Duration::from_secs(60)) else {
         return Err(format!(
-            "the device did not come back within 40 s: it should be running {product} — \
+            "the device did not come back within 60 s: it should be running {product} — \
              replug if it stays dark"
         ));
     };

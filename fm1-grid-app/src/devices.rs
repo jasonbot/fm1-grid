@@ -239,7 +239,23 @@ impl GridApp {
                     .child(error.clone()),
             );
         }
-        if rescue_on && row.probe.is_some() && !row.busy {
+        let new_chip = row
+            .probe
+            .as_ref()
+            .is_some_and(|probe| !fm1_recovery::bootloader_supported(probe.flash_id));
+        if new_chip {
+            out = out.child(
+                div()
+                    .text_size(px(10.0))
+                    .text_color(danger)
+                    .child(
+                        "m-bootloader install is not offered for the UC25HQ80 flash \
+                         (0xB36014): upstream reports units that may no longer start. \
+                         Install firmware instead; use M-Flasher at your own risk.",
+                    ),
+            );
+        }
+        if rescue_on && row.probe.is_some() && !row.busy && !new_chip {
             let path = row.path.clone();
             out = out.child(
                 div().child(

@@ -300,9 +300,10 @@ pub(crate) fn open_link(name: &str, router: &Routing, fallback: bool) -> Option<
     }))
 }
 
-/// Ask a freshly opened device who it is: the handshake query, twice, one second each.
+/// Ask a freshly opened device who it is: the handshake query, three tries, one second
+/// each. The update loader of a slow-flash unit can be late to answer its first query.
 pub(crate) fn probe(link: &DeviceLink) -> Option<String> {
-    for _ in 0..2 {
+    for _ in 0..3 {
         link.drain();
         if !link.send(&HS_QUERY) {
             return None;

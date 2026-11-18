@@ -232,17 +232,20 @@ pub(crate) fn flash_flow(
         let served = serve(link, &image, &[FINISH_STAGE], Duration::from_secs(8), flash, board)?;
         if served.finish != Some(FINISH_STAGE) {
             return Err(format!(
-                "the device stopped after {} requests: nothing was written",
+                "the device stopped after {} requests: nothing was written. If this is a \
+                 newer FM-1 with the UC25HQ80 flash (0xB36014), its running firmware may \
+                 not support that chip; install a build that does, or restore with M-Flasher.",
                 served.count
             ));
         }
         // The device reboots into its update loader and comes back as a new port; the
-        // scanner registers it and this thread picks it up (the hub waits 30 s).
+        // scanner registers it and this thread picks it up. The browser installers wait
+        // 60–90 s here; slow USB enumeration should not look like a failed update.
         publish(flash, board, "step 1 done: waiting for the update loader…", None);
         if let Ok(mut identity) = identity.lock() {
             *identity = None;
         }
-        let loader = wait_for_device(devices, clock, board, Duration::from_secs(30), |device| {
+        let loader = wait_for_device(devices, clock, board, Duration::from_secs(90), |device| {
             if !on_usb(device, usb.as_deref()) {
                 return false;
             }
@@ -256,7 +259,7 @@ pub(crate) fn flash_flow(
         });
         let Some((loader_link, _, loader_flash, _)) = loader else {
             return Err(
-                "the update loader did not appear within 30 s: replug the USB cable and \
+                "the update loader did not appear within 90 s: replug the USB cable and \
                  press Flash again — the device stays in update mode until the update is \
                  finished"
                     .to_string(),
@@ -306,14 +309,16 @@ pub(crate) fn write_flash(
     let served = serve(link, image, &[FINISH_WRITE], Duration::from_secs(180), flash, board)?;
     if served.finish != Some(FINISH_WRITE) {
         return Err(format!(
-            "the loader stopped after {} requests: replug and press Flash again to resume",
+            "the loader stopped after {} requests: replug and press Flash again to resume. \
+             On a newer FM-1 with the UC25HQ80 flash (0xB36014), its update loader may be \
+             timing out on the slower chip; use a build with the newer flash driver.",
             served.count
         ));
     }
     // The write is done; the device reboots into the new firmware and comes back as a
     // new port. Wait for it and verify the identity the handshake reports.
     publish(flash, board, "written: waiting for the device to come back…", None);
-    let back = wait_for_device(devices, clock, board, Duration::from_secs(40), |device| {
+    let back = wait_for_device(devices, clock, board, Duration::from_secs(60), |device| {
         on_usb(device, usb)
             && device
                 .identity
@@ -343,7 +348,7 @@ pub(crate) fn write_flash(
             }
         }
         None => Err(format!(
-            "the device did not come back within 40 s: it should be running {product} — \
+            "the device did not come back within 60 s: it should be running {product} — \
              check its row, and replug if it stays dark"
         )),
     }

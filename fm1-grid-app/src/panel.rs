@@ -6,10 +6,10 @@
 //! width is recorded during prepaint so the geometry tracks the window.
 
 use crate::app::GridApp;
-use fm1_performer::keys::{
-    BLACK_KEYS, FUNCTION_ROW_1, FUNCTION_ROW_2, PANEL_KEYS, WHITE_KEYS, panel_key_hint,
-};
 use crate::theme::mix_hsla;
+use fm1_performer::keys::{
+    panel_key_hint, BLACK_KEYS, FUNCTION_ROW_1, FUNCTION_ROW_2, PANEL_KEYS, WHITE_KEYS,
+};
 use gpui_kit::base::ElementExt;
 use gpui_kit::component::ActiveTheme;
 use gpui_kit::*;
@@ -26,23 +26,15 @@ const BLACK_KEY_WIDTH_FRAC: f32 = 0.62;
 const BLACK_KEY_HEIGHT_FRAC: f32 = 0.62;
 const WHITE_LED_HEIGHT: f32 = 19.5;
 const BLACK_LED_HEIGHT: f32 = 18.5;
-/// The LED window sits this far above the key's lip.
-const KEY_LED_LIP_GAP: f32 = 4.0;
 const KEY_LABEL_TOP: f32 = 0.0;
 const KEY_LABEL_GAP: f32 = 12.0;
 const WHITE_HINT_SIZE: f32 = 16.0;
 const BLACK_HINT_SIZE: f32 = 14.0;
 const KEY_NOTE_SIZE: f32 = 10.0;
-const KEY_LED_RADIUS: f32 = 6.0;
 /// Key corner rounding.
 const KEY_RADIUS: f32 = 1.0;
 /// Firmware LED level that counts as lit.
 const LED_LIT_THRESHOLD: f32 = 0.04;
-/// The strip's lightness offset from the key face.
-const STRIP_SHADE_DELTA: f32 = 0.07;
-/// How much the LED border mixes toward the key face.
-const LED_BORDER_MIX: f32 = 0.5;
-const KEY_LED_FILL_ALPHA: f32 = 0.5;
 /// The lit lip just above a white key's shade strip.
 const WHITE_KEY_LIP: f32 = 2.0;
 const BLACK_KEY_DEPTH: f32 = 6.0;
@@ -89,174 +81,16 @@ const PANEL_MAX_W: f32 = 1040.0;
 /// The smallest the panel lays out at; a narrower window clips the right edge.
 const PANEL_MIN_W: f32 = 320.0;
 
-/// The panel's colorway, derived from the active theme each render: the bed keeps
-/// the theme background's hue but stays dark (a light theme still gets a dark
-/// panel), the keys and controls are the same hue family stepped out in lightness,
-/// and the lit/accent colours are the theme's own (primary for held keys, warning
-/// for amber LEDs, success for the play LED).
-struct PanelColors {
-    /// Dark theme: reverse the key shading.
-    dark: bool,
-    bed: Hsla,
-    button: Hsla,
-    button_hover: Hsla,
-    button_edge: Hsla,
-    silk: Hsla,
-    silk_dim: Hsla,
-    led_off: Hsla,
-    amber: Hsla,
-    green: Hsla,
-    lit: Hsla,
-    lit_label: Hsla,
-    lit_hint: Hsla,
-    white: Hsla,
-    white_edge: Hsla,
-    white_ink: Hsla,
-    white_note: Hsla,
-    black: Hsla,
-    black_edge: Hsla,
-    black_ink: Hsla,
-}
-
-/// A colour at a new lightness and a share of its saturation, hue kept.
-fn relight(color: Hsla, l: f32, s_scale: f32) -> Hsla {
-    Hsla {
-        h: color.h,
-        s: (color.s * s_scale).clamp(0.0, 1.0),
-        l,
-        a: 1.0,
-    }
-}
-
-fn panel_colors(
-    theme: &gpui_kit::component::Theme,
-    visualia: Option<crate::themes::visualia::PanelPalette>,
-) -> PanelColors {
-    let bg = theme.background;
-    let mut colors = PanelColors {
-        dark: theme.is_dark(),
-        bed: Hsla {
-            l: bg.l.min(0.16),
-            s: (bg.s * 0.85).clamp(0.0, 1.0),
-            ..bg
-        },
-        button: relight(bg, 0.26, 0.7),
-        button_hover: relight(bg, 0.31, 0.7),
-        button_edge: relight(bg, 0.12, 0.7),
-        silk: relight(bg, 0.80, 0.3),
-        silk_dim: relight(bg, 0.55, 0.35),
-        led_off: relight(bg, 0.20, 0.5),
-        amber: theme.warning,
-        green: theme.success,
-        lit: theme.primary,
-        lit_label: relight(bg, 0.13, 0.6),
-        lit_hint: relight(bg, 0.26, 0.5),
-        white: relight(bg, 0.93, 0.4),
-        white_edge: relight(bg, 0.60, 0.4),
-        white_ink: relight(bg, 0.16, 0.6),
-        white_note: relight(bg, 0.42, 0.5),
-        black: relight(bg, 0.24, 0.7),
-        black_edge: relight(bg, 0.10, 0.7),
-        black_ink: relight(bg, 0.80, 0.4),
-    };
-    if let Some(visualia) = visualia {
-        colors.bed = visualia.bed;
-        colors.button = visualia.button;
-        colors.button_hover = visualia.button_hover;
-        colors.button_edge = visualia.border;
-    }
-    colors
-}
+mod paint;
+use paint::{
+    key_strip, led_bottom, led_window, panel_colors, strip_colors, strip_height, PanelColors,
+};
 
 /// What a three-part rotary group turns: the MASTER pot or one of the FM-1's encoders.
 #[derive(Clone, Copy)]
 enum KnobTarget {
     Master,
     Enc(u8),
-}
-
-/// The two gradient ends for a key's bottom strip, top then bottom. In a light
-/// theme the top is darker; a dark theme reverses the light direction.
-fn strip_colors(fill: Hsla, dark: bool) -> (Hsla, Hsla) {
-    let darker = Hsla { l: (fill.l - STRIP_SHADE_DELTA).max(0.0), ..fill };
-    let lighter = Hsla { l: (fill.l + STRIP_SHADE_DELTA).min(1.0), ..fill };
-    if dark {
-        (lighter, darker)
-    } else {
-        (darker, lighter)
-    }
-}
-
-/// The small membrane window near the top of a key. Up, it is a shade off the
-/// key, like an unpowered LED behind the membrane; pressed, it glows with the
-/// accent and sinks a couple of pixels. Dark themes reverse the shade direction.
-fn led_window(
-    fill: Hsla,
-    glow: Hsla,
-    border: Hsla,
-    lit: bool,
-    dark: bool,
-    top: f32,
-    height: f32,
-    insets: (f32, f32),
-) -> AnyElement {
-    let border = mix_hsla(border, fill, LED_BORDER_MIX);
-    let window = div()
-        .absolute()
-        .left(relative(insets.0))
-        .right(relative(insets.1))
-        .top(px(top))
-        .h(px(height))
-        .rounded(px(KEY_LED_RADIUS))
-        .overflow_hidden();
-    if !lit {
-        return window
-            .bg(strip_colors(fill, dark).0)
-            .border_1()
-            .border_color(border)
-            .into_any_element();
-    }
-    window
-        .bg(Hsla { a: KEY_LED_FILL_ALPHA, ..glow })
-        .border_1()
-        .border_color(border)
-        .into_any_element()
-}
-
-/// The LED window's bottom edge: the strip height, the lip above it, and the
-/// gap to the LED.
-fn led_bottom(strip_height: f32, lip: f32) -> f32 {
-    strip_height + lip + KEY_LED_LIP_GAP
-}
-
-/// The strip's drawn height in each state.
-fn strip_height(height: f32, pressed: bool) -> f32 {
-    if pressed { height / 2.0 } else { height }
-}
-
-/// The key's bottom strip. Pressed, it is half as high and solid at the top shade;
-/// otherwise it is the full depth with a top-to-bottom gradient. Dark themes reverse
-/// the light direction.
-fn key_strip(fill: Hsla, pressed: bool, height: f32, dark: bool) -> AnyElement {
-    let (top, bottom) = strip_colors(fill, dark);
-    let height = strip_height(height, pressed);
-    let strip = div()
-        .absolute()
-        .left_0()
-        .right_0()
-        .bottom_0()
-        .h(px(height));
-    if pressed {
-        strip.bg(top).into_any_element()
-    } else {
-        strip
-            .bg(linear_gradient(
-                180.,
-                linear_color_stop(top, 0.),
-                linear_color_stop(bottom, 1.),
-            ))
-            .into_any_element()
-    }
 }
 
 impl GridApp {
@@ -349,7 +183,8 @@ impl GridApp {
             let row = (index / 2) as f32;
             let x = left + column * (group_width + group_gap);
             let y = controls_top + row * (GROUP_HEIGHT + row_gap);
-            panel = panel.child(self.turn_group(cx, x, y, group_width, *salt, label, *target, &colors));
+            panel =
+                panel.child(self.turn_group(cx, x, y, group_width, *salt, label, *target, &colors));
         }
 
         // Top right: KNOB 1..4.
@@ -367,12 +202,11 @@ impl GridApp {
             ));
         }
 
-        let second_band = controls_top + GROUP_HEIGHT * CONTROL_GROUP_ROWS + row_gap + SECOND_BAND_GAP;
+        let second_band =
+            controls_top + GROUP_HEIGHT * CONTROL_GROUP_ROWS + row_gap + SECOND_BAND_GAP;
 
         // OCT- and OCT+ sit under the two encoder columns.
-        for (index, (label, id, hint)) in [("OCT−", 0u8, "Z"), ("OCT+", 1, "X")]
-            .iter()
-            .enumerate()
+        for (index, (label, id, hint)) in [("OCT−", 0u8, "Z"), ("OCT+", 1, "X")].iter().enumerate()
         {
             let x = left + index as f32 * (group_width + group_gap);
             panel = panel.child(self.panel_button(
@@ -395,9 +229,22 @@ impl GridApp {
             for (column, (label, id, hint)) in row.iter().enumerate() {
                 let x = function_left + column as f32 * (button_width + button_gap);
                 let y = second_band + row_index as f32 * (GROUP_HEIGHT + row_gap);
-                let tint = if *id == 12 { colors.green } else { colors.amber };
+                let tint = if *id == 12 {
+                    colors.green
+                } else {
+                    colors.amber
+                };
                 panel = panel.child(self.panel_button(
-                    cx, x, y, button_width, *id, label, hint, tint, &mono, &colors,
+                    cx,
+                    x,
+                    y,
+                    button_width,
+                    *id,
+                    label,
+                    hint,
+                    tint,
+                    &mono,
+                    &colors,
                 ));
             }
         }
@@ -418,13 +265,25 @@ impl GridApp {
                 .flex()
                 .flex_row()
                 .gap(px(KEY_ROW_GAP))
-                .children(WHITE_KEYS.iter().map(|&id| self.white_key(cx, id, key_height, &colors))),
+                .children(
+                    WHITE_KEYS
+                        .iter()
+                        .map(|&id| self.white_key(cx, id, key_height, &colors)),
+                ),
         );
         let black_height = key_height * BLACK_KEY_HEIGHT_FRAC;
         for &(id, after) in BLACK_KEYS.iter() {
             let center_x = key_left + (after as f32 + 1.0) * white_width;
             let width = white_width * BLACK_KEY_WIDTH_FRAC;
-            panel = panel.child(self.black_key(cx, id, center_x - width / 2.0, key_top, width, black_height, &colors));
+            panel = panel.child(self.black_key(
+                cx,
+                id,
+                center_x - width / 2.0,
+                key_top,
+                width,
+                black_height,
+                &colors,
+            ));
         }
 
         div().w_full().flex().justify_center().child(panel)
@@ -554,15 +413,20 @@ impl GridApp {
         mono: &SharedString,
         colors: &PanelColors,
     ) -> impl IntoElement {
-        let lit =
-            self.held[id as usize] || self.leds[id as usize] > LED_LIT_THRESHOLD || self.panel_down[id as usize];
+        let lit = self.held[id as usize]
+            || self.leds[id as usize] > LED_LIT_THRESHOLD
+            || self.panel_down[id as usize];
         let fill = if lit {
             mix_hsla(colors.button, tint, BUTTON_TINT_MIX)
         } else {
             colors.button
         };
         let ink = if lit { colors.lit_label } else { colors.silk };
-        let hint_color = if lit { colors.lit_hint } else { colors.silk_dim };
+        let hint_color = if lit {
+            colors.lit_hint
+        } else {
+            colors.silk_dim
+        };
         let button_hover = colors.button_hover;
         let mono = mono.clone();
         div()
@@ -584,13 +448,15 @@ impl GridApp {
             .gap(px(BUTTON_GAP))
             .px(px(BUTTON_PAD_X))
             .cursor_pointer()
-            .hover(move |style| {
-                if lit {
-                    style
-                } else {
-                    style.bg(button_hover)
-                }
-            })
+            .hover(
+                move |style| {
+                    if lit {
+                        style
+                    } else {
+                        style.bg(button_hover)
+                    }
+                },
+            )
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(move |this, _, _, cx| {
@@ -645,8 +511,7 @@ impl GridApp {
             .map(|(_, note, _)| *note)
             .unwrap_or("");
         let hint = panel_key_hint(id);
-        let (key_fill, ink, note_ink) =
-            (colors.white, colors.white_ink, colors.white_note);
+        let (key_fill, ink, note_ink) = (colors.white, colors.white_ink, colors.white_note);
         let depth = strip_height(WHITE_KEY_DEPTH, pressed);
         let led_height = WHITE_LED_HEIGHT;
         let led_top = height - led_bottom(depth, WHITE_KEY_LIP) - led_height;
@@ -808,84 +673,4 @@ impl GridApp {
 }
 
 #[cfg(test)]
-mod tests {
-    // No `use super::*` — the parent's gpui glob import would drag in GPUI's `test`
-    // attribute macro, which re-expands the built-in #[test] (see library_tab.rs).
-    use super::{WHITE_KEY_LIP, led_bottom, panel_colors, strip_colors, strip_height};
-    use gpui_kit::component::Theme;
-
-    #[test]
-    fn led_sits_four_pixels_above_the_lip() {
-        assert_eq!(led_bottom(10.0, WHITE_KEY_LIP), 16.0);
-        assert_eq!(led_bottom(5.0, WHITE_KEY_LIP), 11.0);
-        assert_eq!(led_bottom(6.0, 0.0), 10.0);
-        assert_eq!(led_bottom(3.0, 0.0), 7.0);
-    }
-
-    #[test]
-    fn pressed_strip_is_half_height() {
-        assert_eq!(strip_height(10.0, false), 10.0);
-        assert_eq!(strip_height(10.0, true), 5.0);
-    }
-
-    #[test]
-    fn key_strip_gradient_brackets_the_key_color() {
-        let theme = Theme::default();
-        let colors = panel_colors(&theme, None);
-        for fill in [colors.white, colors.black, colors.lit] {
-            let (top, bottom) = strip_colors(fill, false);
-            assert!(top.l <= fill.l, "light theme: the top is not darker");
-            assert!(bottom.l >= fill.l, "light theme: the bottom is not lighter");
-            assert_eq!(top.h, fill.h);
-            assert_eq!(bottom.h, fill.h);
-            let (top, bottom) = strip_colors(fill, true);
-            assert!(top.l >= fill.l, "dark theme: the top is not lighter");
-            assert!(bottom.l <= fill.l, "dark theme: the bottom is not darker");
-        }
-        for fill in [colors.white, colors.black] {
-            let (top, bottom) = strip_colors(fill, false);
-            assert!(top.l < fill.l && bottom.l > fill.l);
-            let (top, bottom) = strip_colors(fill, true);
-            assert!(top.l > fill.l && bottom.l < fill.l);
-        }
-    }
-
-    /// The key colorway follows the theme background's hue with the bed always dark
-    /// (light themes too), the black keys strictly between bed and white, and a held
-    /// key on the theme's accent with its on-accent ink.
-    #[test]
-    fn keys_follow_theme_with_dark_bed() {
-        let mut theme = Theme::default();
-
-        // A light background: the bed must stay dark, the keys light.
-        theme.background = gpui_kit::hsla(0.08, 0.4, 0.96, 1.0);
-        let colors = panel_colors(&theme, None);
-        assert!(colors.bed.l <= 0.16, "light theme: bed stays dark");
-        assert!(colors.white.l >= 0.9, "white keys read light");
-        assert!(colors.black.l > colors.bed.l && colors.black.l < colors.white.l);
-        assert_eq!(colors.lit, theme.primary, "held keys use the theme accent");
-
-        // A dark, saturated background: same invariants, hue carries over.
-        theme.background = gpui_kit::hsla(0.6, 0.3, 0.08, 1.0);
-        let colors = panel_colors(&theme, None);
-        assert!(colors.bed.l <= 0.16);
-        assert!((colors.bed.h - 0.6).abs() < 1e-6, "the bed keeps the theme's hue");
-        assert!((colors.white.h - 0.6).abs() < 1e-6, "the keys keep the theme's hue");
-    }
-
-    /// Visualia swaps the bed, buttons and their edges for the accent-derived
-    /// palette while the white keys keep the shared background derivation.
-    #[test]
-    fn visualia_panel_uses_the_accent_palette() {
-        let theme = Theme::default();
-        for dark in [false, true] {
-            let palette = crate::themes::visualia::panel(crate::themes::accent("red"), dark);
-            let colors = panel_colors(&theme, Some(palette));
-            assert_eq!(colors.bed.h, palette.bed.h);
-            assert_eq!(colors.bed.l, palette.bed.l);
-            assert_eq!(colors.button.l, palette.button.l);
-            assert_eq!(colors.button_edge.l, palette.border.l);
-            assert!(colors.white.l >= 0.9, "white keys keep their derivation");
-        }
-    }
-}
+mod tests;

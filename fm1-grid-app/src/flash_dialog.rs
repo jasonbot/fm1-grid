@@ -1,7 +1,7 @@
-//! The blocking flash dialog the library's Flash To… opens for a live unit: the
-//! board's current phase and progress plus a scrollable terminal of every phase line
-//! so far, following the tail. Reuses the devices pane's data (`Hardware::flash_state`);
-//! the flash itself runs on the hardware module's thread.
+//! The blocking flash dialog a library Flash To… or a Devices pick opens: the board's
+//! current phase and progress plus a scrollable terminal of every phase line so far,
+//! following the tail. Reuses the devices pane's data (`Hardware::flash_state`); the
+//! flash itself runs on the hardware module's thread.
 
 use crate::app::GridApp;
 use gpui_kit::base::{h_flex, v_flex};

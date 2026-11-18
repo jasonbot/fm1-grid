@@ -110,3 +110,37 @@ fn devices_tab_sections_switch(cx: &mut TestAppContext) {
     })
     .unwrap();
 }
+
+/// A firmware pick in the Devices pane opens the same blocking flash dialog the
+/// Library's Flash To… uses; the pane no longer grows an inline progress board.
+#[gpui_kit::test]
+fn devices_pick_opens_flash_dialog(cx: &mut TestAppContext) {
+    use fm1_performer::firmware_picker::FirmwarePick;
+    use gpui_kit::component::combobox::ComboboxEvent;
+    let _guard = ui_lock();
+    let (window, app) = open_app(cx);
+    cx.update_window(window.into(), |_, window, cx| {
+        window.click(("tab", 1usize), cx); // the Devices tab
+        let port = "TestPort:28 TestPort MIDI 1:0".to_string();
+        app.update(cx, |app, cx| {
+            app.rescue_on = true;
+            app.rescue_ports = vec![port.clone()];
+            app.open_flash_picker(&port, true, window, cx);
+            let combo = app.rescue_combos.get(&port).cloned().expect("rescue combo");
+            combo.update(cx, |combo, cx| {
+                let pick = FirmwarePick::Builtin(0);
+                combo.set_selected_values(std::slice::from_ref(&pick), window, cx);
+                cx.emit(ComboboxEvent::Change(vec![pick]));
+            });
+        });
+    })
+    .unwrap();
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        assert!(
+            window.within("dialog").find("flash-dialog-close").visible(),
+            "a devices pick should open the shared flash dialog"
+        );
+    })
+    .unwrap();
+}

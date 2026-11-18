@@ -4,7 +4,7 @@
 //! header's Rescue toggle offers every system MIDI port as a flash target too, for
 //! units too bricked to answer to their name; those flash through
 //! `Hardware::rescue_flash`. The rows scroll (wheel, scrollbar, PgUp/PgDn); the
-//! header and the flash board stay pinned.
+//! header stays pinned, and a flash opens the same progress dialog as the library.
 
 use crate::app::GridApp;
 use crate::firmware_picker::FirmwareDelegate;
@@ -13,41 +13,32 @@ use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::base::{ElementExt, h_flex, v_flex};
 use gpui_kit::component::button::{Button, Toggle, ToggleVariants};
 use gpui_kit::component::combobox::{Combobox, ComboboxEvent, ComboboxState};
-use gpui_kit::component::progress::Progress;
 use gpui_kit::component::scroll::ScrollableElement;
+use gpui_kit::component::searchable_list::SearchableListItem;
 use gpui_kit::component::switch::Switch;
 use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::{ActiveTheme, Icon, Sizable};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{TestSupportExt as _, *};
 
-/// The flash progress bar's size.
-const PROGRESS_W: f32 = 180.0;
-const PROGRESS_H: f32 = 12.0;
 /// The flash outcome report's indent, aligning it under the row's text.
 const OUTCOME_INDENT: f32 = 52.0;
 /// The flash firmware combobox's width in the row.
 const FLASH_COMBO_W: f32 = 200.0;
 
 impl GridApp {
-    /// The Devices section: a pinned header (title, Rescue toggle, status), the
-    /// scrollable rows, and the pinned flash board.
+    /// The Devices section: a pinned header (title, Rescue toggle, status) and the
+    /// scrollable rows. Flashing opens the shared progress dialog.
     pub(crate) fn devices_pane(
         &mut self,
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
-        let (dim, danger, accent, warning) = {
+        let (dim, danger, warning) = {
             let theme = cx.theme();
-            (
-                theme.muted_foreground,
-                theme.danger,
-                theme.primary,
-                theme.warning,
-            )
+            (theme.muted_foreground, theme.danger, theme.warning)
         };
         let rows = self.hardware.devices();
-        let board = self.hardware.flash_state();
         let error = self.hardware.error.clone();
 
         // The Rescue toggle: every system MIDI port becomes a flash target. The
@@ -159,7 +150,7 @@ impl GridApp {
         }
 
         let app = cx.entity().clone();
-        let mut pane = v_flex()
+        v_flex()
             .size_full()
             .overflow_hidden()
             .child(div().w_full().p_2().pb_0().child(header))
@@ -184,39 +175,7 @@ impl GridApp {
                             .track_scroll(&self.devices_scroll)
                             .child(content),
                     ),
-            );
-
-        // The flash board, pinned under the list: the state of the running flash even
-        // while the device's row is gone (it reboots through the loader), or the last
-        // failure.
-        if let Some(board) = board {
-            pane = pane.child(
-                div().w_full().px_2().pb_2().child(
-                    h_flex()
-                        .w_full()
-                        .items_center()
-                        .flex_wrap()
-                        .gap_2()
-                        .child(
-                            div()
-                                .text_size(px(10.5))
-                                .text_color(if board.error { danger } else { accent })
-                                .child(board.step.clone()),
-                        )
-                        .when(!board.error, |el| {
-                            el.when_some(board.progress, |el, progress| {
-                                el.child(
-                                    div().w(px(PROGRESS_W)).h(px(PROGRESS_H)).child(
-                                        Progress::new("flash-progress").value(progress * 100.0),
-                                    ),
-                                )
-                            })
-                        }),
-                ),
-            );
-        }
-
-        pane
+            )
     }
 
     /// One unit in the chip's ROM download mode: the flash analysis from the
@@ -387,8 +346,8 @@ impl GridApp {
             });
 
         // The flash control's own row: the "Flash" toggle arms the always-present
-        // firmware combobox. While a flash runs, the row hides and the pinned board
-        // carries the state.
+        // firmware combobox. While a flash runs, the row hides and the dialog carries
+        // the state.
         let mut out = v_flex()
             .w_full()
             .child(name.into_any_element());
@@ -507,8 +466,8 @@ impl GridApp {
     /// Build a row's flash combobox with its subscriptions: a pick flashes the device.
     /// Called from the sweep (which has the window) when a device first appears;
     /// dropped when it goes. With `rescue`, the row belongs to a MIDI port no FM-1
-    /// answered from: the pick goes to `Hardware::rescue_flash`, and problems land on
-    /// the pane-level flash board (a rescue target has no row of its own).
+    /// answered from: the pick goes to `Hardware::rescue_flash`. Every pick opens the
+    /// library's flash dialog; a package that cannot be read lands there as an error.
     /// shortcut: each combo leaves two inert Subscriptions in `_subscriptions` after
     /// its device goes away; worth pruning only if hotplug churn ever runs hot.
     pub(crate) fn open_flash_picker(&mut self, device: &str, rescue: bool, window: &mut Window, cx: &mut Context<Self>) {
@@ -520,15 +479,23 @@ impl GridApp {
         self._subscriptions.push(cx.subscribe_in(
             &state,
             window,
-            move |this, _, event, _window, cx| {
+            move |this, state, event, window, cx| {
                 if let ComboboxEvent::Change(values) = event {
                     if let Some(pick) = values.last() {
+                        let title = state.read(cx).selection().last().map_or_else(
+                            || "firmware".to_string(),
+                            |(_, item)| item.title().to_string(),
+                        );
                         match (rescue, pick.bytes(this.store.as_ref())) {
                             (true, Ok(bytes)) => this.hardware.rescue_flash(&picked, bytes),
                             (false, Ok(bytes)) => this.hardware.flash(&picked, bytes),
                             (true, Err(e)) => this.hardware.report_board(e),
-                            (false, Err(e)) => this.hardware.report(&picked, e),
+                            (false, Err(e)) => {
+                                this.hardware.report(&picked, e.clone());
+                                this.hardware.report_board(e);
+                            }
                         }
+                        crate::flash_dialog::FlashDialog::open(cx.entity(), window, cx, &title);
                     }
                     cx.notify();
                 }

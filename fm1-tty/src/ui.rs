@@ -484,10 +484,10 @@ fn footer(frame: &mut Frame, app: &mut TuiApp, area: Rect) {
                 if app.selected_deletable() {
                     hints.push_str(" · x delete");
                 }
-                hints.push_str(" · / filter · v devices · a all · f flash · R rescue · D download mode · r refresh hub · space clock · −/+ tempo · Tab graph · q quit");
+                hints.push_str(" · D download mode · f flash · R rescue · v devices · / filter · a all · r hub · Tab graph · q quit");
                 hints
             }
-            Focus::Graph => " ↑↓ select · Enter connect/unroute · Tab filter/list · space clock · −/+ tempo · q quit".to_string(),
+            Focus::Graph => " ↑↓ select · Enter connect/unroute · D download mode · Tab filter/list · q quit".to_string(),
             Focus::Filter => " type to filter · ↑↓/PgUp/PgDn list · Backspace edit · Ctrl-U clear · Esc clear/back · Enter back · Tab graph · Ctrl-C quit".to_string(),
         };
         Line::from(dim(hints))

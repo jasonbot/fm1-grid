@@ -11,7 +11,11 @@ impl GridApp {
     /// split, with the miniature front panel tucked at the bottom — the only tab that
     /// shows it. The sidebar's range holds the screen at 1x to 6x; the grid panel's
     /// minimum keeps the 0.5x cards whole (the cards snap down when it shrinks).
-    pub(super) fn emulator_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    pub(super) fn emulator_tab(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
         let compact = window.viewport_size().height < px(PANEL_COMPACT_BELOW);
         v_flex()
             .size_full()
@@ -172,7 +176,11 @@ impl GridApp {
     }
     /// The Devices tab: a centered pill tab bar over the two sections — the live USB
     /// units and the MIDI graph. The picked section is session state.
-    pub(super) fn devices_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    pub(super) fn devices_tab(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
         let background = cx.theme().background;
         let app = cx.entity().clone();
         v_flex()
@@ -184,39 +192,36 @@ impl GridApp {
                     // root doesn't register one.
                     // A component Tab paints its icon OR its label, never both — the
                     // captions go through the children slot instead.
-                    div()
-                        .id("devices-sections")
-                        .test_support()
-                        .child(
-                            TabBar::new("devices-sections-bar")
-                                .pill()
-                                .selected_index(self.devices_tab)
-                                .on_click(move |ix, window, cx| {
-                                    app.update(cx, |this, cx| {
-                                        this.devices_tab = *ix;
-                                        this.refocus(window, cx);
-                                        cx.notify();
-                                    });
-                                })
-                                .child(
-                                    Tab::new().aria_label("Devices").child(
-                                        h_flex()
-                                            .items_center()
-                                            .gap_2()
-                                            .child(Icon::new(Lucide::Usb).size_4())
-                                            .child("Devices"),
-                                    ),
-                                )
-                                .child(
-                                    Tab::new().aria_label("MIDI Graph").child(
-                                        h_flex()
-                                            .items_center()
-                                            .gap_2()
-                                            .child(Icon::new(Lucide::Waypoints).size_4())
-                                            .child("MIDI Graph"),
-                                    ),
+                    div().id("devices-sections").test_support().child(
+                        TabBar::new("devices-sections-bar")
+                            .pill()
+                            .selected_index(self.devices_tab)
+                            .on_click(move |ix, window, cx| {
+                                app.update(cx, |this, cx| {
+                                    this.devices_tab = *ix;
+                                    this.refocus(window, cx);
+                                    cx.notify();
+                                });
+                            })
+                            .child(
+                                Tab::new().aria_label("Devices").child(
+                                    h_flex()
+                                        .items_center()
+                                        .gap_2()
+                                        .child(Icon::new(Lucide::Usb).size_4())
+                                        .child("Devices"),
                                 ),
-                        ),
+                            )
+                            .child(
+                                Tab::new().aria_label("MIDI Graph").child(
+                                    h_flex()
+                                        .items_center()
+                                        .gap_2()
+                                        .child(Icon::new(Lucide::Waypoints).size_4())
+                                        .child("MIDI Graph"),
+                                ),
+                            ),
+                    ),
                 ),
             )
             .child(

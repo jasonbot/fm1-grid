@@ -58,7 +58,12 @@ impl GridApp {
             _ => self.graph_view_h,
         };
         let handle = self.devices_handle();
-        let next = page_offset(handle.offset().y.into(), handle.max_offset().y.into(), view_h, pages);
+        let next = page_offset(
+            handle.offset().y.into(),
+            handle.max_offset().y.into(),
+            view_h,
+            pages,
+        );
         handle.set_offset(point(px(0.0), px(next)));
     }
     pub(crate) fn turn_encoder(&self, enc: u8, clicks: i32) {
@@ -78,7 +83,12 @@ impl GridApp {
     /// on the Emulator tab, the only place the front panel shows; the Library tab
     /// keeps PgUp/PgDn for its list. Modifier chords (Ctrl/Alt/Super) are left
     /// alone; Shift is allowed so Caps Lock and shifted letters still play.
-    pub(super) fn key_down(&mut self, event: &KeyDownEvent, _window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn key_down(
+        &mut self,
+        event: &KeyDownEvent,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let stroke = &event.keystroke;
         let modifiers = &stroke.modifiers;
         if modifiers.control || modifiers.alt || modifiers.platform || modifiers.function {
@@ -121,7 +131,12 @@ impl GridApp {
     }
     /// Key releases only matter where presses are played (the Emulator tab); with the
     /// panel hidden `kb_down` is already empty, so this is a cheap early-out.
-    pub(super) fn key_up(&mut self, event: &KeyUpEvent, _window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn key_up(
+        &mut self,
+        event: &KeyUpEvent,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if self.active_tab != 0 {
             return;
         }
@@ -140,7 +155,12 @@ impl GridApp {
     }
     /// A mouse release anywhere lifts the mouse-held panel keys/buttons. The panel
     /// shows only on the Emulator tab, so only there can any be held.
-    pub(super) fn mouse_up(&mut self, _: &MouseUpEvent, _window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn mouse_up(
+        &mut self,
+        _: &MouseUpEvent,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if self.active_tab == 0 && self.panel_down.iter().any(|&down| down) {
             self.panel_down = [false; 41];
             self.sync_held();

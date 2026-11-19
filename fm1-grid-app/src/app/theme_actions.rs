@@ -26,21 +26,33 @@ impl GridApp {
                 Rc::new(crate::themes::mac_platinum::theme(ThemeMode::Dark, accent)),
             ),
             crate::theme::VERY_HIGH_CONTRAST => (
-                Rc::new(crate::themes::very_high_contrast::theme(ThemeMode::Light, accent)),
-                Rc::new(crate::themes::very_high_contrast::theme(ThemeMode::Dark, accent)),
+                Rc::new(crate::themes::very_high_contrast::theme(
+                    ThemeMode::Light,
+                    accent,
+                )),
+                Rc::new(crate::themes::very_high_contrast::theme(
+                    ThemeMode::Dark,
+                    accent,
+                )),
             ),
             crate::theme::JAPANESE_STATIONERY => (
-                Rc::new(crate::themes::japanese_stationery::theme(ThemeMode::Light, accent)),
-                Rc::new(crate::themes::japanese_stationery::theme(ThemeMode::Dark, accent)),
+                Rc::new(crate::themes::japanese_stationery::theme(
+                    ThemeMode::Light,
+                    accent,
+                )),
+                Rc::new(crate::themes::japanese_stationery::theme(
+                    ThemeMode::Dark,
+                    accent,
+                )),
             ),
             _ => {
                 let registry = ThemeRegistry::global(cx);
-                let pick = |name: &Option<String>,
-                            fallback: &Rc<gpui_kit::component::ThemeConfig>| {
-                    name.as_ref()
-                        .and_then(|name| registry.themes().get(name.as_str()).cloned())
-                        .unwrap_or_else(|| fallback.clone())
-                };
+                let pick =
+                    |name: &Option<String>, fallback: &Rc<gpui_kit::component::ThemeConfig>| {
+                        name.as_ref()
+                            .and_then(|name| registry.themes().get(name.as_str()).cloned())
+                            .unwrap_or_else(|| fallback.clone())
+                    };
                 (
                     pick(&family.light, registry.default_light_theme()),
                     pick(&family.dark, registry.default_dark_theme()),

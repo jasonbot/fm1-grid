@@ -256,6 +256,9 @@ pub struct GridApp {
     /// The selected slot's frame is the sidebar's upscaled picture (hqx, or
     /// nearest-neighbour while its dropout health is orange or worse).
     pub(crate) frames: [Option<Arc<RenderImage>>; MAX_SLOTS],
+    /// When the LCD images were last rebuilt. The emulator can publish at 60 Hz, but
+    /// the CPU-side filters (hqx, ghost, recede) only run at 30 Hz.
+    last_lcd_upload: Instant,
     /// The framebuffer each slot's frame was built from; a pane whose screen has not
     /// changed costs a memcmp per tick instead of a full decode + upload.
     last_fb: [Option<Box<[u16]>>; MAX_SLOTS],

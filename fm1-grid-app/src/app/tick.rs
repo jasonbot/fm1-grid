@@ -159,6 +159,10 @@ impl GridApp {
     /// screen cost nothing.
     pub(super) fn upload_lcds(&mut self) -> bool {
         let mut changed = false;
+        let render = self.last_lcd_upload.elapsed() >= Duration::from_millis(33);
+        if render {
+            self.last_lcd_upload = Instant::now();
+        }
         for slot in 0..MAX_SLOTS {
             let Some(handle) = &self.slots[slot].handle else {
                 if self.last_fb[slot].take().is_some() || self.frames[slot].take().is_some() {
@@ -166,10 +170,19 @@ impl GridApp {
                 }
                 continue;
             };
-            let Ok(fb) = handle.lcd.lock() else { continue };
-            if self.last_fb[slot].as_deref() == Some(fb.as_slice()) {
+            if !render {
                 continue;
             }
+            // Copy under the lock, then drop it: the emulator thread needs the same
+            // lock to publish the next LCD frame, and it must not wait for hqx or
+            // the other filters to finish.
+            let fb = {
+                let Ok(fb) = handle.lcd.lock() else { continue };
+                if self.last_fb[slot].as_deref() == Some(fb.as_slice()) {
+                    continue;
+                }
+                fb.clone()
+            };
             self.last_fb[slot] = Some(fb.as_slice().into());
             // The selected pane's frame feeds the sidebar, hqx-upscaled to the exact
             // factor its layout chose last frame; the other running panes' grid cards
@@ -222,7 +235,7 @@ impl GridApp {
         match self.slots[self.active]
             .handle
             .as_ref()
-            .and_then(|handle| handle.lcd.lock().ok())
+            .and_then(|handle| handle.lcd.lock().ok().map(|fb| fb.clone()))
         {
             Some(fb) => lcd::dominant(&fb),
             None => [0, 0, 0],
@@ -258,32 +271,30 @@ impl GridApp {
     /// last build (a static screen costs one memcmp per tick). A pane that is off shows
     /// black, blanked once.
     pub(super) fn refresh_ghost(&mut self) -> bool {
-        match self.slots[self.active]
-            .handle
-            .as_ref()
-            .and_then(|handle| handle.lcd.lock().ok())
-        {
-            Some(fb) => {
-                if self.ghost_fb.as_deref() == Some(fb.as_slice()) {
-                    return false;
-                }
-                self.ghost_fb = Some(fb.as_slice().into());
-                let pixels = lcd::ghost(&fb);
-                self.ghost = lcd::frame_image(&pixels, LCD_W, LCD_H);
-                self.ghost_live = true;
+        let Some(handle) = self.slots[self.active].handle.as_ref() else {
+            self.ghost_fb = None;
+            return if self.ghost_live {
+                self.ghost = lcd::blank_image();
+                self.ghost_live = false;
                 true
+            } else {
+                false
+            };
+        };
+        let fb = {
+            let Ok(fb) = handle.lcd.lock() else {
+                return false;
+            };
+            if self.ghost_fb.as_deref() == Some(fb.as_slice()) {
+                return false;
             }
-            None => {
-                self.ghost_fb = None;
-                if self.ghost_live {
-                    self.ghost = lcd::blank_image();
-                    self.ghost_live = false;
-                    true
-                } else {
-                    false
-                }
-            }
-        }
+            fb.clone()
+        };
+        self.ghost_fb = Some(fb.as_slice().into());
+        let pixels = lcd::ghost(&fb);
+        self.ghost = lcd::frame_image(&pixels, LCD_W, LCD_H);
+        self.ghost_live = true;
+        true
     }
     /// Refocus the root view after a button/switch/menu interaction, so the computer
     /// keyboard keeps playing the active pane (egui surrendered widget focus for the

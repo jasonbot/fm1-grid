@@ -106,13 +106,17 @@ pub(crate) fn recede(fb: &[u16]) -> Vec<Rgb> {
 /// stand-in for [`upscaled`]'s hqx when the pane's audio health says the CPU is
 /// already behind. Blocky, but the layout's exact screen size is preserved.
 pub(crate) fn magnified(pixels: &[Rgb], scale: usize) -> Vec<Rgb> {
+    magnified_from(pixels, LCD_W, scale)
+}
+
+fn magnified_from(pixels: &[Rgb], src_w: usize, scale: usize) -> Vec<Rgb> {
     if scale == 1 {
         return pixels.to_vec();
     }
-    let side = LCD_W * scale;
+    let side = src_w * scale;
     let mut out = Vec::with_capacity(side * side);
     for y in 0..side {
-        let row = &pixels[(y / scale) * LCD_W..(y / scale) * LCD_W + LCD_W];
+        let row = &pixels[(y / scale) * src_w..(y / scale) * src_w + src_w];
         for x in 0..side {
             out.push(row[x / scale]);
         }
@@ -140,7 +144,17 @@ pub(crate) fn upscaled(pixels: &[Rgb], scale: usize) -> Vec<Rgb> {
         _ => {
             let mut mid = vec![0u32; LCD_W * LCD_H * 4];
             hqx::hq2x(&src, &mut mid, LCD_W as u32, LCD_H as u32);
-            hqx::hq3x(&mid, &mut dest, (LCD_W * 2) as u32, (LCD_H * 2) as u32);
+            let mid: Vec<Rgb> = mid
+                .iter()
+                .map(|&v| {
+                    [
+                        ((v >> 16) & 0xFF) as u8,
+                        ((v >> 8) & 0xFF) as u8,
+                        (v & 0xFF) as u8,
+                    ]
+                })
+                .collect();
+            return magnified_from(&mid, LCD_W * 2, 3);
         }
     }
     dest.iter()

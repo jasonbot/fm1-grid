@@ -241,6 +241,7 @@ impl GridApp {
             _audio: audio,
             audio_error,
             frames: std::array::from_fn(|_| None),
+            last_lcd_upload: Instant::now() - Duration::from_millis(33),
             last_fb: std::array::from_fn(|_| None),
             ghost: lcd::blank_image(),
             ghost_fb: None,

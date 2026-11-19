@@ -59,6 +59,17 @@ pub struct Firmware {
 }
 
 impl Firmware {
+    /// Whether the listing certifies this build for the FM-1's newer UC25HQ80
+    /// flash (or says it works on either chip).
+    pub fn works_on_new_chip(&self) -> bool {
+        self.tags.iter().any(|tag| {
+            matches!(
+                tag.to_ascii_lowercase().as_str(),
+                "new chip" | "any chip"
+            )
+        })
+    }
+
     /// The SMK-37 submodel this row is built for, from the catalog tag.
     pub fn variant(&self) -> Option<&str> {
         self.tags.iter().find_map(|tag| match tag.as_str() {

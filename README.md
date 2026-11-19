@@ -62,7 +62,7 @@ The `.fwsc` files are gitignored. A fresh build downloads and checks any missing
 - Online sources: the FM-1 Firmware Hub, fm1-editor.com, shrub.audio, jakehandy.com/h1, Reverbose and mutant.cloud.
 - Search box: all words must match the name, version, tags, author or description.
 - Click a tag to add or remove it from the search.
-- The **Devices** button shows All, FM-1, SMK-37 Pro, SMK-37 Elite or MKE-P37.
+- The **Devices** button shows All, FM-1, **New Chip FM-1**, SMK-37 Pro, SMK-37 Elite or MKE-P37. New Chip FM-1 lists only builds that certify the newer flash chip (or both chips).
 - The favorite button pins a row to the top. Its menu gives it a different glyph.
 - **Download** gets an online firmware. **Download All** gets every offer the device filter shows.
 - **Reload** fetches all online lists again.

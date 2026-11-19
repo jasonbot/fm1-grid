@@ -45,6 +45,28 @@ pub(crate) fn text_of(html: &str) -> String {
     unescape(&out).split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
+
+/// Chip support stated in prose: a listing that says "either/both flash chip" is
+/// certified for both; one that names only the newer chip is new-chip certified.
+pub(crate) fn chip_tags(text: &str) -> Vec<String> {
+    let text = text.to_ascii_lowercase();
+    if text.contains("either flash chip")
+        || text.contains("either chip")
+        || text.contains("both flash chip")
+        || text.contains("both chips")
+    {
+        vec!["any chip".to_string()]
+    } else if text.contains("newer flash chip")
+        || text.contains("new flash chip")
+        || text.contains("uc25hq80")
+        || text.contains("0xb36014")
+    {
+        vec!["new chip".to_string()]
+    } else {
+        Vec::new()
+    }
+}
+
 /// The device strings listings use ("fm-1", "smk37-pro"); unknown/empty falls back
 /// to Fm1.
 pub(crate) fn parse_device(product: &str) -> FirmwareDevice {
@@ -90,5 +112,17 @@ pub(crate) fn named_for_variant(name: String, variant: Option<&str>) -> String {
         name
     } else {
         format!("{name} — {variant}")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn chip_prose_maps_to_filters() {
+        assert_eq!(chip_tags("works on either flash chip"), ["any chip"]);
+        assert_eq!(chip_tags("supports newer FM1s with the UC25HQ80"), ["new chip"]);
+        assert!(chip_tags("works on the FM-1").is_empty());
     }
 }

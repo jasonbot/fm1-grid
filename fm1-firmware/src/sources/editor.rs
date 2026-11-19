@@ -100,6 +100,7 @@ fn parse_page(html: &str) -> Result<Vec<Firmware>, String> {
         let source_url = labeled("source");
 
         let mut tags = tags;
+        tags.extend(super::chip_tags(&blurbs.join("\n\n")));
         tags.push("source:fm1-editor".to_string());
         entries.push(Firmware {
             device: if name.to_ascii_uppercase().contains("SMK") {

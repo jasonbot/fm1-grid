@@ -945,7 +945,7 @@ mod tests {
     #[test]
     fn device_filter_defaults_to_fm1_and_offers_every_variant() {
         assert_eq!(DeviceFilter::default(), DeviceFilter::Fm1);
-        assert_eq!(DeviceFilter::ALL.len(), 5);
+        assert_eq!(DeviceFilter::ALL.len(), 6);
     }
 
     /// Every source row carries its links; sources and sinks sort by label so the

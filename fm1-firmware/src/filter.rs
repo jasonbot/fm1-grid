@@ -13,15 +13,18 @@ pub enum DeviceFilter {
     /// FM-1 only (the emulator panes).
     #[default]
     Fm1,
+    /// FM-1 builds the listing certifies for the newer flash chip.
+    NewChipFm1,
     Smk37Pro,
     Smk37Elite,
     MkeP37,
 }
 
 impl DeviceFilter {
-    pub const ALL: [DeviceFilter; 5] = [
+    pub const ALL: [DeviceFilter; 6] = [
         Self::All,
         Self::Fm1,
+        Self::NewChipFm1,
         Self::Smk37Pro,
         Self::Smk37Elite,
         Self::MkeP37,
@@ -31,6 +34,7 @@ impl DeviceFilter {
         match self {
             Self::All => "All",
             Self::Fm1 => "FM-1",
+            Self::NewChipFm1 => "New Chip FM-1",
             Self::Smk37Pro => "SMK-37 Pro",
             Self::Smk37Elite => "SMK-37 Elite",
             Self::MkeP37 => "MKE-P37",
@@ -45,6 +49,9 @@ impl DeviceFilter {
         match self {
             Self::All => true,
             Self::Fm1 => firmware.device == FirmwareDevice::Fm1,
+            Self::NewChipFm1 => {
+                firmware.device == FirmwareDevice::Fm1 && firmware.works_on_new_chip()
+            }
             // A generic SMK-37 package may run on every submodel; only a package
             // explicitly tagged with another submodel is excluded.
             Self::Smk37Pro => {
@@ -81,6 +88,7 @@ impl<'de> Deserialize<'de> for DeviceFilter {
             Repr::Name(name) => match name.as_str() {
                 "all" => Self::All,
                 "fm1" => Self::Fm1,
+                "new-chip-fm1" | "newchip-fm1" => Self::NewChipFm1,
                 "smk37-pro" | "smk37pro" => Self::Smk37Pro,
                 "smk37-elite" => Self::Smk37Elite,
                 "mke-p37" => Self::MkeP37,
@@ -120,12 +128,16 @@ mod tests {
     #[test]
     fn each_selection_shows_only_its_submodel() {
         let fm1 = firmware(FirmwareDevice::Fm1, None);
+        let mut new_chip = firmware(FirmwareDevice::Fm1, None);
+        new_chip.tags.push("new chip".into());
         let pro = firmware(FirmwareDevice::Smk37, Some("SMK-37 Pro"));
         let elite = firmware(FirmwareDevice::Smk37, Some("SMK-37 Elite"));
         let mke = firmware(FirmwareDevice::Smk37, Some("MKE-P37"));
         let generic = firmware(FirmwareDevice::Smk37, None);
         assert!(DeviceFilter::All.shows(&pro) && DeviceFilter::All.shows(&fm1));
         assert!(DeviceFilter::Fm1.shows(&fm1) && !DeviceFilter::Fm1.shows(&pro));
+        assert!(DeviceFilter::NewChipFm1.shows(&new_chip));
+        assert!(!DeviceFilter::NewChipFm1.shows(&fm1));
         assert!(DeviceFilter::Smk37Pro.shows(&pro) && !DeviceFilter::Smk37Pro.shows(&elite));
         assert!(DeviceFilter::Smk37Elite.shows(&elite) && !DeviceFilter::Smk37Elite.shows(&mke));
         assert!(DeviceFilter::MkeP37.shows(&mke) && !DeviceFilter::MkeP37.shows(&fm1));
@@ -158,6 +170,10 @@ mod tests {
         assert_eq!(
             serde_json::from_value::<DeviceFilter>(json!("smk37-elite")).unwrap(),
             DeviceFilter::Smk37Elite
+        );
+        assert_eq!(
+            serde_json::from_value::<DeviceFilter>(json!("new-chip-fm1")).unwrap(),
+            DeviceFilter::NewChipFm1
         );
     }
 }

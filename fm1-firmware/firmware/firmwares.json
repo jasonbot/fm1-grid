@@ -4,7 +4,8 @@
     "version": "2.8.5",
     "file": "sloop-2.8.5.fwsc",
     "tags": [
-      "groove"
+      "groove",
+      "new chip"
     ],
     "description": "A live groovebox: tracks, layers, a step sequencer, song mode, punch-in effects and samples, played on the FM-1 in real time.",
     "byline": "isod89",
@@ -21,10 +22,11 @@
     "file": "felucca-1.8.2.fwsc",
     "tags": [
       "groove",
-      "dev"
+      "dev",
+      "new chip"
     ],
     "description": "The custom firmware the others build on: the FM-1's own synth engines, a sequencer, effects and a better panel, with an editor in the browser.",
-    "byline": "Leo Kuroshita (Hügelton Instruments)",
+    "byline": "Leo Kuroshita (H\u00fcgelton Instruments)",
     "device": "fm-1",
     "url": "https://thefirmwarehub.com/fw/felucca-1.8.2.fwsc",
     "website": "https://github.com/hugelton/Felucca",
@@ -70,7 +72,8 @@
     "file": "choralroot-0.41.fwsc",
     "tags": [
       "chords",
-      "beta"
+      "beta",
+      "new chip"
     ],
     "description": "A Telepathic Orchid-style chord instrument: one hand plays roots, the other shapes chords; voicings, performance modes, bass and a looper.",
     "byline": "Quixotic7",
@@ -86,7 +89,8 @@
     "version": "102",
     "file": "FM-1+VA-102.fwsc",
     "tags": [
-      "synth"
+      "synth",
+      "new chip"
     ],
     "description": "A live-performance rebuild of the FM-1: a Virtual Analog engine with seven-oscillator super stacks, drift and zero-delay-feedback filters, an 8-bit chiptune engine with drums, sound effects and 31-shape arpeggios, a 64-step sequencer with per-step ratchet, chance, gate and parameter locks, patterns chained into songs, and four knobs on every screen.",
     "byline": "Baud Girl",

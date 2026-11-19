@@ -46,6 +46,8 @@ struct CatalogEntry {
     #[allow(dead_code)]
     sha256: Option<String>,
     /// The project's web page ("site") and source tree link; missing on some entries.
+    #[serde(default)]
+    chip: String,
     #[serde(default, rename = "site")]
     website: Option<String>,
     #[serde(default, rename = "source")]
@@ -105,6 +107,12 @@ pub(crate) fn parse_catalog_with(json: &str, origin: &str) -> Result<Vec<Firmwar
             if entry.vintage {
                 tags.push("vintage".to_string());
             }
+            match entry.chip.to_ascii_lowercase().as_str() {
+                "new" => tags.push("new chip".to_string()),
+                "any" => tags.push("any chip".to_string()),
+                "old" => tags.push("old chip".to_string()),
+                _ => {}
+            }
             let variant = parse_variant(&entry.device);
             if let Some(variant) = variant {
                 tags.push(variant.to_string());
@@ -150,7 +158,7 @@ mod tests {
         let json = r#"{"firmwares": [
             {"name": "fm1-open", "version": "2.1", "pkg": "fw/mvave/fm1-open.fwsc",
              "sha256": "abc123", "author": "M-VAVE", "product": "FM-1_975",
-             "what": "dev kit firmware", "kind": "official",
+             "what": "dev kit firmware", "kind": "official", "chip": "new",
              "site": "https://open.m-vave.com", "source": "https://github.com/m-vave/fm1_open"},
             {"name": "smk-os", "version": "0.9", "pkg": "fw/smk-os.fwsc",
              "product": "SMK-37 Pro", "kind": "synth", "vintage": true}
@@ -161,7 +169,7 @@ mod tests {
         assert_eq!(listing[0].device, FirmwareDevice::Fm1);
         assert_eq!(listing[0].byline, "M-VAVE");
         assert_eq!(listing[0].description, "dev kit firmware");
-        assert_eq!(listing[0].tags, vec!["official", "source:hub"]);
+        assert_eq!(listing[0].tags, vec!["official", "new chip", "source:hub"]);
         assert_eq!(
             listing[0].website.as_deref(),
             Some("https://open.m-vave.com")

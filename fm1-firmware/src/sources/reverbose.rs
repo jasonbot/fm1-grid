@@ -120,6 +120,7 @@ fn parse_page(html: &str, device: FirmwareDevice) -> Result<Vec<Firmware>, Strin
         if chunk.contains("title=\"Runs on top of the factory firmware.\"") {
             tags.push("mod".to_string());
         }
+        tags.extend(super::chip_tags(&description));
         tags.push("source:reverbose".to_string());
 
         entries.push(Firmware {

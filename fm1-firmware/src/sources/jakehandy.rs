@@ -30,7 +30,11 @@ fn parse_listing(page: &str) -> Result<Vec<Firmware>, String> {
         byline: "Jake Handy".to_string(),
         version: version.to_string(),
         description,
-        tags: vec!["synth".to_string(), "source:jakehandy".to_string()],
+        tags: vec![
+            "synth".to_string(),
+            "any chip".to_string(),
+            "source:jakehandy".to_string(),
+        ],
         device: FirmwareDevice::Fm1,
         website: Some(SITE.to_string()),
         source_url: Some(REPO.to_string()),
@@ -56,7 +60,7 @@ Guide matches h1's current build, <a href="https://github.com/jakehandy/h1/relea
         assert_eq!(listing[0].name, "h1");
         assert_eq!(listing[0].version, "0.2.1");
         assert_eq!(listing[0].byline, "Jake Handy");
-        assert_eq!(listing[0].tags, ["synth", "source:jakehandy"]);
+        assert_eq!(listing[0].tags, ["synth", "any chip", "source:jakehandy"]);
         assert_eq!(listing[0].device, FirmwareDevice::Fm1);
         match &listing[0].source {
             FirmwareSource::Hub { path, blob } => {

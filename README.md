@@ -59,7 +59,7 @@ The `.fwsc` files are gitignored. A fresh build downloads and checks any missing
 ![Library tab](./screenshot/library.png)
 
 - Lists bundled firmware, files you import, and online listings.
-- Online sources: the FM-1 Firmware Hub, fm1-editor.com, Reverbose and mutant.cloud.
+- Online sources: the FM-1 Firmware Hub, fm1-editor.com, shrub.audio, jakehandy.com/h1, Reverbose and mutant.cloud.
 - Search box: all words must match the name, version, tags, author or description.
 - Click a tag to add or remove it from the search.
 - The **Devices** button shows All, FM-1, SMK-37 Pro, SMK-37 Elite or MKE-P37.
@@ -111,7 +111,7 @@ flowchart LR
 - **Influenza**, **Meltysand**, **Visualia**, **Mac Platinum**, **Very High Contrast** and **Japanese Stationery** are built from the accent color. Japanese Stationery keeps its paper and ink fixed; its blue family follows the accent.
 - **Mode** follows the OS, or pins Light or Dark.
 - **Accent color** only works for those computed themes.
-- **Firmware sources** turns the Firmware Hub, fm1-editor, shrub.audio, mutant.cloud and Reverbose listings on or off. Mutant and Reverbose start off; changing a source reloads the Library the next time you open it.
+- **Firmware sources** turns the Firmware Hub, fm1-editor, shrub.audio, jakehandy.com/h1, mutant.cloud and Reverbose listings on or off. Mutant and Reverbose start off; the others start on.
 - **Reset** puts the theme and mode back to their defaults.
 
 ## About

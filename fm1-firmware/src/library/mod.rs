@@ -16,7 +16,7 @@ use std::time::{Duration, Instant};
 
 use crate::builtin::BUILTINS;
 use crate::download_heuristics::fetch_package;
-use crate::sources::{editor, hub, mutant, reverbose, shrub};
+use crate::sources::{editor, hub, jakehandy, mutant, reverbose, shrub};
 use fm1_base::store::Store;
 use crate::filter::DeviceFilter;
 
@@ -413,6 +413,7 @@ impl Library {
             format!("{}?{day}", reverbose::SMK37_PAGE),
             shrub::SITE.to_string(),
             shrub::BUILD.to_string(),
+            jakehandy::SITE.to_string(),
         );
     }
 
@@ -431,6 +432,7 @@ impl Library {
         reverbose_smk_url: String,
         shrub_url: String,
         shrub_build_url: String,
+        jakehandy_url: String,
     ) {
         *self.last_refresh.lock().unwrap() = Some(Instant::now());
         *self.hub_status.lock().unwrap() = HubStatus::Loading;
@@ -446,6 +448,7 @@ impl Library {
                 reverbose_page,
                 reverbose_smk_page,
                 shrub_page,
+                jakehandy_page,
             ) = std::thread::scope(|scope| {
                     let editor_page = feeds
                         .editor
@@ -464,6 +467,9 @@ impl Library {
                     let shrub_page = feeds
                         .shrub
                         .then(|| scope.spawn(|| shrub::fetch_listing(&shrub_url, &shrub_build_url)));
+                    let jakehandy_page = feeds
+                        .jakehandy
+                        .then(|| scope.spawn(|| jakehandy::fetch_listing(&jakehandy_url)));
                     let listing = if feeds.hub {
                         hub::fetch_listing(&url)
                     } else {
@@ -499,6 +505,12 @@ impl Library {
                             .unwrap_or_else(|_| Err("shrub page thread panicked".to_string())),
                         None => Ok(Vec::new()),
                     };
+                    let jakehandy_page = match jakehandy_page {
+                        Some(handle) => handle.join().unwrap_or_else(|_| {
+                            Err("jakehandy page thread panicked".to_string())
+                        }),
+                        None => Ok(Vec::new()),
+                    };
                     (
                         listing,
                         editor_page,
@@ -506,6 +518,7 @@ impl Library {
                         reverbose_page,
                         reverbose_smk_page,
                         shrub_page,
+                        jakehandy_page,
                     )
                 });
             let next = match listing {
@@ -521,6 +534,7 @@ impl Library {
                         reverbose_page,
                         reverbose_smk_page,
                         shrub_page,
+                        jakehandy_page,
                     ] {
                         match extra {
                             Ok(extra) => listing = merge_listings(listing, extra),

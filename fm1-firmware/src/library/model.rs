@@ -79,6 +79,7 @@ pub struct HubFeeds {
     pub mutant: bool,
     pub reverbose: bool,
     pub shrub: bool,
+    pub jakehandy: bool,
 }
 
 impl Default for HubFeeds {
@@ -89,6 +90,7 @@ impl Default for HubFeeds {
             mutant: false,
             reverbose: false,
             shrub: true,
+            jakehandy: true,
         }
     }
 }
@@ -96,7 +98,7 @@ impl Default for HubFeeds {
 impl HubFeeds {
     /// Whether at least one source will be fetched.
     pub fn any(self) -> bool {
-        self.hub || self.editor || self.mutant || self.reverbose || self.shrub
+        self.hub || self.editor || self.mutant || self.reverbose || self.shrub || self.jakehandy
     }
 
     /// Whether an entry carrying `source:<origin>` belongs to an enabled feed.
@@ -107,6 +109,7 @@ impl HubFeeds {
             "mutant" => self.mutant,
             "reverbose" => self.reverbose,
             "shrub" => self.shrub,
+            "jakehandy" => self.jakehandy,
             // Bundled index metadata is always visible.
             _ => true,
         }

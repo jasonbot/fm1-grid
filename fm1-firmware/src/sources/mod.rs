@@ -6,6 +6,7 @@
 
 pub(crate) mod editor;
 pub(crate) mod hub;
+pub(crate) mod jakehandy;
 pub(crate) mod mutant;
 pub(crate) mod reverbose;
 pub(crate) mod shrub;

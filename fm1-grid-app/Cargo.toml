@@ -37,6 +37,7 @@ windows = { version = "0.61", features = [
     "Foundation_Collections",
     "Management_Deployment",
     "Services_Store",
+    "System",
     "Win32_Foundation",
     "Win32_Networking_WinHttp",
     "Win32_Storage_Packaging_Appx",

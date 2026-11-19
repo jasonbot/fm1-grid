@@ -1,5 +1,5 @@
-//! MSIX package inspection: OPC ZIP entry lookup, `AppxManifest.xml` identity
-//! parsing and version ordering.
+//! MSIX package inspection: OPC ZIP entry lookup, `AppxManifest.xml` and
+//! `AppxBundleManifest.xml` identity parsing, and version ordering.
 //!
 //! Everything here is pure data so the Windows-only network and WinRT layers
 //! stay thin and the parsing rules stay testable on every host. The updater
@@ -12,15 +12,23 @@ use std::io::Read;
 /// The manifest sits at the archive root of an MSIX.
 pub(crate) const MANIFEST_NAME: &str = "AppxManifest.xml";
 
+/// An `.msixbundle` is a ZIP whose bundle manifest lives under `AppxMetadata`.
+/// Its `<Package Type="application">` entries carry the per-architecture
+/// versions deployment would install.
+pub(crate) const BUNDLE_MANIFEST_NAME: &str = "AppxMetadata/AppxBundleManifest.xml";
+
 /// Deflate cannot do better than ~1000:1 on a manifest, so anything past this
 /// is a malformed or hostile archive.
 const MAX_MANIFEST_BYTES: usize = 8 * 1024 * 1024;
 
 const EOCD_SIGNATURE: u32 = 0x0605_4b50;
+const ZIP64_EOCD_SIGNATURE: u32 = 0x0606_4b50;
+const ZIP64_LOCATOR_SIGNATURE: u32 = 0x0706_4b50;
 const CENTRAL_SIGNATURE: u32 = 0x0201_4b50;
 const LOCAL_SIGNATURE: u32 = 0x0403_4b50;
 
 const EOCD_LEN: usize = 22;
+const ZIP64_LOCATOR_LEN: usize = 20;
 pub(crate) const LOCAL_HEADER_LEN: usize = 30;
 const CENTRAL_HEADER_LEN: usize = 46;
 
@@ -168,9 +176,8 @@ impl HostedUrl {
 /// offset of `bytes[0]`; the whole directory must be contained in `bytes`.
 pub(crate) fn find_entry(bytes: &[u8], base: u64, name: &str) -> Option<Entry> {
     let eocd = find_eocd(bytes)?;
-    let count = read_u16(bytes, eocd + 10)? as usize;
-    let directory_size = read_u32(bytes, eocd + 12)? as u64;
-    let directory_offset = read_u32(bytes, eocd + 16)? as u64;
+    let (count, directory_size, directory_offset) = directory_fields(bytes, base, eocd)?;
+    let count = usize::try_from(count).ok()?;
     let directory_start = usize::try_from(directory_offset.checked_sub(base)?).ok()?;
     let directory_end = directory_start.checked_add(usize::try_from(directory_size).ok()?)?;
     if directory_end > bytes.len() {
@@ -215,10 +222,92 @@ pub(crate) fn read_entry(archive: &[u8], entry: Entry) -> Option<Vec<u8>> {
     read_compressed(entry, archive.get(start..end)?)
 }
 
-/// The `Version` from the archive's `AppxManifest.xml`, if it has one.
-pub(crate) fn manifest_version(archive: &[u8]) -> Option<Version> {
-    let entry = find_entry(archive, 0, MANIFEST_NAME)?;
-    identity_version(&read_entry(archive, entry)?)
+/// Which manifest an archive carries.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum Manifest {
+    /// An `.msixbundle`: each `<Package Type="application">` entry names the
+    /// version deployment would install for that architecture.
+    Bundle(Entry),
+    /// A plain `.msix`: the `<Identity>` version is the package version.
+    Package(Entry),
+}
+
+impl Manifest {
+    pub(crate) fn entry(&self) -> Entry {
+        match *self {
+            Self::Bundle(entry) | Self::Package(entry) => entry,
+        }
+    }
+
+    /// The version this archive would install on `architecture`.
+    pub(crate) fn version(&self, manifest: &[u8], architecture: &str) -> Option<Version> {
+        match self {
+            Self::Bundle(_) => bundle_version(manifest, architecture),
+            Self::Package(_) => identity_version(manifest),
+        }
+    }
+}
+
+/// Finds the manifest entry in a tail: a bundle's `AppxBundleManifest.xml`
+/// first, then a package's `AppxManifest.xml`. A bundle has no manifest at its
+/// root, and a plain MSIX has no `AppxMetadata` entry, so the order is only
+/// defensive.
+pub(crate) fn find_manifest_entry(bytes: &[u8], base: u64) -> Option<Manifest> {
+    if let Some(entry) = find_entry(bytes, base, BUNDLE_MANIFEST_NAME) {
+        return Some(Manifest::Bundle(entry));
+    }
+    find_entry(bytes, base, MANIFEST_NAME).map(Manifest::Package)
+}
+
+/// The version a fully buffered `.msix` or `.msixbundle` would install on
+/// `architecture`.
+pub(crate) fn package_version(archive: &[u8], architecture: &str) -> Option<Version> {
+    let manifest = find_manifest_entry(archive, 0)?;
+    manifest.version(&read_entry(archive, manifest.entry())?, architecture)
+}
+
+/// The `Version` of the bundle's application package for `architecture`, or of
+/// its neutral application package when there is no architecture match.
+///
+/// The `<Package>` entries are authoritative here, not the bundle
+/// `<Identity>`: Store bundles number the bundle independently of the packages
+/// inside (for example `3001.*` versus `1.*`), so comparing an installed
+/// package version against the bundle identity would misreport every build.
+pub(crate) fn bundle_version(manifest: &[u8], architecture: &str) -> Option<Version> {
+    let manifest = manifest.strip_prefix(b"\xef\xbb\xbf").unwrap_or(manifest);
+    let text = std::str::from_utf8(manifest).ok()?;
+
+    let mut rest = text;
+    let mut neutral = None;
+    while let Some(index) = rest.find("<Package") {
+        let after = &rest[index + "<Package".len()..];
+        if !after.starts_with(|c: char| c.is_whitespace() || c == '>' || c == '/') {
+            rest = after;
+            continue;
+        }
+        let Some(tag_end) = after.find('>') else {
+            break;
+        };
+        let tag = &after[..tag_end];
+        rest = &after[tag_end..];
+
+        if !attribute_value(tag, "Type")
+            .is_some_and(|kind| kind.eq_ignore_ascii_case("application"))
+        {
+            continue;
+        }
+        let Some(version) = attribute(tag, "Version") else {
+            continue;
+        };
+        let package_arch = attribute_value(tag, "Architecture").unwrap_or("neutral");
+        if package_arch.eq_ignore_ascii_case(architecture) {
+            return Some(version);
+        }
+        if package_arch.eq_ignore_ascii_case("neutral") {
+            neutral = Some(version);
+        }
+    }
+    neutral
 }
 
 /// Extracts `Version` from the `<Identity ...>` element of a manifest.
@@ -280,19 +369,50 @@ fn find_eocd(bytes: &[u8]) -> Option<usize> {
         .find(|&index| read_u32(bytes, index) == Some(EOCD_SIGNATURE))
 }
 
+/// Central-directory `(entries, size, offset)` from the end-of-central-directory
+/// records. MakeAppx writes ZIP64 records even for small packages, so a
+/// standard record whose fields are `0xFFFF`/`0xFFFFFFFF` sentinels must be
+/// resolved through the immediately preceding ZIP64 locator and record.
+fn directory_fields(bytes: &[u8], base: u64, eocd: usize) -> Option<(u64, u64, u64)> {
+    let count = read_u16(bytes, eocd + 10)? as u64;
+    let size = read_u32(bytes, eocd + 12)? as u64;
+    let offset = read_u32(bytes, eocd + 16)? as u64;
+    if count != u16::MAX as u64 && size != u32::MAX as u64 && offset != u32::MAX as u64 {
+        return Some((count, size, offset));
+    }
+
+    let locator = eocd.checked_sub(ZIP64_LOCATOR_LEN)?;
+    if read_u32(bytes, locator)? != ZIP64_LOCATOR_SIGNATURE {
+        return None;
+    }
+    let record = usize::try_from(read_u64(bytes, locator + 8)?.checked_sub(base)?).ok()?;
+    if read_u32(bytes, record)? != ZIP64_EOCD_SIGNATURE {
+        return None;
+    }
+    Some((
+        read_u64(bytes, record + 32)?,
+        read_u64(bytes, record + 40)?,
+        read_u64(bytes, record + 48)?,
+    ))
+}
+
 fn attribute(tag: &str, name: &str) -> Option<Version> {
+    Version::parse(attribute_value(tag, name)?)
+}
+
+/// The raw value of attribute `name` inside a start tag (without its quotes).
+fn attribute_value<'a>(tag: &'a str, name: &str) -> Option<&'a str> {
     let mut search = 0;
     while let Some(index) = tag[search..].find(name) {
         let start = search + index;
         let boundary = start == 0 || tag.as_bytes()[start - 1].is_ascii_whitespace();
-        let after = &tag[start + name.len()..];
-        let after = after.trim_start();
+        let after = tag[start + name.len()..].trim_start();
         if boundary {
             if let Some(value) = after.strip_prefix('=') {
                 let value = value.trim_start();
                 let quote = value.chars().next().filter(|c| *c == '"' || *c == '\'')?;
                 let end = value[1..].find(quote)?;
-                return Version::parse(&value[1..1 + end]);
+                return Some(&value[1..1 + end]);
             }
         }
         search = start + name.len();
@@ -312,6 +432,12 @@ fn read_u32(bytes: &[u8], offset: usize) -> Option<u32> {
     ))
 }
 
+fn read_u64(bytes: &[u8], offset: usize) -> Option<u64> {
+    Some(u64::from_le_bytes(
+        bytes.get(offset..offset + 8)?.try_into().ok()?,
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -324,6 +450,21 @@ mod tests {
   <Identity Name="FM1.Grid" Publisher="CN=FM1" Version="{version}" ProcessorArchitecture="x64" />
   <Properties><DisplayName>FM1 Grid</DisplayName></Properties>
 </Package>"#
+        )
+        .into_bytes()
+    }
+
+    /// The real shape MakeAppx emits for a multi-architecture bundle.
+    fn bundle_manifest(identity_version: &str, package_version: &str) -> Vec<u8> {
+        format!(
+            r#"<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<Bundle SchemaVersion="2.0" xmlns="http://schemas.microsoft.com/appx/2013/bundle">
+  <Identity Name="FM1.Grid" Publisher="CN=FM1" Version="{identity_version}"/>
+  <Packages>
+    <Package Type="application" Version="{package_version}" Architecture="x64" FileName="FM1.Grid_{package_version}_x64.msix"/>
+    <Package Type="application" Version="{package_version}" Architecture="arm64" FileName="FM1.Grid_{package_version}_arm64.msix"/>
+  </Packages>
+</Bundle>"#
         )
         .into_bytes()
     }
@@ -383,6 +524,43 @@ mod tests {
         out
     }
 
+    /// Rewrites a fixture's trailer the way MakeAppx does: a ZIP64 EOCD record
+    /// and locator, then the standard EOCD with sentinel fields.
+    fn zip64_archive(members: &[(&str, &[u8], bool)]) -> Vec<u8> {
+        let mut out = archive(members);
+        let eocd = out.len() - EOCD_LEN;
+        let count = read_u16(&out, eocd + 10).unwrap() as u64;
+        let size = read_u32(&out, eocd + 12).unwrap() as u64;
+        let offset = read_u32(&out, eocd + 16).unwrap() as u64;
+        out.truncate(eocd);
+
+        let record = out.len() as u64;
+        out.extend_from_slice(&ZIP64_EOCD_SIGNATURE.to_le_bytes());
+        out.extend_from_slice(&44u64.to_le_bytes()); // remaining record size
+        out.extend_from_slice(&45u16.to_le_bytes()); // version made by
+        out.extend_from_slice(&45u16.to_le_bytes()); // version needed
+        out.extend_from_slice(&0u32.to_le_bytes()); // disk
+        out.extend_from_slice(&0u32.to_le_bytes()); // central-directory disk
+        out.extend_from_slice(&count.to_le_bytes());
+        out.extend_from_slice(&count.to_le_bytes());
+        out.extend_from_slice(&size.to_le_bytes());
+        out.extend_from_slice(&offset.to_le_bytes());
+
+        out.extend_from_slice(&ZIP64_LOCATOR_SIGNATURE.to_le_bytes());
+        out.extend_from_slice(&0u32.to_le_bytes()); // disk
+        out.extend_from_slice(&record.to_le_bytes());
+        out.extend_from_slice(&1u32.to_le_bytes()); // disks
+
+        out.extend_from_slice(&EOCD_SIGNATURE.to_le_bytes());
+        out.extend_from_slice(&[0; 4]);
+        out.extend_from_slice(&u16::MAX.to_le_bytes());
+        out.extend_from_slice(&u16::MAX.to_le_bytes());
+        out.extend_from_slice(&u32::MAX.to_le_bytes());
+        out.extend_from_slice(&u32::MAX.to_le_bytes());
+        out.extend_from_slice(&[0; 2]);
+        out
+    }
+
     #[test]
     fn version_order_and_display() {
         let old = Version::parse("1.2.3.4").unwrap();
@@ -415,14 +593,148 @@ mod tests {
     }
 
     #[test]
-    fn manifest_version_reads_deflated_and_stored_members() {
+    fn package_version_reads_deflated_and_stored_members() {
         for deflate in [false, true] {
             let zip = archive(&[
                 ("[Content_Types].xml", b"<Types/>", true),
                 (MANIFEST_NAME, &manifest("7.8.9.10"), deflate),
             ]);
-            assert_eq!(manifest_version(&zip), Some(Version::new(7, 8, 9, 10)));
+            assert_eq!(
+                package_version(&zip, "x64"),
+                Some(Version::new(7, 8, 9, 10))
+            );
         }
+    }
+
+    #[test]
+    fn package_version_reads_bundle_manifests() {
+        for deflate in [false, true] {
+            let zip = archive(&[
+                ("[Content_Types].xml", b"<Types/>", true),
+                (
+                    BUNDLE_MANIFEST_NAME,
+                    &bundle_manifest("2.4.6.8", "2.4.6.8"),
+                    deflate,
+                ),
+                ("FM1.Grid_2.4.6.8_x64.msix", b"inner", false),
+                ("FM1.Grid_2.4.6.8_arm64.msix", b"inner", false),
+            ]);
+            for architecture in ["x64", "arm64"] {
+                assert_eq!(
+                    package_version(&zip, architecture),
+                    Some(Version::new(2, 4, 6, 8)),
+                    "{architecture}"
+                );
+            }
+            // A bundle without the running architecture installs nothing.
+            assert_eq!(package_version(&zip, "x86"), None);
+        }
+    }
+
+    #[test]
+    fn bundle_version_prefers_package_entries_over_the_bundle_identity() {
+        // Store bundles number the bundle independently of the packages, so the
+        // installed package must be compared against its own entry.
+        let manifest = bundle_manifest("3001.1.0.0", "1.1.0.0");
+        assert_eq!(
+            bundle_version(&manifest, "x64"),
+            Some(Version::new(1, 1, 0, 0))
+        );
+        assert_eq!(
+            bundle_version(&manifest, "arm64"),
+            Some(Version::new(1, 1, 0, 0))
+        );
+        assert_eq!(bundle_version(&manifest, "x86"), None);
+    }
+
+    #[test]
+    fn bundle_version_falls_back_to_a_neutral_package() {
+        let manifest = br#"<Bundle><Packages>
+  <Package Type="application" Version="4.5.6.7" FileName="app.msix"/>
+  <Package Type="resource" Version="9.9.9.9" Architecture="x64" FileName="res.msix"/>
+</Packages></Bundle>"#;
+        assert_eq!(
+            bundle_version(manifest, "x64"),
+            Some(Version::new(4, 5, 6, 7))
+        );
+    }
+
+    #[test]
+    fn bundle_manifest_wins_over_a_root_package_manifest() {
+        let zip = archive(&[
+            (MANIFEST_NAME, &manifest("1.0.0.0"), true),
+            (
+                BUNDLE_MANIFEST_NAME,
+                &bundle_manifest("2.0.0.0", "2.0.0.0"),
+                true,
+            ),
+        ]);
+        assert_eq!(package_version(&zip, "x64"), Some(Version::new(2, 0, 0, 0)));
+    }
+
+    #[test]
+    fn bundle_manifest_offsets_work_from_a_tail() {
+        let zip = archive(&[
+            ("padding.bin", &[0x55; 4096], false),
+            (
+                BUNDLE_MANIFEST_NAME,
+                &bundle_manifest("3.1.4.1", "3.1.4.1"),
+                true,
+            ),
+            ("FM1.Grid_3.1.4.1_x64.msix", &[0; 1024], false),
+        ]);
+        let base = 4096;
+        let tail = &zip[base..];
+        let manifest = find_manifest_entry(tail, base as u64).unwrap();
+        let entry = manifest.entry();
+        let local = &zip[entry.local_header_offset as usize..];
+        let (start, last) = entry.data_range(&local[..LOCAL_HEADER_LEN]).unwrap();
+        let data = &zip[start as usize..last as usize + 1];
+        let decoded = read_compressed(entry, data).unwrap();
+        assert_eq!(
+            manifest.version(&decoded, "arm64"),
+            Some(Version::new(3, 1, 4, 1))
+        );
+    }
+
+    #[test]
+    fn zip64_trailers_resolve_the_directory() {
+        // Both a bundle and a plain package, because MakeAppx emits the ZIP64
+        // trailer for either.
+        let bundle = zip64_archive(&[
+            ("padding.bin", &[0x55; 4096], false),
+            (
+                BUNDLE_MANIFEST_NAME,
+                &bundle_manifest("5.6.7.8", "5.6.7.8"),
+                true,
+            ),
+        ]);
+        assert_eq!(
+            package_version(&bundle, "x64"),
+            Some(Version::new(5, 6, 7, 8))
+        );
+
+        let package = zip64_archive(&[
+            ("padding.bin", &[0x55; 4096], false),
+            (MANIFEST_NAME, &manifest("6.0.0.1"), true),
+        ]);
+        assert_eq!(
+            package_version(&package, "x64"),
+            Some(Version::new(6, 0, 0, 1))
+        );
+
+        // The tail path must resolve the locator's absolute record offset.
+        let base = 4096;
+        let tail = &bundle[base..];
+        let found = find_manifest_entry(tail, base as u64).unwrap();
+        let entry = found.entry();
+        let local = &bundle[entry.local_header_offset as usize..];
+        let (start, last) = entry.data_range(&local[..LOCAL_HEADER_LEN]).unwrap();
+        let decoded = read_compressed(entry, &bundle[start as usize..last as usize + 1]).unwrap();
+        assert_eq!(
+            found.version(&decoded, "arm64"),
+            Some(Version::new(5, 6, 7, 8))
+        );
     }
 
     #[test]

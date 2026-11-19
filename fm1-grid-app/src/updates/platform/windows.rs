@@ -5,13 +5,15 @@
 //! disabled. For a packaged app:
 //!
 //! - a Store signature keeps the `Windows.Services.Store` consent flow;
-//! - any other signature reads `AppxManifest.xml` from the MSIX hosted at
+//! - any other signature reads the identity from the package hosted at
 //!   `FM1_GRID_MSIX_URL` (a build-time environment variable, compiled in only
 //!   when set) and deploys it with `Windows.Management.Deployment`.
 //!
-//! The hosted archive is an OPC ZIP: the check fetches only the archive tail,
-//! the manifest's local header and the manifest bytes, so an hourly check does
-//! not download the whole package.
+//! The hosted file may be a plain `.msix` (`AppxManifest.xml`) or an
+//! `.msixbundle` (`AppxMetadata/AppxBundleManifest.xml`), which carries the
+//! x64 and arm64 packages under one identity. Both are OPC ZIPs: the check
+//! fetches only the archive tail, the manifest's local header and the manifest
+//! bytes, so an hourly check does not download the whole package.
 
 use super::msix::{self, HostedUrl, Version};
 use crate::updates::{
@@ -27,6 +29,7 @@ use windows::Management::Deployment::{
     PackageManager,
 };
 use windows::Services::Store::{StoreContext, StorePackageUpdateResult, StorePackageUpdateState};
+use windows::System::ProcessorArchitecture;
 use windows::Win32::Foundation::{APPMODEL_ERROR_NO_PACKAGE, HWND};
 use windows::Win32::Networking::WinHttp::{
     WinHttpCloseHandle, WinHttpConnect, WinHttpOpen, WinHttpOpenRequest, WinHttpQueryDataAvailable,
@@ -50,7 +53,8 @@ use windows_future::AsyncOperationProgressHandler;
 const HOSTED_MSIX_URL: Option<&str> = option_env!("FM1_GRID_MSIX_URL");
 
 /// The ZIP tail must hold the end-of-central-directory record and the central
-/// directory. An MSIX has a handful of members, so 64 KiB is ample.
+/// directory. MSIX packages and bundles have a handful of members, so 64 KiB is
+/// ample.
 const TAIL_BYTES: u64 = 64 * 1024;
 
 /// The largest archive we are willing to buffer when a server ignores `Range`.
@@ -64,6 +68,8 @@ pub(crate) struct Backend;
 #[derive(Clone, Copy, Debug)]
 struct Identity {
     version: Version,
+    /// Bundle manifest spelling of the installed package's architecture.
+    architecture: &'static str,
     store: bool,
 }
 
@@ -81,6 +87,26 @@ fn packaged() -> bool {
     result != APPMODEL_ERROR_NO_PACKAGE
 }
 
+fn architecture_name(architecture: ProcessorArchitecture) -> &'static str {
+    if architecture == ProcessorArchitecture::X86 {
+        "x86"
+    } else if architecture == ProcessorArchitecture::Arm {
+        "arm"
+    } else if architecture == ProcessorArchitecture::X64 {
+        "x64"
+    } else if architecture == ProcessorArchitecture::Neutral {
+        "neutral"
+    } else if architecture == ProcessorArchitecture::Arm64 {
+        "arm64"
+    } else if architecture == ProcessorArchitecture::X86OnArm64 {
+        "x86"
+    } else {
+        // Never disables Store updates or the rest of the identity: a hosted
+        // bundle simply has no entry this process can claim.
+        "unknown"
+    }
+}
+
 fn identity() -> Option<Identity> {
     // Package identity is fixed for the life of the process; `action()` and the
     // auto-check consult this every frame.
@@ -89,7 +115,8 @@ fn identity() -> Option<Identity> {
             return None;
         }
         let package = Package::Current().ok()?;
-        let version = package.Id().ok()?.Version().ok()?;
+        let id = package.Id().ok()?;
+        let version = id.Version().ok()?;
         Some(Identity {
             version: Version::new(
                 version.Major,
@@ -97,6 +124,7 @@ fn identity() -> Option<Identity> {
                 version.Build,
                 version.Revision,
             ),
+            architecture: architecture_name(id.Architecture().unwrap_or_default()),
             store: package.SignatureKind().ok() == Some(PackageSignatureKind::Store),
         })
     });
@@ -445,16 +473,17 @@ fn fetch_range(url: &HostedUrl, start: u64, length: u64) -> Option<Vec<u8>> {
     }
 }
 
-fn hosted_manifest_version(url: &HostedUrl) -> Option<Version> {
+fn hosted_package_version(url: &HostedUrl, architecture: &str) -> Option<Version> {
     let response = http_request(url, "GET", Some((0, TAIL_BYTES - 1)), MAX_BUFFERED_ARCHIVE)?;
     match response.status {
-        200 => msix::manifest_version(&response.body),
+        200 => msix::package_version(&response.body, architecture),
         206 => {
             let (start, end, _total) = response.content_range?;
             if response.body.len() as u64 != end.checked_sub(start)?.checked_add(1)? {
                 return None;
             }
-            let entry = msix::find_entry(&response.body, start, msix::MANIFEST_NAME)?;
+            let manifest = msix::find_manifest_entry(&response.body, start)?;
+            let entry = manifest.entry();
             let local = fetch_range(
                 url,
                 entry.local_header_offset,
@@ -466,7 +495,7 @@ fn hosted_manifest_version(url: &HostedUrl) -> Option<Version> {
                 data_start,
                 last.checked_sub(data_start)?.checked_add(1)?,
             )?;
-            msix::identity_version(&msix::read_compressed(entry, &data)?)
+            manifest.version(&msix::read_compressed(entry, &data)?, architecture)
         }
         _ => None,
     }
@@ -574,7 +603,8 @@ impl PlatformUpdater for Backend {
                 let Some(local) = identity() else {
                     return false;
                 };
-                hosted_manifest_version(url).is_some_and(|remote| remote > local.version)
+                hosted_package_version(url, local.architecture)
+                    .is_some_and(|remote| remote > local.version)
             }
             Mode::Disabled => false,
         }

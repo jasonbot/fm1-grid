@@ -9,8 +9,9 @@ use std::{
 };
 
 fn main() {
-    // A hosted vanilla-MSIX build stamps its update feed in. Left unset, the
-    // updater has no hosted path and only Store packages update.
+    // A hosted vanilla-MSIX build stamps its update feed in. The URL may serve
+    // a .msix or a .msixbundle. Left unset, the updater has no hosted path and
+    // only Store packages update.
     println!("cargo:rerun-if-env-changed=FM1_GRID_MSIX_URL");
     if let Ok(url) = env::var("FM1_GRID_MSIX_URL") {
         let url = url.trim();

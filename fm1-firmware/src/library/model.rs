@@ -63,10 +63,7 @@ impl Firmware {
     /// flash (or says it works on either chip).
     pub fn works_on_new_chip(&self) -> bool {
         self.tags.iter().any(|tag| {
-            matches!(
-                tag.to_ascii_lowercase().as_str(),
-                "new chip" | "any chip"
-            )
+            tag.eq_ignore_ascii_case("new chip") || tag.eq_ignore_ascii_case("any chip")
         })
     }
 

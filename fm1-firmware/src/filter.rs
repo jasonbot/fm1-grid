@@ -130,6 +130,8 @@ mod tests {
         let fm1 = firmware(FirmwareDevice::Fm1, None);
         let mut new_chip = firmware(FirmwareDevice::Fm1, None);
         new_chip.tags.push("new chip".into());
+        let mut any_chip = firmware(FirmwareDevice::Fm1, None);
+        any_chip.tags.push("any chip".into());
         let pro = firmware(FirmwareDevice::Smk37, Some("SMK-37 Pro"));
         let elite = firmware(FirmwareDevice::Smk37, Some("SMK-37 Elite"));
         let mke = firmware(FirmwareDevice::Smk37, Some("MKE-P37"));
@@ -137,6 +139,7 @@ mod tests {
         assert!(DeviceFilter::All.shows(&pro) && DeviceFilter::All.shows(&fm1));
         assert!(DeviceFilter::Fm1.shows(&fm1) && !DeviceFilter::Fm1.shows(&pro));
         assert!(DeviceFilter::NewChipFm1.shows(&new_chip));
+        assert!(DeviceFilter::NewChipFm1.shows(&any_chip));
         assert!(!DeviceFilter::NewChipFm1.shows(&fm1));
         assert!(DeviceFilter::Smk37Pro.shows(&pro) && !DeviceFilter::Smk37Pro.shows(&elite));
         assert!(DeviceFilter::Smk37Elite.shows(&elite) && !DeviceFilter::Smk37Elite.shows(&mke));

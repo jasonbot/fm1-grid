@@ -278,7 +278,12 @@ impl GridApp {
             }
             pill = pill.child(indicator);
         }
-        pill.child(action.label())
+        let label = if action == UpdateAction::Current {
+            format!("v{}", env!("CARGO_PKG_VERSION"))
+        } else {
+            action.label().to_string()
+        };
+        pill.child(label)
     }
 }
 

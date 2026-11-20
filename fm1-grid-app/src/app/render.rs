@@ -279,7 +279,7 @@ impl GridApp {
             pill = pill.child(indicator);
         }
         let label = if action == UpdateAction::Current {
-            format!("v{}", env!("CARGO_PKG_VERSION"))
+            format!("v{}", crate::APP_VERSION)
         } else {
             action.label().to_string()
         };

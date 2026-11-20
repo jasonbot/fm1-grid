@@ -1,6 +1,7 @@
 //! The About tab: a short app identity/release history page and the generated
 //! third-party licence text.
 
+use crate::APP_VERSION;
 use crate::app::GridApp;
 use gpui_kit::base::{VirtualListScrollHandle, h_flex, v_flex, v_virtual_list};
 use gpui_kit::component::scroll::ScrollableElement;
@@ -172,7 +173,7 @@ fn about_app(cx: &mut Context<GridApp>) -> impl IntoElement {
             div()
                 .text_size(px(12.0))
                 .text_color(dim)
-                .child(format!("Version {}", env!("CARGO_PKG_VERSION"))),
+                .child(format!("Version {}", APP_VERSION)),
         )
         .child(
             div()
@@ -186,7 +187,7 @@ fn about_app(cx: &mut Context<GridApp>) -> impl IntoElement {
             div()
                 .text_size(px(12.0))
                 .text_color(dim)
-                .child(format!("{} — current build.", env!("CARGO_PKG_VERSION"))),
+                .child(format!("{} — current build.", APP_VERSION)),
         )
 }
 

@@ -7,6 +7,13 @@
 /// The window title, shared by the native title bar and the in-app one.
 pub const APP_TITLE: &str = "Synth Firmware Zoo";
 
+/// The release version. Packaging sets `FM1_GRID_BUILD_VERSION` from VERSION; a plain
+/// `cargo build` falls back to the crate version.
+pub(crate) const APP_VERSION: &str = match option_env!("FM1_GRID_BUILD_VERSION") {
+    Some(version) => version,
+    None => env!("CARGO_PKG_VERSION"),
+};
+
 pub mod app;
 mod about;
 mod audio;

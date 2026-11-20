@@ -9,6 +9,7 @@ use std::{
 };
 
 fn main() {
+    println!("cargo:rerun-if-env-changed=FM1_GRID_BUILD_VERSION");
     // A hosted vanilla-MSIX build stamps its update feed in. The URL may serve
     // a .msix or a .msixbundle. Left unset, the updater has no hosted path and
     // only Store packages update.

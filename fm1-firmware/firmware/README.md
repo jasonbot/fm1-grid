@@ -32,27 +32,20 @@ time.
 
 ## Where the packages come from
 
-* Everything except the packages below is mirrored by The FM-1 Firmware Hub; hashes
-  were checked against the hub's catalogue on 2026-11-18 and the manifest was
-  refreshed from it on 2026-11-18 (SLOOP 2.8.5, Felucca 1.8.2, ChoralRoot 0.41;
-  FM1 Stock V16, FM1 Open V14 and Baud Girl 102 were unchanged too).
+* The FM-1 Firmware Hub mirrors SLOOP 2.8.5, Felucca 1.8.2 and ChoralRoot 0.43.
+  Hashes were checked against the hub's catalogue on 2026-11-21; ChoralRoot 0.43
+  was refreshed then.
 * **Felucca** tracks the hub's stable 1.8.2 package.
-* **JIANT FM** downloads from its own site (juanjiant-bit.github.io): the hub's cache
-  was serving a build older than its catalogue. Hash recorded on download on
-  2026-10-28.
-* The RedtailWorks pack (LOF-1, ECO-1, GRAV-1, CTY-1) downloads from RedtailWorks'
-  own installer pages; hashes were recorded on download on 2026-10-23.
 * **FM1 Stock V16** is M-VAVE's official firmware (`FM-1.fwsc`, released 2026-10-21)
   from m-vave.com/download; the hub does not mirror it yet. The hash was recorded on
-  download on 2026-10-25.
+  download on 2026-10-25 and still matches on 2026-11-21.
 * **FM1 Open V14** is the official open firmware bundled with M-VAVE's web workbench
-  (open.m-vave.com/fm1-workbench); the hash was recorded on download on 2026-10-24.
+  (open.m-vave.com/fm1-workbench); the hash was recorded on download on 2026-10-24
+  and still matches the V14 release on 2026-11-21.
 * **Baud Girl (FM-1+VA)** downloads from baudgirl.com (it is not open source, so the
   hub does not mirror it); the entry is `index_only`, so only its metadata ships and
-  the package is never baked into the binary. The hash was recorded on download on
-  2026-10-24.
-* **Matryoshka** downloads from matryoshka.lol, which carries the newest release's
-  package; the hash was recorded on download on 2026-10-28.
+  the package is never baked into the binary. Version 102 and its hash were checked
+  on 2026-11-21.
 
 ## Notes
 

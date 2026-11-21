@@ -37,7 +37,7 @@ cargo run --release -p fm1-grid
 - The picker only works while the pane is off.
 - Add your own file with the Library tab's import form.
 
-The bundled list is in `firmware/firmwares.json`. Manage it with:
+The bundled list is in `fm1-firmware/firmware/firmwares.json`. Manage it with:
 
 ```sh
 scripts/firmware.sh add ~/Downloads/new-1.0.fwsc "New Firmware" 1.0
@@ -166,7 +166,7 @@ cargo run --release -p fm1-tty
 - The recovery build downloads m-bootloader v2.4 and its loader from the upstream release, verifies their SHA-256, and keeps them gitignored.
 - Windows needs the MSVC build tools. Download-mode recovery needs administrator access.
 - Windows MSIX builds: set `FM1_GRID_MSIX_URL` at build time to enable the hosted vanilla-MSIX updater. The URL may point at a `.msix` or an `.msixbundle` (x64 and arm64 packages under one identity). Store installs update through the Store and need no variable.
-- macOS app builds: set `MAC_APP_URL` at build time to a JSON feed (`{ "version": "0.2.0", "url": "https://…/FM1-Grid.zip" }`). The zip holds the signed `.app`; the updater swaps it in after quit and reopens it. See `MAC_APP_UPDATES.md`.
+- macOS app builds: set `MAC_APP_URL` at build time to a JSON feed (`{ "version": "0.2.0", "url": "https://…/FM1-Grid.zip" }`). The zip holds the signed `.app`; the updater swaps it in after quit and reopens it. See `GARDEN-TENDING.md` for the artifact and feed checklist.
 - Linux Flatpak builds enable updates inside the sandbox; other Linux builds stay on `Current`.
 - `.cargo/config.toml` uses `target-cpu=native`. Delete it when building for another machine.
 - The emulator crates are pinned to a revision in `Cargo.toml`. Bump it on purpose.

@@ -231,6 +231,8 @@ impl GridApp {
             flash_armed: Default::default(),
             flash_combos: Default::default(),
             flash_was: Default::default(),
+            flash_pending: None,
+            flash_seen: false,
             rescue_on: false,
             rescue_warn: false,
             rescue_ports: Default::default(),

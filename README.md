@@ -64,6 +64,7 @@ The `.fwsc` files are gitignored. A fresh build downloads and checks any missing
 - Click a tag to add or remove it from the search.
 - The **Devices** button shows All, FM-1, **New Chip FM-1**, SMK-37 Pro, SMK-37 Elite or MKE-P37. New Chip FM-1 lists only builds that certify the newer flash chip (or both chips).
 - The favorite button pins a row to the top. Its menu gives it a different glyph.
+- An `installs: N` tag counts successful installs; the row also shows the last install date. The TUI shows the count in yellow on the right.
 - **Download** gets an online firmware. **Download All** gets every offer the device filter shows.
 - **Reload** fetches all online lists again.
 - **Flash To…** sends a firmware to a live USB unit, or to an off pane.

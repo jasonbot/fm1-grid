@@ -48,6 +48,42 @@
         std::fs::remove_dir_all(dir).ok();
     }
 
+    #[test]
+    fn install_history_persists_and_tags_the_view() {
+        let (store, dir) = temp_store("installs");
+        let mut library = Library::load(&store);
+        let firmware = library.list()[0].clone();
+        library.record_install(&firmware);
+        library.record_install(&firmware);
+
+        assert_eq!(library.install_count(&firmware), 2);
+        let date = library.last_installed_date(&firmware).expect("install date");
+        assert_eq!(date.len(), 10, "YYYY-MM-DD");
+        let row = library
+            .list()
+            .iter()
+            .find(|row| row.name == firmware.name && row.version == firmware.version)
+            .expect("installed row");
+        assert!(row.tags.iter().any(|tag| tag == "installs: 2"));
+
+        let mut reloaded = Library::load(&store);
+        let reloaded_row = reloaded
+            .list()
+            .iter()
+            .find(|row| row.name == firmware.name && row.version == firmware.version)
+            .cloned()
+            .expect("reloaded row");
+        assert_eq!(reloaded.install_count(&reloaded_row), 2);
+        assert_eq!(
+            reloaded.last_installed_date(&reloaded_row).as_deref(),
+            Some(date.as_str())
+        );
+        assert!(store
+            .fetch_object::<HashMap<String, super::installs::InstallRecord>>("installs")
+            .is_ok());
+        std::fs::remove_dir_all(dir).ok();
+    }
+
     fn write_package(path: &std::path::Path, identity: &str) {
         let blocks = 20;
         let mut bytes = vec![0xAA; (blocks + 1) * 0x30 + 16];

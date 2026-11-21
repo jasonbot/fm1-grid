@@ -336,7 +336,14 @@ fn library(frame: &mut Frame, app: &mut TuiApp, area: Rect) {
     let width = list_area.width as usize;
     let items: Vec<ListItem> = app
         .visible()
-        .map(|firmware| library_row(firmware, app.download_percent(&firmware.name), width))
+        .map(|firmware| {
+            library_row(
+                firmware,
+                app.download_percent(&firmware.name),
+                app.install_count(firmware),
+                width,
+            )
+        })
         .collect();
     let list = List::new(items)
         .highlight_style(Style::default().add_modifier(Modifier::REVERSED));
@@ -368,7 +375,12 @@ fn library(frame: &mut Frame, app: &mut TuiApp, area: Rect) {
 
 /// One library row, two lines: name, version, byline and the right-aligned status
 /// pill; then as much of the description as the width holds, in dim text.
-fn library_row(firmware: &Firmware, percent: Option<u32>, width: usize) -> ListItem<'static> {
+fn library_row(
+    firmware: &Firmware,
+    percent: Option<u32>,
+    installs: u32,
+    width: usize,
+) -> ListItem<'static> {
     let left = format!(" {} {}", firmware.name, firmware.version);
     let byline = if firmware.byline.is_empty() {
         String::new()
@@ -402,13 +414,20 @@ fn library_row(firmware: &Firmware, percent: Option<u32>, width: usize) -> ListI
             _ => DIM,
         },
     };
-    let pad = width.saturating_sub(cols(&left) + cols(&byline) + cols(&pill) + 1);
+    let count = (installs > 0).then(|| format!(" {installs}×"));
+    let pad = width.saturating_sub(
+        cols(&left) + cols(&byline) + cols(&pill) + count.as_deref().map_or(0, cols) + 1,
+    );
     ListItem::new(vec![
         Line::from(vec![
             bold(left),
             dim(byline),
             dim(" ".repeat(pad)),
             Span::styled(pill, Style::default().fg(pill_color)),
+            Span::styled(
+                count.unwrap_or_default(),
+                Style::default().fg(Color::Yellow),
+            ),
         ]),
         Line::from(dim(format!(" {}", firmware.description))),
     ])
@@ -721,7 +740,7 @@ mod tests {
         let mut firmware = firmware("desc");
         firmware.device = FirmwareDevice::Smk37;
         firmware.tags = vec!["SMK-37 Pro".to_string()];
-        let item = library_row(&firmware, None, 80);
+        let item = library_row(&firmware, None, 0, 80);
         let area = Rect::new(0, 0, 80, 2);
         let mut buf = Buffer::empty(area);
         let mut state = ListState::default();
@@ -731,8 +750,19 @@ mod tests {
     }
 
     #[test]
+    fn library_row_puts_the_install_count_on_the_far_right() {
+        let item = library_row(&firmware("desc"), None, 3, 60);
+        let area = Rect::new(0, 0, 60, 2);
+        let mut buf = Buffer::empty(area);
+        let mut state = ListState::default();
+        StatefulWidget::render(List::new([item]), area, &mut buf, &mut state);
+        let line = (0..60).map(|x| buf[(x, 0)].symbol()).collect::<String>();
+        assert!(line.trim_end().ends_with("3×"), "{line:?}");
+    }
+
+    #[test]
     fn library_row_puts_the_description_on_a_second_dim_line() {
-        let item = library_row(&firmware(&"x".repeat(100)), None, 40);
+        let item = library_row(&firmware(&"x".repeat(100)), None, 0, 40);
         assert_eq!(item.height(), 2);
 
         let area = Rect::new(0, 0, 40, 2);

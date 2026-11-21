@@ -20,6 +20,7 @@ use crate::sources::{editor, hub, jakehandy, mutant, reverbose, shrub};
 use fm1_base::store::Store;
 use crate::filter::DeviceFilter;
 
+mod installs;
 mod merge;
 mod model;
 mod persist;
@@ -29,6 +30,7 @@ mod tests;
 
 pub use model::*;
 use merge::*;
+use installs::*;
 use persist::*;
 use util::*;
 
@@ -85,6 +87,8 @@ pub struct Library {
     /// Bumped whenever the installed list changes (import, remove, a download folded
     /// in); the app's pickers rebuild when it moves.
     generation: u64,
+    /// Per-firmware install history, keyed by normalized name + device.
+    installs: HashMap<String, InstallRecord>,
 }
 
 /// How often `list()` re-stats files/blobs for the Missing status. External deletes
@@ -130,6 +134,7 @@ impl Library {
             hub_swapped: Arc::new(AtomicBool::new(false)),
             last_stat: Instant::now(),
             generation: 0,
+            installs: installs::load(store),
         }
     }
 
@@ -222,6 +227,9 @@ impl Library {
             let mut offer = offer;
             offer.status = entry_status(&offer, &self.downloads, &self.store);
             view.push(offer);
+        }
+        for firmware in &mut view {
+            apply_tag(firmware, &self.installs);
         }
         self.view = view;
         self.view_dirty = false;

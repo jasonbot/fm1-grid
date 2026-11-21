@@ -104,7 +104,25 @@ impl GridApp {
         // threads; sweep them up twice a second.
         self.tick_count = self.tick_count.wrapping_add(1);
         let sweeping = self.tick_count.is_multiple_of(30);
-        dirty |= self.hardware.flash_state().is_some() || sweeping;
+        let board = self.hardware.flash_state();
+        if let Some(board) = &board {
+            if board.error {
+                if self.flash_seen {
+                    self.flash_pending = None;
+                    self.flash_seen = false;
+                }
+            } else {
+                self.flash_seen = true;
+            }
+        }
+        if self.flash_seen && board.is_none() {
+            self.flash_seen = false;
+            if let Some(firmware) = self.flash_pending.take() {
+                self.library.record_install(&firmware);
+                dirty = true;
+            }
+        }
+        dirty |= board.is_some() || sweeping;
         if sweeping {
             // Every connected unit gets a flash combobox (built here, where a window
             // lives); gone units drop theirs. A flash that just succeeded re-safes the

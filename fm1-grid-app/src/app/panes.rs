@@ -28,13 +28,14 @@ impl GridApp {
         self.panel_down = [false; 41];
         self.kb_down = [false; 41];
     }
-    pub(crate) fn load_builtin(&mut self, slot: usize, index: usize) {
+    pub(crate) fn load_builtin(&mut self, slot: usize, index: usize) -> bool {
         let Some(firmware) = BUILTINS.get(index) else {
-            return;
+            return false;
         };
         let label = firmware.label();
         let bytes = firmware.bytes.to_vec();
         self.install(slot, label, bytes, true, Source::Builtin(index));
+        true
     }
     /// The library entry's display label (its name and version) for a slot source.
     /// Files and blobs not imported into the library have none.
@@ -56,12 +57,12 @@ impl GridApp {
             matches.then(|| format!("{} {}", firmware.name, firmware.version))
         })
     }
-    pub(crate) fn load_file(&mut self, slot: usize, path: PathBuf) {
+    pub(crate) fn load_file(&mut self, slot: usize, path: PathBuf) -> bool {
         let bytes = match std::fs::read(&path) {
             Ok(bytes) => bytes,
             Err(e) => {
                 self.slots[slot].error = Some(format!("{}: {e}", path.display()));
-                return;
+                return false;
             }
         };
         let package = path
@@ -76,6 +77,7 @@ impl GridApp {
                     .unwrap_or_else(|| path.display().to_string())
             });
         self.install(slot, label, bytes, package, Source::File(path));
+        true
     }
     /// What a picker selected, installed into the slot.
     pub(crate) fn install_pick(
@@ -84,23 +86,33 @@ impl GridApp {
         pick: fm1_performer::firmware_picker::FirmwarePick,
     ) {
         use fm1_performer::firmware_picker::FirmwarePick;
-        match pick {
+        let firmware = self.library.list_clone().into_iter().find(|firmware| {
+            fm1_performer::firmware_picker::pick_of(firmware).as_ref() == Some(&pick)
+        });
+        let installed = match pick {
             FirmwarePick::Builtin(index) => self.load_builtin(slot, index),
             FirmwarePick::File(path) => self.load_file(slot, path),
             FirmwarePick::HubBlob(key) => self.load_blob(slot, &key),
+        };
+        if installed {
+            if let Some(firmware) = firmware {
+                self.library.record_install(&firmware);
+            }
         }
     }
     /// A downloaded hub package from the blob store into a slot. Goes through the
     /// pick so zip-wrapped packages are unwrapped (and web-page blobs rejected)
     /// exactly like the USB flash path.
-    pub(super) fn load_blob(&mut self, slot: usize, key: &str) {
-        let Some(store) = &self.store else { return };
+    pub(super) fn load_blob(&mut self, slot: usize, key: &str) -> bool {
+        let Some(store) = &self.store else {
+            return false;
+        };
         let pick = fm1_performer::firmware_picker::FirmwarePick::HubBlob(key.to_string());
         let bytes = match pick.bytes(Some(store)) {
             Ok(bytes) => bytes,
             Err(e) => {
                 self.slots[slot].error = Some(e);
-                return;
+                return false;
             }
         };
         // The selector shows the library's firmware name, not the package file's.
@@ -120,6 +132,7 @@ impl GridApp {
                 label,
             },
         );
+        true
     }
     /// Rebuild every slot's firmware combobox from the library and re-select the
     /// slot's current firmware (a download, import or removal changed the list).
@@ -254,8 +267,11 @@ impl GridApp {
                 Some(Source::File(path)) => self.load_file(slot, path),
                 Some(Source::Blob { key, .. }) => self.load_blob(slot, &key),
                 // Nothing to run yet; the switch stays off until a firmware is chosen.
-                None => self.powered[slot] = false,
-            }
+                None => {
+                    self.powered[slot] = false;
+                    false
+                }
+            };
         } else {
             if self.held_slot == Some(slot) {
                 self.release_held_keys();

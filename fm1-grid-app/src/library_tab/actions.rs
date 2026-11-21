@@ -326,6 +326,7 @@ impl GridApp {
         };
         let firmware = firmware.clone();
         let name = firmware.name.clone();
+        let last_installed = self.library.last_installed_date(&firmware);
         let pick = pick_of(&firmware);
         let flashable = flashable(&firmware, pick.as_ref());
         let downloading = firmware.status == Status::Downloading;
@@ -339,7 +340,20 @@ impl GridApp {
         let glyph = fav_glyph(&self.favorite_glyphs, &firmware.name, favorite).to_string();
         // A NoThanks favorite greys its row out.
         let no_thanks = favorite && glyph == NO_THANKS_GLYPH;
-        let tags = std::iter::once(glyph.clone()).chain(firmware.tags.iter().cloned());
+        let installs = firmware
+            .tags
+            .iter()
+            .filter(|tag| tag.starts_with("installs: "))
+            .cloned();
+        let tags = std::iter::once(glyph.clone())
+            .chain(installs)
+            .chain(
+                firmware
+                    .tags
+                    .iter()
+                    .filter(|tag| !tag.starts_with("installs: "))
+                    .cloned(),
+            );
         // The pill hues follow the theme: the accent for the computed families,
         // the primary otherwise. Same tag, same slice of the wheel.
         let base = if matches!(
@@ -608,12 +622,28 @@ impl GridApp {
                     .child(pills),
             )
             .child(
-                div()
+                h_flex()
                     .w_full()
-                    .text_size(px(10.5))
-                    .text_color(dim)
-                    .truncate()
-                    .child(line),
+                    .gap_2()
+                    .items_center()
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .text_size(px(10.5))
+                            .text_color(dim)
+                            .truncate()
+                            .child(line),
+                    )
+                    .when_some(last_installed, |row, date| {
+                        row.child(
+                            div()
+                                .flex_none()
+                                .text_size(px(9.5))
+                                .text_color(dim)
+                                .child(format!("last installed {date}")),
+                        )
+                    }),
             )
             .child(action_group(buttons, border))
             .into_any_element()

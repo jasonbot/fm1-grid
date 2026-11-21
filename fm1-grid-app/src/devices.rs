@@ -640,9 +640,20 @@ impl GridApp {
                             || "firmware".to_string(),
                             |(_, item)| item.title().to_string(),
                         );
+                        let firmware = this.library.list_clone().into_iter().find(|firmware| {
+                            fm1_performer::firmware_picker::pick_of(firmware).as_ref() == Some(pick)
+                        });
                         match (rescue, pick.bytes(this.store.as_ref())) {
-                            (true, Ok(bytes)) => this.hardware.rescue_flash(&picked, bytes),
-                            (false, Ok(bytes)) => this.hardware.flash(&picked, bytes),
+                            (true, Ok(bytes)) => {
+                                this.flash_pending = firmware;
+                                this.flash_seen = false;
+                                this.hardware.rescue_flash(&picked, bytes);
+                            }
+                            (false, Ok(bytes)) => {
+                                this.flash_pending = firmware;
+                                this.flash_seen = false;
+                                this.hardware.flash(&picked, bytes);
+                            }
                             (true, Err(e)) => this.hardware.report_board(e),
                             (false, Err(e)) => {
                                 this.hardware.report(&picked, e.clone());

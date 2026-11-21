@@ -25,6 +25,7 @@ impl GridApp {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let name = firmware.name.clone();
+        let installed = firmware.clone();
         let units: Vec<(String, Option<&'static str>)> = self
             .hardware
             .devices()
@@ -43,8 +44,6 @@ impl GridApp {
             !units.is_empty() || !slots.is_empty()
         };
         let app = cx.entity().clone();
-        // The dropdown closure is 'static; the firmware name moves in owned.
-        let flash_name = firmware.name.clone();
         Button::new(format!("lib-flash-{name}"))
             .label("Flash To…")
             .icon(Icon::new(Lucide::Zap))
@@ -74,7 +73,7 @@ impl GridApp {
                     let unit = unit.clone();
                     let kind = *kind;
                     let pick = pick.clone();
-                    let name = flash_name.clone();
+                    let firmware = installed.clone();
                     let label = kind.map_or_else(
                         || format!("USB: {unit}"),
                         |kind| format!("USB: {unit} ({kind})"),
@@ -83,9 +82,9 @@ impl GridApp {
                         move |_, window, cx| {
                             let unit = unit.clone();
                             let pick = pick.clone();
-                            let name = name.clone();
+                            let firmware = firmware.clone();
                             app.update(cx, |this, cx| {
-                                this.flash_to_unit(unit, &name, pick, window, cx)
+                                this.flash_to_unit(unit, &firmware, pick, window, cx)
                             });
                         },
                     ));
@@ -110,15 +109,22 @@ impl GridApp {
     pub(crate) fn flash_to_unit(
         &mut self,
         unit: String,
-        name: &str,
+        firmware: &Firmware,
         pick: FirmwarePick,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         match pick.bytes(self.store.as_ref()) {
             Ok(bytes) => {
+                self.flash_pending = Some(firmware.clone());
+                self.flash_seen = false;
                 self.hardware.flash(&unit, bytes);
-                crate::flash_dialog::FlashDialog::open(cx.entity(), window, cx, name);
+                crate::flash_dialog::FlashDialog::open(
+                    cx.entity(),
+                    window,
+                    cx,
+                    &firmware.name,
+                );
             }
             Err(e) => self.hardware.report(&unit, e),
         }

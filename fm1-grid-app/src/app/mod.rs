@@ -233,6 +233,11 @@ pub struct GridApp {
     pub(crate) flash_combos:
         std::collections::HashMap<String, Entity<ComboboxState<FirmwareDelegate>>>,
     flash_was: std::collections::HashMap<String, bool>,
+    /// The library entry a live/rescue flash is installing. It is counted only when
+    /// the flash board clears successfully.
+    pub(crate) flash_pending: Option<Firmware>,
+    /// Whether the board has shown a running flash since the last success.
+    pub(crate) flash_seen: bool,
     /// MIDI rescue: the Devices pane's Rescue toggle offers every system MIDI port
     /// as a flash target, for units too bricked to answer to their name (those
     /// flash through `Hardware::rescue_flash`). `rescue_warn` rings the toggle when

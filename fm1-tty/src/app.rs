@@ -91,6 +91,11 @@ pub struct TuiApp {
     library: Option<Library>,
     /// The full library view from the last tick, in library order.
     pub firmwares: Vec<Firmware>,
+    /// The library entry a live/rescue flash is installing, counted when the board
+    /// clears successfully.
+    flash_pending: Option<Firmware>,
+    /// Whether the flash board has shown a running flash since the last success.
+    flash_seen: bool,
     /// The library view generation `firmwares` was copied from. The catalog is only
     /// cloned and refiltered when this moves, not on every 16 ms tick.
     lib_view_generation: u64,
@@ -277,6 +282,8 @@ impl TuiApp {
             graph_sel: 0,
             graph_state: ListState::default(),
             flash_dismissed: false,
+            flash_pending: None,
+            flash_seen: false,
             download_all: shared.download_all,
             rescue: false,
             rescue_ports: Vec::new(),
@@ -325,6 +332,25 @@ impl TuiApp {
                     firmware.description = one_line(&firmware.description);
                 }
                 self.rebuild_view();
+            }
+        }
+        let board = self.hardware.flash_state();
+        if let Some(board) = &board {
+            if board.error {
+                if self.flash_seen {
+                    self.flash_pending = None;
+                    self.flash_seen = false;
+                }
+            } else {
+                self.flash_seen = true;
+            }
+        }
+        if self.flash_seen && board.is_none() {
+            self.flash_seen = false;
+            if let Some(firmware) = self.flash_pending.take() {
+                if let Some(library) = &mut self.library {
+                    library.record_install(&firmware);
+                }
             }
         }
         self.devices = self.hardware.devices();
@@ -709,6 +735,13 @@ impl TuiApp {
             .and_then(|library| library.download_percent(name))
     }
 
+    /// How many times the library entry has been installed.
+    pub fn install_count(&self, firmware: &Firmware) -> u32 {
+        self.library
+            .as_ref()
+            .map_or(0, |library| library.install_count(firmware))
+    }
+
     /// Where the hub refresh stands, for the library block's title.
     pub fn hub_status(&self) -> Option<HubStatus> {
         self.library.as_ref().map(|library| library.hub_status())
@@ -823,6 +856,14 @@ impl TuiApp {
         };
         match pick.bytes(self.store.as_ref()) {
             Ok(bytes) => {
+                self.flash_pending = self
+                    .firmwares
+                    .iter()
+                    .find(|firmware| {
+                        fm1_performer::firmware_picker::pick_of(firmware).as_ref() == Some(pick)
+                    })
+                    .cloned();
+                self.flash_seen = false;
                 if rescue {
                     self.hardware.rescue_flash(name, bytes);
                 } else {

@@ -32,6 +32,12 @@ LOG=$TMP/app.log
 ALSA=$TMP/asound.conf
 mkdir -p "$DATA/objects"
 printf '%s\n' '{"sidebar_width":512,"tab":0}' >"$DATA/objects/session.json"
+# Seed a little install history for the README: the library's install tags and
+# last-install dates are part of the UI now.
+NOW=$(date +%s)
+cat >"$DATA/objects/installs.json" <<JSON
+{"sloop|fm1":{"count":7,"last":$((NOW - 2 * 86400))},"felucca|fm1":{"count":4,"last":$((NOW - 5 * 86400))},"fm1stock|fm1":{"count":2,"last":$((NOW - 9 * 86400))},"fm1open|fm1":{"count":3,"last":$((NOW - 12 * 86400))},"choralroot|fm1":{"count":1,"last":$((NOW - 1 * 86400))}}
+JSON
 # A null output keeps the machine's real audio out of the way. The sequencer
 # default lets MIDI setup succeed when /dev/snd/seq exists.
 cat >"$ALSA" <<'CONF'

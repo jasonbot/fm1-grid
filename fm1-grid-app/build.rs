@@ -21,6 +21,16 @@ fn main() {
         }
     }
 
+    // macOS app builds point at a JSON feed: { "version": "…", "url": "…" }.
+    // Left unset, the macOS updater stays disabled.
+    println!("cargo:rerun-if-env-changed=MAC_APP_URL");
+    if let Ok(url) = env::var("MAC_APP_URL") {
+        let url = url.trim();
+        if !url.is_empty() {
+            println!("cargo:rustc-env=MAC_APP_URL={url}");
+        }
+    }
+
     let themes_dir = Path::new(&env::var("CARGO_MANIFEST_DIR").unwrap()).join("themes");
     println!("cargo:rerun-if-changed={}", themes_dir.display());
 

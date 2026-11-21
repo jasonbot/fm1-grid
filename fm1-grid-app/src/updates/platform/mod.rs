@@ -1,5 +1,6 @@
 //! Platform selection for the update backend. Windows has Store and hosted-MSIX
-//! paths, Linux has Flatpak; other targets keep the no-op stub.
+//! paths, Linux has Flatpak, macOS has a hosted app feed; other targets keep the
+//! no-op stub.
 
 #[cfg(target_os = "linux")]
 mod linux;

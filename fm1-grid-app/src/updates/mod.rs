@@ -1,7 +1,8 @@
 //! The platform boundary for automatic updates.
 //!
 //! Each target picks its own [`platform::Backend`]: Windows drives the Store or a
-//! hosted MSIX, Linux drives Flatpak, and other targets keep a disabled stub.
+//! hosted MSIX, Linux drives Flatpak, macOS drives a hosted app feed, and other
+//! targets keep a disabled stub.
 //! The UI and the update state machine own the pill, the hourly check and the
 //! progress plumbing so platforms only implement check/install/restart.
 
@@ -11,6 +12,9 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 pub(crate) mod platform;
+
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+mod macos_feed;
 
 #[allow(dead_code)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -94,7 +98,7 @@ pub(crate) struct Updates {
 impl Updates {
     pub(crate) fn new() -> Self {
         Self {
-            backend: platform::Backend,
+            backend: platform::Backend::default(),
             last_auto_check: None,
             checking: false,
             available: false,
@@ -144,7 +148,7 @@ impl Updates {
         }
         self.checking = true;
         cx.notify();
-        let backend = self.backend;
+        let backend = self.backend.clone();
         cx.spawn(async move |this, cx| {
             let found = cx
                 .background_executor()
@@ -170,7 +174,7 @@ impl Updates {
             percentage: None,
         });
         cx.notify();
-        let backend = self.backend;
+        let backend = self.backend.clone();
         let shared = Arc::new(Mutex::new(None));
         let slot = Arc::clone(&shared);
         let progress: ProgressCallback = Arc::new(Mutex::new(move |value| {
@@ -178,15 +182,16 @@ impl Updates {
         }));
         self.progress_shared = Some(shared);
         cx.spawn(async move |this, cx| {
-            // The Flatpak backend runs a blocking host command. Windows WinRT
-            // futures are not Send, so keep its install on the foreground
-            // executor and let the WinRT operation yield.
-            #[cfg(target_os = "linux")]
+            // The Flatpak and macOS backends run blocking host commands and
+            // network I/O. Windows WinRT futures are not Send, so keep its
+            // install on the foreground executor and let the WinRT operation
+            // yield.
+            #[cfg(any(target_os = "linux", target_os = "macos"))]
             let outcome = cx
                 .background_executor()
                 .spawn(async move { backend.install_update(window, progress).await })
                 .await;
-            #[cfg(not(target_os = "linux"))]
+            #[cfg(not(any(target_os = "linux", target_os = "macos")))]
             let outcome = backend.install_update(window, progress).await;
             let _ = this.update(cx, |this, cx| {
                 this.updates.updating = false;

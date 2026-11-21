@@ -28,6 +28,9 @@ ureq = "3"
 [dev-dependencies]
 gpui-kit = { version = "=0.8.0", features = ["test-support"] }
 
+[target.'cfg(target_os = "macos")'.dependencies]
+ureq = "3"
+
 [target.'cfg(windows)'.dependencies]
 raw-window-handle = "0.6"
 windows-future = "0.2"

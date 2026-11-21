@@ -91,11 +91,10 @@ pub struct TuiApp {
     library: Option<Library>,
     /// The full library view from the last tick, in library order.
     pub firmwares: Vec<Firmware>,
-    /// The library entry a live/rescue flash is installing, counted when the board
-    /// clears successfully.
-    flash_pending: Option<Firmware>,
-    /// Whether the flash board has shown a running flash since the last success.
-    flash_seen: bool,
+    /// The firmware a live/rescue flash is installing; it yields once on success.
+    flash_install: fm1_performer::flash_install::FlashInstall<Firmware>,
+    /// Firmware waiting on a download-mode recovery flash, keyed by unit path.
+    recovery_pending: std::collections::HashMap<String, Firmware>,
     /// The library view generation `firmwares` was copied from. The catalog is only
     /// cloned and refiltered when this moves, not on every 16 ms tick.
     lib_view_generation: u64,
@@ -282,8 +281,8 @@ impl TuiApp {
             graph_sel: 0,
             graph_state: ListState::default(),
             flash_dismissed: false,
-            flash_pending: None,
-            flash_seen: false,
+            flash_install: Default::default(),
+            recovery_pending: HashMap::new(),
             download_all: shared.download_all,
             rescue: false,
             rescue_ports: Vec::new(),
@@ -335,23 +334,13 @@ impl TuiApp {
             }
         }
         let board = self.hardware.flash_state();
-        if let Some(board) = &board {
-            if board.error {
-                if self.flash_seen {
-                    self.flash_pending = None;
-                    self.flash_seen = false;
-                }
-            } else {
-                self.flash_seen = true;
+        if let Some(firmware) = self.flash_install.observe(board.as_ref()) {
+            if let Some(library) = &mut self.library {
+                library.record_install(&firmware);
             }
         }
-        if self.flash_seen && board.is_none() {
-            self.flash_seen = false;
-            if let Some(firmware) = self.flash_pending.take() {
-                if let Some(library) = &mut self.library {
-                    library.record_install(&firmware);
-                }
-            }
+        if !self.recovery_pending.is_empty() {
+            self.record_recovery_installs();
         }
         self.devices = self.hardware.devices();
         // The rescue target list, swept at the scanner's own cadence.
@@ -729,6 +718,33 @@ impl TuiApp {
     }
 
     /// The percent of a download in flight, for the list's pill.
+    fn record_recovery_installs(&mut self) {
+        let units = self.recovery.units();
+        let paths: Vec<String> = self.recovery_pending.keys().cloned().collect();
+        for path in paths {
+            let Some(firmware) = self.recovery_pending.get(&path).cloned() else {
+                continue;
+            };
+            let Some(unit) = units.iter().find(|unit| unit.path == path) else {
+                self.recovery_pending.remove(&path);
+                continue;
+            };
+            if unit.busy {
+                continue;
+            }
+            let Some(outcome) = &unit.outcome else {
+                self.recovery_pending.remove(&path);
+                continue;
+            };
+            if outcome.starts_with("firmware flashed") {
+                if let Some(library) = &mut self.library {
+                    library.record_install(&firmware);
+                }
+            }
+            self.recovery_pending.remove(&path);
+        }
+    }
+
     pub fn download_percent(&self, name: &str) -> Option<u32> {
         self.library
             .as_ref()
@@ -846,8 +862,20 @@ impl TuiApp {
         let (name, rescue) = match target {
             FlashTarget::Midi { name, rescue } => (name.as_str(), *rescue),
             FlashTarget::Recovery { path } => {
+                let firmware = self
+                    .firmwares
+                    .iter()
+                    .find(|firmware| {
+                        fm1_performer::firmware_picker::pick_of(firmware).as_ref() == Some(pick)
+                    })
+                    .cloned();
                 match pick.bytes(self.store.as_ref()) {
-                    Ok(bytes) => self.recovery.flash(path, bytes, self.store.clone()),
+                    Ok(bytes) => {
+                        if let Some(firmware) = firmware {
+                            self.recovery_pending.insert(path.clone(), firmware);
+                        }
+                        self.recovery.flash(path, bytes, self.store.clone());
+                    }
                     Err(error) => self.say(error),
                 }
                 self.popup = None;
@@ -856,14 +884,11 @@ impl TuiApp {
         };
         match pick.bytes(self.store.as_ref()) {
             Ok(bytes) => {
-                self.flash_pending = self
-                    .firmwares
-                    .iter()
-                    .find(|firmware| {
-                        fm1_performer::firmware_picker::pick_of(firmware).as_ref() == Some(pick)
-                    })
-                    .cloned();
-                self.flash_seen = false;
+                if let Some(firmware) = self.firmwares.iter().find(|firmware| {
+                    fm1_performer::firmware_picker::pick_of(firmware).as_ref() == Some(pick)
+                }) {
+                    self.flash_install.start(firmware.clone());
+                }
                 if rescue {
                     self.hardware.rescue_flash(name, bytes);
                 } else {

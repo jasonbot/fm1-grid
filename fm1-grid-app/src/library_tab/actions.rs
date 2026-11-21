@@ -641,7 +641,7 @@ impl GridApp {
                                 .flex_none()
                                 .text_size(px(9.5))
                                 .text_color(dim)
-                                .child(format!("last installed {date}")),
+                                .child(format!("last installed {date} UTC")),
                         )
                     }),
             )

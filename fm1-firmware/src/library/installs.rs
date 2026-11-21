@@ -59,12 +59,32 @@ pub(super) fn apply_tag(firmware: &mut Firmware, installs: &HashMap<String, Inst
 }
 
 impl Library {
+    /// Re-read the shared install map. The GUI and TUI both write it, so a stale
+    /// in-memory copy must not outlive a refresh.
+    pub fn refresh_installs(&mut self) {
+        let disk = load(&self.store);
+        if disk != self.installs {
+            self.installs = disk;
+            self.view_dirty = true;
+        }
+    }
+
     /// Record a successful install into a pane or a live unit. The count and time
     /// persist in `installs.json`; the next `list()` rebuild carries the tag.
     pub fn record_install(&mut self, firmware: &Firmware) {
-        let record = self.installs.entry(install_key(firmware)).or_default();
+        // The GUI and TUI share this file. Lock across read-modify-write so one
+        // process cannot overwrite the other's install. The browser store is
+        // single-origin localStorage and has no cross-process writers.
+        #[cfg(not(target_arch = "wasm32"))]
+        let _lock = self.store.lock_file(INSTALLS_OBJECT).ok().map(|lock| {
+            let _ = lock.lock();
+            lock
+        });
+        let mut disk = load(&self.store);
+        let record = disk.entry(install_key(firmware)).or_default();
         record.count = record.count.saturating_add(1);
         record.last = now_seconds();
+        self.installs = disk;
         if let Err(error) = self.store.store_object(INSTALLS_OBJECT, &self.installs) {
             eprintln!("fm1-grid: {error}");
         }

@@ -116,8 +116,7 @@ impl GridApp {
     ) {
         match pick.bytes(self.store.as_ref()) {
             Ok(bytes) => {
-                self.flash_pending = Some(firmware.clone());
-                self.flash_seen = false;
+                self.flash_install.start(firmware.clone());
                 self.hardware.flash(&unit, bytes);
                 crate::flash_dialog::FlashDialog::open(
                     cx.entity(),

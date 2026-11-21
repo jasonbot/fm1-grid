@@ -7,9 +7,9 @@
 //! waits for this process to exit, swaps the bundle's `Contents` directory
 //! (with a backup and rollback on failure), and reopens the app.
 //!
-//! A build without `MAC_APP_URL` keeps updates disabled. A bundle with a valid
-//! signature only accepts a signed update; an unsigned development bundle has
-//! no signature identity to compare, so it accepts the feed's bundle.
+//! A build without `MAC_APP_URL` keeps updates disabled. Updates require valid
+//! signatures with the same Team ID on both the running app and the download;
+//! unsigned or ad-hoc development bundles stay on their current build.
 
 use crate::updates::macos_feed;
 use crate::updates::{
@@ -33,21 +33,28 @@ const USER_AGENT: &str = "FM1-Grid-Updater/1.0";
 
 /// Runs after the GUI exits. `$1` is the old PID, `$2` the installed `.app`,
 /// `$3` the staged `.app`, `$4` the temporary download directory. Moving
-/// `Contents` preserves the bundle path and its writable parent. If the second
-/// move fails the old contents are restored before exiting.
+/// `Contents` preserves the bundle path and its writable parent. A trap restores
+/// the old contents if the script is interrupted between the two moves.
 const SWAP_SCRIPT: &str = r#"
 while kill -0 "$1" 2>/dev/null; do /bin/sleep 0.2; done
 APP=$2
 NEW=$3
 TMP=$4
 BACKUP=$APP/Contents.fm1-old
+installed=0
+restore() {
+    if [ "$installed" = 0 ] && [ -d "$BACKUP" ] && [ ! -d "$APP/Contents" ]; then
+        /bin/mv "$BACKUP" "$APP/Contents"
+    fi
+}
+trap 'restore' 0 1 2 15
 [ -d "$APP/Contents" ] && [ -d "$NEW/Contents" ] || exit 1
 /bin/rm -rf "$BACKUP"
 /bin/mv "$APP/Contents" "$BACKUP" || exit 1
 if ! /bin/mv "$NEW/Contents" "$APP/Contents"; then
-    /bin/mv "$BACKUP" "$APP/Contents"
     exit 1
 fi
+installed=1
 /bin/rm -rf "$BACKUP" "$TMP"
 /usr/bin/open "$APP"
 "#;
@@ -85,6 +92,7 @@ fn report(progress: &ProgressCallback, stage: UpdateStage, percentage: Option<i3
 fn agent(timeout: Duration) -> ureq::Agent {
     ureq::Agent::config_builder()
         .timeout_global(Some(timeout))
+        .https_only(true)
         .user_agent(USER_AGENT)
         .build()
         .into()
@@ -214,20 +222,15 @@ fn signature_valid(app: &Path) -> bool {
         .is_ok_and(|status| status.success())
 }
 
-/// An update must carry the same signing team as the running app. An unsigned
-/// development bundle has no identity to compare, so it does not reject the
-/// feed's build.
+/// An update must be signed by the same team as the running app. Unsigned and
+/// ad-hoc builds have no team to compare, so they cannot update themselves.
 fn signature_matches(current: &Path, update: &Path) -> bool {
-    if !signature_valid(current) {
-        return true;
-    }
-    if !signature_valid(update) {
+    if !signature_valid(current) || !signature_valid(update) {
         return false;
     }
     match (team_identifier(current), team_identifier(update)) {
         (Some(current), Some(update)) => current == update,
-        (Some(_), None) => false,
-        (None, _) => true,
+        _ => false,
     }
 }
 
@@ -373,5 +376,77 @@ impl PlatformUpdater for Backend {
             *slot = Some(staged);
         }
         launched
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp_dir(name: &str) -> PathBuf {
+        let path = std::env::temp_dir().join(format!(
+            "fm1-grid-mac-test-{}-{name}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&path);
+        fs::create_dir_all(&path).unwrap();
+        path
+    }
+
+    #[test]
+    fn finds_a_nested_app_bundle() {
+        let root = temp_dir("find-app");
+        let nested = root.join("payload").join("FM1 Grid.app");
+        fs::create_dir_all(&nested).unwrap();
+        assert_eq!(find_app(&root, 2), Some(nested));
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn unsigned_apps_cannot_update() {
+        let root = temp_dir("unsigned");
+        let current = root.join("Current.app");
+        let update = root.join("Update.app");
+        fs::create_dir_all(&current).unwrap();
+        fs::create_dir_all(&update).unwrap();
+        assert!(!signature_matches(&current, &update));
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn swap_restores_the_old_contents_on_failure() {
+        let root = temp_dir("swap");
+        let app = root.join("FM1 Grid.app");
+        let new = root.join("staged.app");
+        let temp = root.join("download");
+        fs::create_dir_all(app.join("Contents")).unwrap();
+        fs::create_dir_all(new.join("Contents")).unwrap();
+        fs::create_dir_all(&temp).unwrap();
+        fs::write(app.join("Contents/old"), b"old").unwrap();
+        fs::write(new.join("Contents/new"), b"new").unwrap();
+
+        // Make the second move fail after the first move has already happened.
+        let broken = SWAP_SCRIPT.replace(
+            "/bin/mv \"$NEW/Contents\" \"$APP/Contents\"",
+            "/bin/false",
+        );
+        let status = Command::new("/bin/sh")
+            .arg("-c")
+            .arg(broken)
+            .arg("fm1-grid-updater-test")
+            .arg(i32::MAX.to_string())
+            .arg(&app)
+            .arg(&new)
+            .arg(&temp)
+            .status()
+            .unwrap();
+        assert!(!status.success());
+        assert_eq!(
+            fs::read_to_string(app.join("Contents/old")).unwrap(),
+            "old",
+            "the old Contents must be restored"
+        );
+        assert!(!app.join("Contents.fm1-old").exists());
+        let _ = fs::remove_dir_all(root);
     }
 }

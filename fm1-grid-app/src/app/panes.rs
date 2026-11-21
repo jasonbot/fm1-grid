@@ -79,6 +79,27 @@ impl GridApp {
         self.install(slot, label, bytes, package, Source::File(path));
         true
     }
+    /// The library row behind a pick, if the pick came from the library.
+    fn firmware_for_pick(
+        &mut self,
+        pick: &fm1_performer::firmware_picker::FirmwarePick,
+    ) -> Option<fm1_performer::library::Firmware> {
+        self.library
+            .list_clone()
+            .into_iter()
+            .find(|firmware| fm1_performer::firmware_picker::pick_of(firmware).as_ref() == Some(pick))
+    }
+
+    fn firmware_for_source(&mut self, source: &Source) -> Option<fm1_performer::library::Firmware> {
+        use fm1_performer::firmware_picker::FirmwarePick;
+        let pick = match source {
+            Source::Builtin(index) => FirmwarePick::Builtin(*index),
+            Source::File(path) => FirmwarePick::File(path.clone()),
+            Source::Blob { key, .. } => FirmwarePick::HubBlob(key.clone()),
+        };
+        self.firmware_for_pick(&pick)
+    }
+
     /// What a picker selected, installed into the slot.
     pub(crate) fn install_pick(
         &mut self,
@@ -86,17 +107,17 @@ impl GridApp {
         pick: fm1_performer::firmware_picker::FirmwarePick,
     ) {
         use fm1_performer::firmware_picker::FirmwarePick;
-        let firmware = self.library.list_clone().into_iter().find(|firmware| {
-            fm1_performer::firmware_picker::pick_of(firmware).as_ref() == Some(&pick)
-        });
+        let firmware = self.firmware_for_pick(&pick);
         let installed = match pick {
             FirmwarePick::Builtin(index) => self.load_builtin(slot, index),
             FirmwarePick::File(path) => self.load_file(slot, path),
             FirmwarePick::HubBlob(key) => self.load_blob(slot, &key),
         };
+        self.slots[slot].install_recorded = false;
         if installed {
             if let Some(firmware) = firmware {
                 self.library.record_install(&firmware);
+                self.slots[slot].install_recorded = true;
             }
         }
     }
@@ -262,7 +283,8 @@ impl GridApp {
         }
         self.powered[slot] = on;
         if on {
-            match self.slots[slot].source.clone() {
+            let source = self.slots[slot].source.clone();
+            match source.clone() {
                 Some(Source::Builtin(index)) => self.load_builtin(slot, index),
                 Some(Source::File(path)) => self.load_file(slot, path),
                 Some(Source::Blob { key, .. }) => self.load_blob(slot, &key),
@@ -272,6 +294,15 @@ impl GridApp {
                     false
                 }
             };
+            if self.powered[slot]
+                && self.slots[slot].error.is_none()
+                && !self.slots[slot].install_recorded
+            {
+                if let Some(firmware) = source.as_ref().and_then(|source| self.firmware_for_source(source)) {
+                    self.library.record_install(&firmware);
+                    self.slots[slot].install_recorded = true;
+                }
+            }
         } else {
             if self.held_slot == Some(slot) {
                 self.release_held_keys();

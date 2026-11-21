@@ -174,7 +174,12 @@ impl Library {
         if finished || swapped || self.view_dirty {
             self.rebuild_view();
         } else if self.last_stat.elapsed() >= STAT_CADENCE {
-            self.refresh_statuses();
+            self.refresh_installs();
+            if self.view_dirty {
+                self.rebuild_view();
+            } else {
+                self.refresh_statuses();
+            }
         }
         &self.view
     }

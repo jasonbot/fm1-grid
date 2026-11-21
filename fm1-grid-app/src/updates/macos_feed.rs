@@ -16,9 +16,8 @@ struct Wire<'a> {
     url: &'a str,
 }
 
-/// Parses a feed and rejects empty fields or a URL with whitespace. The URL is
-/// resolved by the HTTP client, so only absolute `http(s)` URLs are accepted
-/// here as well.
+/// Parses a feed and rejects empty fields, whitespace and non-HTTPS URLs. The
+/// updater must not download code over an unencrypted connection.
 pub(crate) fn parse(bytes: &[u8]) -> Option<Feed> {
     let wire: Wire<'_> = serde_json::from_slice(bytes).ok()?;
     let version = wire.version.trim();
@@ -26,7 +25,7 @@ pub(crate) fn parse(bytes: &[u8]) -> Option<Feed> {
     if version.is_empty()
         || url.is_empty()
         || url.contains(char::is_whitespace)
-        || !(url.starts_with("https://") || url.starts_with("http://"))
+        || !url.starts_with("https://")
     {
         return None;
     }
@@ -102,6 +101,7 @@ mod tests {
     fn rejects_bad_feeds() {
         assert!(parse(br#"{ "version": "", "url": "https://example.test/a.zip" }"#).is_none());
         assert!(parse(br#"{ "version": "1.2.3", "url": "file:///tmp/a.zip" }"#).is_none());
+        assert!(parse(br#"{ "version": "1.2.3", "url": "http://example.test/a.zip" }"#).is_none());
         assert!(
             parse(br#"{ "version": "1.2.3", "url": "https://example.test/a b.zip" }"#).is_none()
         );

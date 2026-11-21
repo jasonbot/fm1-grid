@@ -155,8 +155,9 @@ Keep the build stamp, artifact and feed version in sync:
   `ditto -c -k --sequesterRsrc --keepParent "FM1 Grid.app" FM1-Grid-0.2.0.zip`.
   The zip must contain the `.app` at its top level (or one directory down). The
   feed version must equal the zip's `CFBundleShortVersionString`; the bundle
-  ID must match the installed app, and a signed app requires the same signing
-  team. Upload the zip before publishing the feed. Serve both over HTTPS.
+  ID must match the installed app. Both the installed app and the update must
+  have the same Team ID; unsigned or ad-hoc builds cannot update. Upload the zip
+  before publishing the feed. Serve both over HTTPS.
 - **Linux Flatpak**: updates come from the Flatpak remote; other Linux builds
   stay on the current version.
 

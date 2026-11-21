@@ -84,6 +84,26 @@
         std::fs::remove_dir_all(dir).ok();
     }
 
+    #[test]
+    fn two_library_handles_merge_install_history() {
+        let (store, dir) = temp_store("installs-shared");
+        let mut first = Library::load(&store);
+        let mut second = Library::load(&store);
+        let a = first.list()[0].clone();
+        let b = first.list()[1].clone();
+
+        first.record_install(&a);
+        second.record_install(&b);
+
+        let mut check = Library::load(&store);
+        check.refresh_installs();
+        assert_eq!(check.install_count(&a), 1);
+        assert_eq!(check.install_count(&b), 1);
+        second.refresh_installs();
+        assert_eq!(second.install_count(&a), 1);
+        std::fs::remove_dir_all(dir).ok();
+    }
+
     fn write_package(path: &std::path::Path, identity: &str) {
         let blocks = 20;
         let mut bytes = vec![0xAA; (blocks + 1) * 0x30 + 16];

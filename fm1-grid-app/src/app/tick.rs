@@ -100,27 +100,20 @@ impl GridApp {
                 }
             }
         }
+        // Download-mode flashes finish on the recovery thread; record the ones that
+        // succeeded and forget failures.
+        if !self.recovery_pending.is_empty() {
+            dirty |= self.record_recovery_installs();
+        }
+
         // Flash progress and hotplugged USB devices arrive on the hardware module's
         // threads; sweep them up twice a second.
         self.tick_count = self.tick_count.wrapping_add(1);
         let sweeping = self.tick_count.is_multiple_of(30);
         let board = self.hardware.flash_state();
-        if let Some(board) = &board {
-            if board.error {
-                if self.flash_seen {
-                    self.flash_pending = None;
-                    self.flash_seen = false;
-                }
-            } else {
-                self.flash_seen = true;
-            }
-        }
-        if self.flash_seen && board.is_none() {
-            self.flash_seen = false;
-            if let Some(firmware) = self.flash_pending.take() {
-                self.library.record_install(&firmware);
-                dirty = true;
-            }
+        if let Some(firmware) = self.flash_install.observe(board.as_ref()) {
+            self.library.record_install(&firmware);
+            dirty = true;
         }
         dirty |= board.is_some() || sweeping;
         if sweeping {
@@ -171,6 +164,35 @@ impl GridApp {
         if dirty {
             cx.notify();
         }
+    }
+
+    /// Drain completed download-mode flashes into the install history.
+    fn record_recovery_installs(&mut self) -> bool {
+        let rows = self.recovery.rows();
+        let paths: Vec<String> = self.recovery_pending.keys().cloned().collect();
+        let mut dirty = false;
+        for path in paths {
+            let Some(firmware) = self.recovery_pending.get(&path).cloned() else {
+                continue;
+            };
+            let Some(row) = rows.iter().find(|row| row.path == path) else {
+                self.recovery_pending.remove(&path);
+                continue;
+            };
+            if row.busy {
+                continue;
+            }
+            let Some(outcome) = &row.outcome else {
+                self.recovery_pending.remove(&path);
+                continue;
+            };
+            if outcome.starts_with("firmware flashed") {
+                self.library.record_install(&firmware);
+                dirty = true;
+            }
+            self.recovery_pending.remove(&path);
+        }
+        dirty
     }
     /// Upload the live LCD pictures. A pane whose framebuffer is unchanged since the
     /// last upload is skipped after a single compare — powered panes with a static

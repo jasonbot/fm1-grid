@@ -8,6 +8,7 @@ pub mod affinity;
 pub mod audio;
 pub mod emulator;
 pub mod firmware_picker;
+pub mod flash_install;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod session;
 pub mod usbmidi;

@@ -426,3 +426,19 @@ fn library_device_filter_and_favorite_glyph(cx: &mut TestAppContext) {
     })
     .unwrap();
 }
+
+/// Powering on a pane that was preloaded at startup counts that install once.
+#[gpui_kit::test]
+fn default_pane_power_on_records_install(cx: &mut TestAppContext) {
+    let _guard = ui_lock();
+    let (_window, app) = open_app(cx);
+    cx.update(|cx| {
+        app.update(cx, |app, _| {
+            let firmware = app.library.list_clone()[0].clone();
+            let before = app.library.install_count(&firmware);
+            app.set_power(0, true);
+            assert_eq!(app.library.install_count(&firmware), before + 1);
+            app.set_power(0, false);
+        });
+    });
+}

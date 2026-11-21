@@ -595,8 +595,16 @@ impl GridApp {
                 else {
                     return;
                 };
+                let firmware = this.library.list_clone().into_iter().find(|firmware| {
+                    fm1_performer::firmware_picker::pick_of(firmware).as_ref() == Some(pick)
+                });
                 match pick.bytes(this.store.as_ref()) {
-                    Ok(bytes) => this.recovery.flash_firmware(&picked, bytes, probe),
+                    Ok(bytes) => {
+                        if let Some(firmware) = firmware {
+                            this.recovery_pending.insert(picked.clone(), firmware);
+                        }
+                        this.recovery.flash_firmware(&picked, bytes, probe);
+                    }
                     Err(error) => this.recovery.report(&picked, error),
                 }
                 cx.notify();
@@ -645,13 +653,15 @@ impl GridApp {
                         });
                         match (rescue, pick.bytes(this.store.as_ref())) {
                             (true, Ok(bytes)) => {
-                                this.flash_pending = firmware;
-                                this.flash_seen = false;
+                                if let Some(firmware) = firmware {
+                                    this.flash_install.start(firmware);
+                                }
                                 this.hardware.rescue_flash(&picked, bytes);
                             }
                             (false, Ok(bytes)) => {
-                                this.flash_pending = firmware;
-                                this.flash_seen = false;
+                                if let Some(firmware) = firmware {
+                                    this.flash_install.start(firmware);
+                                }
                                 this.hardware.flash(&picked, bytes);
                             }
                             (true, Err(e)) => this.hardware.report_board(e),

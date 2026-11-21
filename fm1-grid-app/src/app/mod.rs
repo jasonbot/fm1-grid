@@ -85,6 +85,9 @@ pub(crate) struct Slot {
     /// Pinned: the pane's device storage persists across power-offs and runs (the
     /// flash snapshot lives in the store).
     pub pinned: bool,
+    /// The current selection has been counted in the install history, so a power
+    /// cycle does not count the same install again.
+    pub install_recorded: bool,
 }
 
 /// A slot's record in the store, `slot-N`: the firmware selection and the pin. A
@@ -233,11 +236,10 @@ pub struct GridApp {
     pub(crate) flash_combos:
         std::collections::HashMap<String, Entity<ComboboxState<FirmwareDelegate>>>,
     flash_was: std::collections::HashMap<String, bool>,
-    /// The library entry a live/rescue flash is installing. It is counted only when
-    /// the flash board clears successfully.
-    pub(crate) flash_pending: Option<Firmware>,
-    /// Whether the board has shown a running flash since the last success.
-    pub(crate) flash_seen: bool,
+    /// The firmware a live/rescue flash is installing; it yields once on success.
+    pub(crate) flash_install: fm1_performer::flash_install::FlashInstall<Firmware>,
+    /// Firmware waiting on a download-mode recovery flash, keyed by unit path.
+    pub(crate) recovery_pending: std::collections::HashMap<String, Firmware>,
     /// MIDI rescue: the Devices pane's Rescue toggle offers every system MIDI port
     /// as a flash target, for units too bricked to answer to their name (those
     /// flash through `Hardware::rescue_flash`). `rescue_warn` rings the toggle when

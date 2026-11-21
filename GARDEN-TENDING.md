@@ -172,6 +172,24 @@ cargo build --release -p fm1-grid
 The macOS swap needs write access to the installed `.app`; a read-only or
 translocated app cannot update itself.
 
+## App icon
+
+`logo.svg` is the icon source. The Windows binaries (`fm1-grid` and `fm1-tty`)
+embed it through `build-icon.rs`: the build tries to rasterize the SVG with
+ImageMagick 7 (`magick`) and falls back to the committed `logo.ico`. Regenerate
+the fallback whenever the logo changes:
+
+```sh
+magick -background none logo.svg \
+  -define icon:auto-resize=256,128,64,48,32,24,20,16 logo.ico
+```
+
+Commit `logo.svg` and `logo.ico` together, rebuild both Windows binaries, and
+check the executable icon in Explorer/taskbar. The README logo follows
+`logo.svg`. The repo does not contain a macOS `.icns` or a Linux desktop icon;
+if a packaging job supplies one, regenerate that artifact from `logo.svg` in
+the same change.
+
 ## Generated files and housekeeping
 
 - `3rdparty-licenses.txt` is generated and gitignored. After a dependency,

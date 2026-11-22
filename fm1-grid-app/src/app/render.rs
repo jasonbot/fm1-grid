@@ -1,6 +1,7 @@
 use super::*;
 use crate::updates::UpdateAction;
 use gpui_kit::component::progress::ProgressCircle;
+use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::Sizable;
 
 /// Space above and below the front panel.
@@ -247,7 +248,10 @@ impl GridApp {
             (theme.foreground, theme.muted_foreground, theme.border)
         };
         let app = cx.entity().clone();
-        let enabled = action != UpdateAction::Current && !action.busy();
+        let checking = self.updates.checking();
+        let enabled = action != UpdateAction::Current
+            && action != UpdateAction::Updating
+            && !checking;
         let mut pill = h_flex()
             .id("update-pill")
             .test_support()
@@ -278,7 +282,12 @@ impl GridApp {
             }
             pill = pill.child(indicator);
         }
-        let label = if action == UpdateAction::Current {
+        if checking {
+            pill = pill.child(Spinner::new().xsmall());
+        } else if action == UpdateAction::Check {
+            pill = pill.child(Icon::new(Lucide::GlobeCheck).size_3());
+        }
+        let label = if matches!(action, UpdateAction::Current | UpdateAction::Check) {
             format!("v{}", crate::APP_VERSION)
         } else {
             action.label().to_string()

@@ -77,9 +77,6 @@ impl UpdateAction {
         }
     }
 
-    pub(crate) fn busy(self) -> bool {
-        matches!(self, Self::Check | Self::Updating)
-    }
 }
 
 const AUTO_CHECK_INTERVAL: Duration = Duration::from_secs(60 * 60);
@@ -125,6 +122,11 @@ impl Updates {
 
     pub(crate) fn progress(&self) -> Option<&UpdateProgress> {
         self.progress.as_ref()
+    }
+
+    /// Whether a check is in flight, for the title bar's spinner.
+    pub(crate) fn checking(&self) -> bool {
+        self.checking
     }
 
     pub(crate) fn activate(&mut self, window: &Window, cx: &mut Context<GridApp>) {

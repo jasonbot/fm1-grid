@@ -126,3 +126,17 @@ fn panel_resizes_with_window(cx: &mut TestAppContext) {
     })
     .unwrap();
 }
+
+/// Grid cards slow down as audio health worsens; the selected card keeps a faster
+/// cadence except when the active pane is dropping.
+#[test]
+fn degraded_panes_render_fewer_frames() {
+    use crate::app::Health;
+
+    assert_eq!(Health::Green.grid_frame_interval(), Duration::from_millis(33));
+    assert_eq!(Health::Yellow.grid_frame_interval(), Duration::from_millis(33));
+    assert_eq!(Health::Orange.grid_frame_interval(), Duration::from_millis(66));
+    assert_eq!(Health::Red.grid_frame_interval(), Duration::from_millis(100));
+    assert_eq!(Health::Orange.ghost_frame_interval(), Duration::from_millis(66));
+    assert_eq!(Health::Red.ghost_frame_interval(), Duration::from_millis(100));
+}

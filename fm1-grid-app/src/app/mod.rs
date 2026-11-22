@@ -116,6 +116,26 @@ pub(crate) enum Health {
 }
 
 impl Health {
+    /// How often a non-selected grid card is refreshed. Orange and red panes have
+    /// less headroom, so their cards update at 15 and 10 fps instead of 30.
+    pub(crate) fn grid_frame_interval(self) -> Duration {
+        match self {
+            Self::Red => Duration::from_millis(100),
+            Self::Orange => Duration::from_millis(66),
+            _ => Duration::from_millis(33),
+        }
+    }
+
+    /// How often the selected pane's fisheye card is rebuilt. Healthy panes keep
+    /// the old 60 Hz path; degraded panes drop to 15 or 10 fps.
+    pub(crate) fn ghost_frame_interval(self) -> Duration {
+        match self {
+            Self::Red => Duration::from_millis(100),
+            Self::Orange => Duration::from_millis(66),
+            _ => Duration::from_millis(16),
+        }
+    }
+
     /// The ramp, in drops per window. Audio callbacks run every few milliseconds, so
     /// [`RED_AT`] drops is already several percent of them running dry.
     pub(super) fn of(drops_5s: u64) -> Self {
@@ -263,9 +283,9 @@ pub struct GridApp {
     /// The selected slot's frame is the sidebar's upscaled picture (hqx, or
     /// nearest-neighbour while its dropout health is orange or worse).
     pub(crate) frames: [Option<Arc<RenderImage>>; MAX_SLOTS],
-    /// When the LCD images were last rebuilt. The emulator can publish at 60 Hz, but
-    /// the CPU-side filters (hqx, ghost, recede) only run at 30 Hz.
-    last_lcd_upload: Instant,
+    /// When each pane's LCD image was last rebuilt. Degraded panes run slower; the
+    /// active pane's sidebar keeps its 30 Hz cadence.
+    last_lcd_upload: [Instant; MAX_SLOTS],
     /// The framebuffer each slot's frame was built from; a pane whose screen has not
     /// changed costs a memcmp per tick instead of a full decode + upload.
     last_fb: [Option<Box<[u16]>>; MAX_SLOTS],
@@ -277,6 +297,8 @@ pub struct GridApp {
     ghost_fb: Option<Box<[u16]>>,
     /// Whether the ghost currently holds a live (powered) snapshot.
     ghost_live: bool,
+    /// When the selected pane's fisheye card was last rebuilt.
+    last_ghost_upload: Instant,
     /// FM-1 keys/buttons currently held on the computer keyboard (event-driven; only
     /// set while the Emulator tab shows the panel).
     kb_down: [bool; 41],

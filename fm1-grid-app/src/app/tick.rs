@@ -199,10 +199,6 @@ impl GridApp {
     /// screen cost nothing.
     pub(super) fn upload_lcds(&mut self) -> bool {
         let mut changed = false;
-        let render = self.last_lcd_upload.elapsed() >= Duration::from_millis(33);
-        if render {
-            self.last_lcd_upload = Instant::now();
-        }
         for slot in 0..MAX_SLOTS {
             let Some(handle) = &self.slots[slot].handle else {
                 if self.last_fb[slot].take().is_some() || self.frames[slot].take().is_some() {
@@ -210,9 +206,17 @@ impl GridApp {
                 }
                 continue;
             };
-            if !render {
+            // The selected pane's sidebar stays at 30 Hz; other cards slow down
+            // when that pane's audio queue is dropping.
+            let interval = if slot == self.active {
+                Duration::from_millis(33)
+            } else {
+                self.health[slot].color.grid_frame_interval()
+            };
+            if self.last_lcd_upload[slot].elapsed() < interval {
                 continue;
             }
+            self.last_lcd_upload[slot] = Instant::now();
             // Copy under the lock, then drop it: the emulator thread needs the same
             // lock to publish the next LCD frame, and it must not wait for hqx or
             // the other filters to finish.
@@ -311,6 +315,11 @@ impl GridApp {
     /// last build (a static screen costs one memcmp per tick). A pane that is off shows
     /// black, blanked once.
     pub(super) fn refresh_ghost(&mut self) -> bool {
+        if self.last_ghost_upload.elapsed() < self.health[self.active].color.ghost_frame_interval()
+        {
+            return false;
+        }
+        self.last_ghost_upload = Instant::now();
         let Some(handle) = self.slots[self.active].handle.as_ref() else {
             self.ghost_fb = None;
             return if self.ghost_live {

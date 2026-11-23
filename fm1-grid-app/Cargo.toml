@@ -9,7 +9,7 @@ license = "MIT"
 fm1-performer = { path = "../fm1-performer" }
 fm1-recovery = { path = "../fm1-recovery" }
 fm1-cardputer = { path = "../fm1-cardputer" }
-gpui-kit = "=0.8.0"
+gpui-kit = "0.11.0"
 image = "0.25"
 rfd = "0.17.2"
 cpal = "0.18.2"
@@ -27,7 +27,7 @@ toml = "0.8"
 ureq = "3"
 
 [dev-dependencies]
-gpui-kit = { version = "=0.8.0", features = ["test-support"] }
+gpui-kit = { version = "0.11.0", features = ["test-support"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 ureq = "3"

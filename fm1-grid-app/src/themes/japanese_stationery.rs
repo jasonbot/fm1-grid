@@ -38,39 +38,38 @@ fn hsla(color: Rgb) -> Hsla {
 pub(crate) fn theme(mode: ThemeMode, accent: &Accent) -> ThemeConfig {
     let base = Rgb::parse(accent.hex);
     let dark = mode.is_dark();
-    ThemeConfig {
-        name: format!(
-            "Japanese Stationery {}",
-            if dark { "Dark" } else { "Light" }
-        )
-        .into(),
-        mode,
-        font_size: Some(16.0),
-        font_family: Some(
-            "Hiragino Kaku Gothic ProN, Hiragino Sans, Yu Gothic, Meiryo, DejaVu Sans, \
-             Noto Sans JP, Noto Sans CJK JP, Segoe UI Variable Text, SF Pro Text, Inter, \
-             Helvetica Neue, DejaVu Sans, sans-serif"
-                .into(),
-        ),
-        mono_font_family: Some(
-            "Noto Sans Mono CJK JP, Osaka, MS Gothic, Cascadia Mono, Consolas, Menlo, \
-             DejaVu Sans Mono, monospace"
-                .into(),
-        ),
-        radius: Some(4),
-        radius_lg: Some(6),
-        shadow: Some(true),
-        colors: with_base_colors(
-            if dark {
-                dark_tokens(base)
-            } else {
-                light_tokens(base)
-            },
-            base,
-            dark,
-        ),
-        ..Default::default()
-    }
+    let mut theme = ThemeConfig::default();
+    theme.name = format!(
+        "Japanese Stationery {}",
+        if dark { "Dark" } else { "Light" }
+    )
+    .into();
+    theme.mode = mode;
+    theme.font_size = Some(16.0);
+    theme.font_family = Some(
+        "Hiragino Kaku Gothic ProN, Hiragino Sans, Yu Gothic, Meiryo, DejaVu Sans, \
+         Noto Sans JP, Noto Sans CJK JP, Segoe UI Variable Text, SF Pro Text, Inter, \
+         Helvetica Neue, DejaVu Sans, sans-serif"
+            .into(),
+    );
+    theme.mono_font_family = Some(
+        "Noto Sans Mono CJK JP, Osaka, MS Gothic, Cascadia Mono, Consolas, Menlo, \
+         DejaVu Sans Mono, monospace"
+            .into(),
+    );
+    theme.radius = Some(4);
+    theme.radius_lg = Some(6);
+    theme.shadow = Some(true);
+    theme.colors = with_base_colors(
+        if dark {
+            dark_tokens(base)
+        } else {
+            light_tokens(base)
+        },
+        base,
+        dark,
+    );
+    theme
 }
 
 fn with_base_colors(colors: ThemeConfigColors, a: Rgb, dark: bool) -> ThemeConfigColors {

@@ -94,9 +94,11 @@ minutes. If the upstream API changed, fix the callers before committing.
 ## Rust and crate dependencies
 
 - `cargo update` for routine dependency refreshes; commit `Cargo.lock`.
-- `gpui-kit` is pinned exactly (`=0.8.0`) in both `fm1-grid` and
-  `fm1-grid-app`, and the test-support dev-dependency uses the same version.
-  Bump all three together, then run the full test suite and the screenshots.
+- `gpui-kit` is unpinned (`0.11.0`) in both `fm1-grid` and `fm1-grid-app`, and
+  the test-support dev-dependency uses the same version. Bump all three
+  together, fix API changes (for example `ThemeConfig` is non-exhaustive: build
+  it from `Default` and assign fields), then run the full test suite and the
+  screenshots.
 - `ratatui`, `midir`, `cpal`, `ureq`, `windows` and the other direct
   dependencies can be updated independently, but major-version bumps need a
   compile and a smoke test of the affected surface.

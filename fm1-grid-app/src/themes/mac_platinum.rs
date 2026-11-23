@@ -34,30 +34,29 @@ fn horizontal_gradient(left: Rgb, right: Rgb) -> String {
 pub(crate) fn theme(mode: ThemeMode, accent: &Accent) -> ThemeConfig {
     let base = Rgb::parse(accent.hex);
     let dark = mode.is_dark();
-    ThemeConfig {
-        name: format!(
-            "Mac Platinum {} ({})",
-            if dark { "Dark" } else { "Light" },
-            accent.label
-        )
-        .into(),
-        mode,
-        font_family: Some(
-            "Chicago, Charcoal, Geneva, Helvetica Neue, Helvetica, Arial, Noto Sans, \
-             DejaVu Sans, sans-serif"
-                .into(),
-        ),
-        mono_font_family: Some("Monaco, Menlo, Courier New, DejaVu Sans Mono, monospace".into()),
-        radius: Some(4),
-        radius_lg: Some(8),
-        shadow: Some(true),
-        colors: if dark {
-            dark_tokens(base)
-        } else {
-            light_tokens(base)
-        },
-        ..Default::default()
-    }
+    let mut theme = ThemeConfig::default();
+    theme.name = format!(
+        "Mac Platinum {} ({})",
+        if dark { "Dark" } else { "Light" },
+        accent.label
+    )
+    .into();
+    theme.mode = mode;
+    theme.font_family = Some(
+        "Chicago, Charcoal, Geneva, Helvetica Neue, Helvetica, Arial, Noto Sans, \
+         DejaVu Sans, sans-serif"
+            .into(),
+    );
+    theme.mono_font_family = Some("Monaco, Menlo, Courier New, DejaVu Sans Mono, monospace".into());
+    theme.radius = Some(4);
+    theme.radius_lg = Some(8);
+    theme.shadow = Some(true);
+    theme.colors = if dark {
+        dark_tokens(base)
+    } else {
+        light_tokens(base)
+    };
+    theme
 }
 
 fn light_tokens(a: Rgb) -> ThemeConfigColors {

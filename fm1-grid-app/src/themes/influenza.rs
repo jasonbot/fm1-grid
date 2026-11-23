@@ -17,33 +17,32 @@ pub(crate) const FAMILY: &str = "influenza";
 pub(crate) fn theme(mode: ThemeMode, accent: &Accent) -> ThemeConfig {
     let base = Rgb::parse(accent.hex);
     let dark = mode.is_dark();
-    ThemeConfig {
-        name: format!(
-            "Influenza {} ({})",
-            if dark { "Dark" } else { "Light" },
-            accent.label
-        )
-        .into(),
-        mode,
-        // Fluent's Segoe UI family with sane cross-platform fallbacks; the
-        // resolver in theme.rs names the first installed one.
-        font_family: Some(
-            "Segoe UI Variable Text, Segoe UI Variable, Segoe UI, Inter, Noto Sans, \
-             DejaVu Sans, sans-serif"
-                .into(),
-        ),
-        mono_font_family: Some(
-            "Cascadia Mono, Cascadia Code, Consolas, Courier New, DejaVu Sans Mono, \
-             monospace"
-                .into(),
-        ),
-        // Fluent controls use 4 px corners; flyouts and cards use 8.
-        radius: Some(4),
-        radius_lg: Some(8),
-        shadow: Some(true),
-        colors: if dark { dark_tokens(base) } else { light_tokens(base) },
-        ..Default::default()
-    }
+    let mut theme = ThemeConfig::default();
+    theme.name = format!(
+        "Influenza {} ({})",
+        if dark { "Dark" } else { "Light" },
+        accent.label
+    )
+    .into();
+    theme.mode = mode;
+    // Fluent's Segoe UI family with sane cross-platform fallbacks; the
+    // resolver in theme.rs names the first installed one.
+    theme.font_family = Some(
+        "Segoe UI Variable Text, Segoe UI Variable, Segoe UI, Inter, Noto Sans, \
+         DejaVu Sans, sans-serif"
+            .into(),
+    );
+    theme.mono_font_family = Some(
+        "Cascadia Mono, Cascadia Code, Consolas, Courier New, DejaVu Sans Mono, \
+         monospace"
+            .into(),
+    );
+    // Fluent controls use 4 px corners; flyouts and cards use 8.
+    theme.radius = Some(4);
+    theme.radius_lg = Some(8);
+    theme.shadow = Some(true);
+    theme.colors = if dark { dark_tokens(base) } else { light_tokens(base) };
+    theme
 }
 
 /// The light Fluent table.

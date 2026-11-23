@@ -32,30 +32,29 @@ pub(crate) struct PanelPalette {
 pub(crate) fn theme(mode: ThemeMode, accent: &Accent) -> ThemeConfig {
     let base = Rgb::parse(accent.hex);
     let dark = mode.is_dark();
-    ThemeConfig {
-        name: format!(
-            "Visualia {} ({})",
-            if dark { "Dark" } else { "Light" },
-            accent.label
-        )
-        .into(),
-        mode,
-        font_family: Some(
-            "Inter, Segoe UI, Helvetica Neue, Noto Sans, DejaVu Sans, sans-serif".into(),
-        ),
-        mono_font_family: Some(
-            "JetBrains Mono, Cascadia Mono, Consolas, Menlo, DejaVu Sans Mono, monospace".into(),
-        ),
-        radius: Some(8),
-        radius_lg: Some(16),
-        shadow: Some(true),
-        colors: if dark {
-            dark_tokens(base)
-        } else {
-            light_tokens(base)
-        },
-        ..Default::default()
-    }
+    let mut theme = ThemeConfig::default();
+    theme.name = format!(
+        "Visualia {} ({})",
+        if dark { "Dark" } else { "Light" },
+        accent.label
+    )
+    .into();
+    theme.mode = mode;
+    theme.font_family = Some(
+        "Inter, Segoe UI, Helvetica Neue, Noto Sans, DejaVu Sans, sans-serif".into(),
+    );
+    theme.mono_font_family = Some(
+        "JetBrains Mono, Cascadia Mono, Consolas, Menlo, DejaVu Sans Mono, monospace".into(),
+    );
+    theme.radius = Some(8);
+    theme.radius_lg = Some(16);
+    theme.shadow = Some(true);
+    theme.colors = if dark {
+        dark_tokens(base)
+    } else {
+        light_tokens(base)
+    };
+    theme
 }
 
 /// The cream light side: a fixed cream canvas, accent-tinted grey borders and

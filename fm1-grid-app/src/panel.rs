@@ -368,7 +368,7 @@ impl GridApp {
             .flex_row()
             .items_center()
             .overflow_hidden()
-            .on_scroll_wheel(cx.listener(move |this, event: &ScrollWheelEvent, _, cx| {
+            .on_scroll(cx.listener(move |this, event: &ScrollEvent, _, cx| {
                 let detents = match event.delta {
                     ScrollDelta::Lines(point) => point.y,
                     ScrollDelta::Pixels(point) => f32::from(point.y) / WHEEL_PIXELS_PER_DETENT,

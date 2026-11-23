@@ -30,24 +30,23 @@ fn saturated(accent: &Accent) -> Rgb {
 pub(crate) fn theme(mode: ThemeMode, accent: &Accent) -> ThemeConfig {
     let base = saturated(accent);
     let dark = mode.is_dark();
-    ThemeConfig {
-        name: format!(
-            "Very High Contrast {} ({})",
-            if dark { "Dark" } else { "Light" },
-            accent.label
-        )
-        .into(),
-        mode,
-        font_size: Some(16.0),
-        font_family: Some(FONT.into()),
-        mono_font_family: Some(FONT.into()),
-        mono_font_size: Some(14.0),
-        radius: Some(0),
-        radius_lg: Some(0),
-        shadow: Some(false),
-        colors: if dark { dark_tokens(base) } else { light_tokens(base) },
-        ..Default::default()
-    }
+    let mut theme = ThemeConfig::default();
+    theme.name = format!(
+        "Very High Contrast {} ({})",
+        if dark { "Dark" } else { "Light" },
+        accent.label
+    )
+    .into();
+    theme.mode = mode;
+    theme.font_size = Some(16.0);
+    theme.font_family = Some(FONT.into());
+    theme.mono_font_family = Some(FONT.into());
+    theme.mono_font_size = Some(14.0);
+    theme.radius = Some(0);
+    theme.radius_lg = Some(0);
+    theme.shadow = Some(false);
+    theme.colors = if dark { dark_tokens(base) } else { light_tokens(base) };
+    theme
 }
 
 fn light_tokens(a: Rgb) -> ThemeConfigColors {

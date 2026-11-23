@@ -27,31 +27,30 @@ pub(crate) const FAMILY: &str = "meltysand";
 pub(crate) fn theme(mode: ThemeMode, accent: &Accent) -> ThemeConfig {
     let base = Rgb::parse(accent.hex);
     let dark = mode.is_dark();
-    ThemeConfig {
-        name: format!(
-            "Meltysand {} ({})",
-            if dark { "Dark" } else { "Light" },
-            accent.label
-        )
-        .into(),
-        mode,
-        // San Francisco first, then the usual macOS/desktop fallbacks; the
-        // resolver in theme.rs names the first installed one.
-        font_family: Some(
-            "SF Pro Text, SF Pro Display, .SystemUIFont, Helvetica Neue, Helvetica, \
-             Arial, Noto Sans, DejaVu Sans, sans-serif"
-                .into(),
-        ),
-        mono_font_family: Some(
-            "SF Mono, Menlo, Monaco, Courier New, DejaVu Sans Mono, monospace".into(),
-        ),
-        // Tahoe's window rounding (26 px) with a rounded control scale.
-        radius: Some(12),
-        radius_lg: Some(26),
-        shadow: Some(true),
-        colors: if dark { dark_tokens(base) } else { light_tokens(base) },
-        ..Default::default()
-    }
+    let mut theme = ThemeConfig::default();
+    theme.name = format!(
+        "Meltysand {} ({})",
+        if dark { "Dark" } else { "Light" },
+        accent.label
+    )
+    .into();
+    theme.mode = mode;
+    // San Francisco first, then the usual macOS/desktop fallbacks; the
+    // resolver in theme.rs names the first installed one.
+    theme.font_family = Some(
+        "SF Pro Text, SF Pro Display, .SystemUIFont, Helvetica Neue, Helvetica, \
+         Arial, Noto Sans, DejaVu Sans, sans-serif"
+            .into(),
+    );
+    theme.mono_font_family = Some(
+        "SF Mono, Menlo, Monaco, Courier New, DejaVu Sans Mono, monospace".into(),
+    );
+    // Tahoe's window rounding (26 px) with a rounded control scale.
+    theme.radius = Some(12);
+    theme.radius_lg = Some(26);
+    theme.shadow = Some(true);
+    theme.colors = if dark { dark_tokens(base) } else { light_tokens(base) };
+    theme
 }
 
 /// The light Liquid Glass table.

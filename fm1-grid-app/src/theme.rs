@@ -262,11 +262,9 @@ mod tests {
 
     #[test]
     fn font_lists_pick_the_first_installed_family() {
-        let config = ThemeConfig {
-            font_family: Some("Chalkboard SE, Comic Sans MS, sans-serif".into()),
-            mono_font_family: Some("Comic Mono, Courier New, monospace".into()),
-            ..Default::default()
-        };
+        let mut config = ThemeConfig::default();
+        config.font_family = Some("Chalkboard SE, Comic Sans MS, sans-serif".into());
+        config.mono_font_family = Some("Comic Mono, Courier New, monospace".into());
         let resolved =
             resolve_theme_fonts(&config, &installed(&["Comic Sans MS", "Helvetica Neue"]));
         assert_eq!(resolved.font_family.as_deref(), Some("Comic Sans MS"));
@@ -276,11 +274,9 @@ mod tests {
 
     #[test]
     fn generic_families_use_the_platform_fallbacks() {
-        let config = ThemeConfig {
-            font_family: Some("sans-serif".into()),
-            mono_font_family: Some("monospace".into()),
-            ..Default::default()
-        };
+        let mut config = ThemeConfig::default();
+        config.font_family = Some("sans-serif".into());
+        config.mono_font_family = Some("monospace".into());
         let resolved = resolve_theme_fonts(&config, &installed(&["Arial", "DejaVu Sans Mono"]));
         assert_eq!(resolved.font_family.as_deref(), Some("Arial"));
         assert_eq!(

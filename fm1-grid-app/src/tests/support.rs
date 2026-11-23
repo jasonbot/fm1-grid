@@ -76,7 +76,7 @@ pub(super) fn open_app_at(cx: &mut TestAppContext, w: f32, h: f32) -> (WindowHan
 }
 /// Dispatch a bare key down/up to the focused view (the rail buttons refocus the
 /// root view, so this always reaches the app's own key routing).
-pub(super) fn send_key(window: &mut Window, cx: &mut App, key: &str, down: bool) {
+pub(super) fn send_key(window: &mut Window, cx: &mut App, key: &'static str, down: bool) {
     let keystroke = Keystroke::parse(key).expect("test keystroke");
     if down {
         window.dispatch_event(

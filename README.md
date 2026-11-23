@@ -159,6 +159,25 @@ cargo run --release -p fm1-tty
 - `Tab` moves around. `q` quits. `Ctrl-C` quits from anywhere.
 - It shares the library, tempo, device filter and Download All setting with the GUI.
 
+## fm1-remotes
+
+Prints the online firmware catalog as one JSON array on stdout, for hosting as a
+feed a small client can consume without the app's download heuristics.
+
+```sh
+cargo run --release -p fm1-remotes > firmware.json
+```
+
+- The rows are the merged online listing the library shows (Hub, fm1-editor,
+  mutant.cloud, Reverbose, shrub.audio, jakehandy.com and the index-only entries),
+  with `name`, `version`, `byline`, `description`, `device`, `tags`, `url`,
+  `website` and `source_url`.
+- `url` is always a direct `.fwsc` package: release and install pages are resolved
+  the same way a download is. An entry no `.fwsc` can be found for is omitted
+  (and named on stderr), as are embedded firmwares.
+- The Hub's failure exits non-zero with no output; a failed additive feed warns on
+  stderr and leaves its entries out.
+
 ## Build
 
 - Needs Rust 1.91 or newer.
@@ -201,5 +220,6 @@ Set `FM1_GRID_BIN` to use an existing binary. A missing `/dev/snd/seq` makes the
 - **fm1-grid-app**: gpui-kit UI and app state.
 - **fm1-grid**: the GUI binary.
 - **fm1-tty**: the terminal UI.
+- **fm1-remotes**: the JSON feed generator for the online firmware catalog.
 
 State lives in the `com.fm1-grid` data directory (`~/.local/share/fm1-grid` on Linux).

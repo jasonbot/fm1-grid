@@ -138,6 +138,12 @@ The Hub is treated as the source of truth; the other feeds are additive. A
 listing's `source:` tag and the device/chip tags affect deduplication and
 filtering, so preserve them when editing a parser.
 
+`cargo run --release -p fm1-remotes > firmware.json` prints the merged listing
+with every entry resolved to a direct `.fwsc` URL, ready to host for clients
+without the download heuristics. Regenerate it after a feed or parser change;
+entries the heuristics can't resolve are omitted, so the output is only as
+complete as the current sources and network.
+
 ## Releases and update feeds
 
 The crate versions are not the release version. Packaging stamps
@@ -204,3 +210,5 @@ the same change.
   force-add them.
 - Remove completed items from `BACKLOG.md`, and keep README instructions in
   sync with the code and scripts.
+- If the file ~/projects/homepage/firmware-zoo/firmwares.json exists, refresh
+  it by running: `cargo run --release -p fm1-remotes > ~/projects/homepage/firmware-zoo/firmwares.json`

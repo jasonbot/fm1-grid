@@ -28,7 +28,7 @@ pub(crate) fn fetch_package(url: &str, percent: &AtomicU32) -> Result<Vec<u8>, S
 /// the install page or release it links; other page URLs (install/flasher pages)
 /// are fetched and scraped for the package their metadata names; anything that
 /// already looks like a package passes through unchanged.
-fn resolve_package_url(url: &str) -> Result<String, String> {
+pub(crate) fn resolve_package_url(url: &str) -> Result<String, String> {
     if let Some(api) = github_release_api(url) {
         return fwsc_asset_url(&fetch_text(&api)?);
     }

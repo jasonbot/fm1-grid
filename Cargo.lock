@@ -2129,6 +2129,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "fm1-remotes"
+version = "0.1.0"
+dependencies = [
+ "fm1-firmware",
+ "serde_json",
+]
+
+[[package]]
 name = "fm1-soc"
 version = "0.5.1"
 source = "git+https://github.com/joakimeriksson/fm1-emu.git?rev=fd45dd3c81437379e14af0387a2f86f4f549313d#fd45dd3c81437379e14af0387a2f86f4f549313d"

@@ -1,0 +1,10 @@
+[package]
+name = "fm1-remotes"
+version = "0.1.0"
+edition = "2021"
+description = "Print the online FM-1 firmware catalog as a JSON feed of direct .fwsc URLs"
+license = "MIT"
+
+[dependencies]
+fm1-firmware = { path = "../fm1-firmware" }
+serde_json = "1"

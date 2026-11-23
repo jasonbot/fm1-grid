@@ -24,11 +24,13 @@ mod installs;
 mod merge;
 mod model;
 mod persist;
+mod remotes;
 mod util;
 #[cfg(test)]
 mod tests;
 
 pub use model::*;
+pub use remotes::*;
 use merge::*;
 use installs::*;
 use persist::*;
@@ -91,8 +93,144 @@ pub struct Library {
     installs: HashMap<String, InstallRecord>,
 }
 
-/// How often `list()` re-stats files/blobs for the Missing status. External deletes
-/// surface within this; everything app-driven rebuilds immediately.
+/// The catalog URLs one refresh walks. [`Library::refresh_hub_from`] takes them
+/// separately so tests can inject a closed port; the hosted feed uses today's.
+struct FeedUrls {
+    hub: String,
+    editor: String,
+    mutant: String,
+    reverbose: String,
+    reverbose_smk: String,
+    shrub: String,
+    shrub_build: String,
+    jakehandy: String,
+}
+
+impl FeedUrls {
+    /// Today's URLs. The date query keeps intermediate caches from serving
+    /// yesterday's catalog.
+    fn today() -> FeedUrls {
+        let day = today_utc();
+        FeedUrls {
+            hub: format!("{}?{day}", hub::CATALOG),
+            editor: format!("{}?{day}", editor::PAGE),
+            mutant: format!("{}?{day}", mutant::CATALOG),
+            reverbose: format!("{}?{day}", reverbose::PAGE),
+            reverbose_smk: format!("{}?{day}", reverbose::SMK37_PAGE),
+            shrub: shrub::SITE.to_string(),
+            shrub_build: shrub::BUILD.to_string(),
+            jakehandy: jakehandy::SITE.to_string(),
+        }
+    }
+}
+
+/// Fetch every enabled feed at the same time and fold the additive pages into the
+/// hub listing. The hub's failure is the error; an additive failure only costs its
+/// entries and names the returned status (the first failure wins). The bundled
+/// index is the caller's business: the library merges it into its cache, the hosted
+/// feed merges it into the JSON it prints.
+fn fetch_sources(
+    urls: &FeedUrls,
+    feeds: HubFeeds,
+) -> Result<(Vec<Firmware>, HubStatus), String> {
+    let (
+        listing,
+        editor_page,
+        mutant_page,
+        reverbose_page,
+        reverbose_smk_page,
+        shrub_page,
+        jakehandy_page,
+    ) = std::thread::scope(|scope| {
+        let editor_page = feeds
+            .editor
+            .then(|| scope.spawn(|| editor::fetch_listing(&urls.editor)));
+        let mutant_page = feeds
+            .mutant
+            .then(|| scope.spawn(|| mutant::fetch_listing(&urls.mutant)));
+        let reverbose_page = feeds.reverbose.then(|| {
+            scope.spawn(|| reverbose::fetch_listing(&urls.reverbose, FirmwareDevice::Fm1))
+        });
+        let reverbose_smk_page = feeds.reverbose.then(|| {
+            scope.spawn(|| reverbose::fetch_listing(&urls.reverbose_smk, FirmwareDevice::Smk37))
+        });
+        let shrub_page = feeds
+            .shrub
+            .then(|| scope.spawn(|| shrub::fetch_listing(&urls.shrub, &urls.shrub_build)));
+        let jakehandy_page = feeds
+            .jakehandy
+            .then(|| scope.spawn(|| jakehandy::fetch_listing(&urls.jakehandy)));
+        let listing = if feeds.hub {
+            hub::fetch_listing(&urls.hub)
+        } else {
+            Ok(Vec::new())
+        };
+        let editor_page = match editor_page {
+            Some(handle) => handle
+                .join()
+                .unwrap_or_else(|_| Err("editor page thread panicked".to_string())),
+            None => Ok(Vec::new()),
+        };
+        let mutant_page = match mutant_page {
+            Some(handle) => handle
+                .join()
+                .unwrap_or_else(|_| Err("mutant catalog thread panicked".to_string())),
+            None => Ok(Vec::new()),
+        };
+        let reverbose_page = match reverbose_page {
+            Some(handle) => handle
+                .join()
+                .unwrap_or_else(|_| Err("reverbose page thread panicked".to_string())),
+            None => Ok(Vec::new()),
+        };
+        let reverbose_smk_page = match reverbose_smk_page {
+            Some(handle) => handle
+                .join()
+                .unwrap_or_else(|_| Err("reverbose SMK-37 page thread panicked".to_string())),
+            None => Ok(Vec::new()),
+        };
+        let shrub_page = match shrub_page {
+            Some(handle) => handle
+                .join()
+                .unwrap_or_else(|_| Err("shrub page thread panicked".to_string())),
+            None => Ok(Vec::new()),
+        };
+        let jakehandy_page = match jakehandy_page {
+            Some(handle) => handle
+                .join()
+                .unwrap_or_else(|_| Err("jakehandy page thread panicked".to_string())),
+            None => Ok(Vec::new()),
+        };
+        (
+            listing,
+            editor_page,
+            mutant_page,
+            reverbose_page,
+            reverbose_smk_page,
+            shrub_page,
+            jakehandy_page,
+        )
+    });
+    let mut listing = listing?;
+    // The additive sources fold in one after another; the first failure is the one
+    // the status reports.
+    let mut outcome = HubStatus::Idle;
+    for extra in [
+        editor_page,
+        mutant_page,
+        reverbose_page,
+        reverbose_smk_page,
+        shrub_page,
+        jakehandy_page,
+    ] {
+        match extra {
+            Ok(extra) => listing = merge_listings(listing, extra),
+            Err(e) if matches!(outcome, HubStatus::Idle) => outcome = HubStatus::Failed(e),
+            Err(_) => {}
+        }
+    }
+    Ok((listing, outcome))
+}
 
 impl Library {
     pub fn load(store: &Store) -> Library {
@@ -417,25 +555,15 @@ impl Library {
         {
             return;
         }
-        let day = today_utc();
-        self.refresh_hub_from(
-            format!("{}?{day}", hub::CATALOG),
-            format!("{}?{day}", editor::PAGE),
-            format!("{}?{day}", mutant::CATALOG),
-            format!("{}?{day}", reverbose::PAGE),
-            format!("{}?{day}", reverbose::SMK37_PAGE),
-            shrub::SITE.to_string(),
-            shrub::BUILD.to_string(),
-            jakehandy::SITE.to_string(),
-        );
+        self.refresh_hub_at(FeedUrls::today());
     }
 
     /// The workhorse, with the URLs injectable so tests stay offline (a port that's
-    /// closed is a deterministic failure). All sources are fetched at the same
-    /// time. The hub decides the outcome: its failure keeps the old listing, while
-    /// an additive source's failure only costs its entries (and shows in the
-    /// status). Every fetch — cadence or forced — counts for the cadence, so the
-    /// timestamp is set here, the single funnel.
+    /// closed is a deterministic failure). The hub decides the outcome: its failure
+    /// keeps the old listing, while an additive source's failure only costs its
+    /// entries (and shows in the status). Every fetch — cadence or forced — counts
+    /// for the cadence, so the timestamp is set here, the single funnel.
+    #[cfg(test)]
     fn refresh_hub_from(
         &mut self,
         url: String,
@@ -447,6 +575,19 @@ impl Library {
         shrub_build_url: String,
         jakehandy_url: String,
     ) {
+        self.refresh_hub_at(FeedUrls {
+            hub: url,
+            editor: editor_url,
+            mutant: mutant_url,
+            reverbose: reverbose_url,
+            reverbose_smk: reverbose_smk_url,
+            shrub: shrub_url,
+            shrub_build: shrub_build_url,
+            jakehandy: jakehandy_url,
+        });
+    }
+
+    fn refresh_hub_at(&mut self, urls: FeedUrls) {
         *self.last_refresh.lock().unwrap() = Some(Instant::now());
         *self.hub_status.lock().unwrap() = HubStatus::Loading;
         let feeds = self.feeds;
@@ -454,109 +595,9 @@ impl Library {
         let status = Arc::clone(&self.hub_status);
         let swapped = Arc::clone(&self.hub_swapped);
         std::thread::spawn(move || {
-            let (
-                listing,
-                editor_page,
-                mutant_page,
-                reverbose_page,
-                reverbose_smk_page,
-                shrub_page,
-                jakehandy_page,
-            ) = std::thread::scope(|scope| {
-                    let editor_page = feeds
-                        .editor
-                        .then(|| scope.spawn(|| editor::fetch_listing(&editor_url)));
-                    let mutant_page = feeds
-                        .mutant
-                        .then(|| scope.spawn(|| mutant::fetch_listing(&mutant_url)));
-                    let reverbose_page = feeds.reverbose.then(|| {
-                        scope.spawn(|| reverbose::fetch_listing(&reverbose_url, FirmwareDevice::Fm1))
-                    });
-                    let reverbose_smk_page = feeds.reverbose.then(|| {
-                        scope.spawn(|| {
-                            reverbose::fetch_listing(&reverbose_smk_url, FirmwareDevice::Smk37)
-                        })
-                    });
-                    let shrub_page = feeds
-                        .shrub
-                        .then(|| scope.spawn(|| shrub::fetch_listing(&shrub_url, &shrub_build_url)));
-                    let jakehandy_page = feeds
-                        .jakehandy
-                        .then(|| scope.spawn(|| jakehandy::fetch_listing(&jakehandy_url)));
-                    let listing = if feeds.hub {
-                        hub::fetch_listing(&url)
-                    } else {
-                        Ok(Vec::new())
-                    };
-                    let editor_page = match editor_page {
-                        Some(handle) => handle
-                            .join()
-                            .unwrap_or_else(|_| Err("editor page thread panicked".to_string())),
-                        None => Ok(Vec::new()),
-                    };
-                    let mutant_page = match mutant_page {
-                        Some(handle) => handle
-                            .join()
-                            .unwrap_or_else(|_| Err("mutant catalog thread panicked".to_string())),
-                        None => Ok(Vec::new()),
-                    };
-                    let reverbose_page = match reverbose_page {
-                        Some(handle) => handle
-                            .join()
-                            .unwrap_or_else(|_| Err("reverbose page thread panicked".to_string())),
-                        None => Ok(Vec::new()),
-                    };
-                    let reverbose_smk_page = match reverbose_smk_page {
-                        Some(handle) => handle.join().unwrap_or_else(|_| {
-                            Err("reverbose SMK-37 page thread panicked".to_string())
-                        }),
-                        None => Ok(Vec::new()),
-                    };
-                    let shrub_page = match shrub_page {
-                        Some(handle) => handle
-                            .join()
-                            .unwrap_or_else(|_| Err("shrub page thread panicked".to_string())),
-                        None => Ok(Vec::new()),
-                    };
-                    let jakehandy_page = match jakehandy_page {
-                        Some(handle) => handle.join().unwrap_or_else(|_| {
-                            Err("jakehandy page thread panicked".to_string())
-                        }),
-                        None => Ok(Vec::new()),
-                    };
-                    (
-                        listing,
-                        editor_page,
-                        mutant_page,
-                        reverbose_page,
-                        reverbose_smk_page,
-                        shrub_page,
-                        jakehandy_page,
-                    )
-                });
-            let next = match listing {
+            let next = match fetch_sources(&urls, feeds) {
                 Err(e) => HubStatus::Failed(e),
-                Ok(listing) => {
-                    // The additive sources fold in one after another; the first
-                    // failure is the one the status reports.
-                    let mut outcome = HubStatus::Idle;
-                    let mut listing = listing;
-                    for extra in [
-                        editor_page,
-                        mutant_page,
-                        reverbose_page,
-                        reverbose_smk_page,
-                        shrub_page,
-                        jakehandy_page,
-                    ] {
-                        match extra {
-                            Ok(extra) => listing = merge_listings(listing, extra),
-                            Err(e) if matches!(outcome, HubStatus::Idle) => {
-                                outcome = HubStatus::Failed(e)
-                            }
-                            Err(_) => {}
-                        }
-                    }
+                Ok((listing, outcome)) => {
                     *hub.lock().unwrap() = merge_listings(listing, index_listing());
                     swapped.store(true, Ordering::Relaxed);
                     outcome

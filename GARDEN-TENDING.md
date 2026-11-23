@@ -173,7 +173,10 @@ filtering, so preserve them when editing a parser.
 with every entry resolved to a direct `.fwsc` URL, ready to host for clients
 without the download heuristics. Regenerate it after a feed or parser change;
 entries the heuristics can't resolve are omitted, so the output is only as
-complete as the current sources and network.
+complete as the current sources and network. Export `GITHUB_TOKEN` (or
+`GH_TOKEN`, for example `GITHUB_TOKEN=$(gh auth token)`) first: the
+unauthenticated GitHub API allows only 60 requests an hour, which drops most
+GitHub-hosted entries from the output.
 
 ## Releases and update feeds
 

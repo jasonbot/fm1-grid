@@ -170,7 +170,17 @@ pub fn looks_like_web_page(head: &[u8]) -> bool {
 }
 
 pub(crate) fn fetch_text(url: &str) -> Result<String, String> {
-    ureq::get(url)
+    let mut request = ureq::get(url);
+    // The unauthenticated API allows 60 requests an hour, far fewer than a full
+    // feed resolution needs. Use the local token when one is present.
+    if url.starts_with("https://api.github.com/") {
+        if let Ok(token) =
+            std::env::var("GITHUB_TOKEN").or_else(|_| std::env::var("GH_TOKEN"))
+        {
+            request = request.set("Authorization", &format!("Bearer {token}"));
+        }
+    }
+    request
         .call()
         .map_err(|e| format!("fetch {url}: {e}"))?
         .into_string()

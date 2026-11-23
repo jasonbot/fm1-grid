@@ -46,6 +46,10 @@ seq.!default { type hw }
 CONF
 [[ -e /dev/snd/seq ]] || echo "warning: no /dev/snd/seq; MIDI screenshots may show an error" >&2
 
+# The app prefers Wayland when the session exports it; that would put the window
+# on the desktop instead of Xvfb, where xdotool and import cannot see it.
+unset WAYLAND_DISPLAY WAYLAND_SOCKET
+
 Xvfb "$DISPLAY_NUM" -screen 0 1700x1200x24 -nolisten tcp >"$TMP/xvfb.log" 2>&1 &
 XVFB=$!
 APP=

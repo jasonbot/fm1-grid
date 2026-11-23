@@ -16,7 +16,7 @@ hqx = "0.1.1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 flate2 = "1"
-fm1-soc = { git = "https://github.com/joakimeriksson/fm1-emu.git", rev = "fd45dd3c81437379e14af0387a2f86f4f549313d" }
+fm1-soc = { git = "https://github.com/joakimeriksson/fm1-emu.git", rev = "7042b5127ce4e509ca5041f2cdb657e8e59488b9" }
 
 [build-dependencies]
 flate2 = "1"

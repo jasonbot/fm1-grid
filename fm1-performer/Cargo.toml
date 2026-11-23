@@ -12,8 +12,8 @@ fm1-hardware = { path = "../fm1-hardware" }
 # Optional per-emulator core pinning on Linux
 libc = "0.2"
 # The FM-1 CPU/SoC from the fm1-emu project.
-fm1-core = { git = "https://github.com/joakimeriksson/fm1-emu.git", rev = "fd45dd3c81437379e14af0387a2f86f4f549313d" }
-fm1-soc = { git = "https://github.com/joakimeriksson/fm1-emu.git", rev = "fd45dd3c81437379e14af0387a2f86f4f549313d" }
+fm1-core = { git = "https://github.com/joakimeriksson/fm1-emu.git", rev = "7042b5127ce4e509ca5041f2cdb657e8e59488b9" }
+fm1-soc = { git = "https://github.com/joakimeriksson/fm1-emu.git", rev = "7042b5127ce4e509ca5041f2cdb657e8e59488b9" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 flate2 = { version = "1", default-features = false, features = ["rust_backend"] }

@@ -13,7 +13,13 @@ cargo build --release -p fm1-grid
 ```
 
 Launch the app and power at least one pane. For UI changes, run
-`scripts/screenshots.sh` and inspect the changed images.
+`scripts/screenshots.sh` and inspect the changed images. The script needs
+`Xvfb`, `xdotool` and ImageMagick (`import`, `convert`): it starts a private
+Xvfb on `:99`, launches the app with a scratch data dir and null ALSA, powers
+four panes, drives the UI at 1440x900 with xdotool, and writes
+`screenshot/*.png`. Set `FM1_GRID_BIN=target/release/fm1-grid` to reuse an
+existing release build; the script unsets `WAYLAND_DISPLAY` so the window stays
+on Xvfb instead of appearing on the desktop.
 
 ## Baked-in firmware
 

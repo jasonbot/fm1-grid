@@ -32,16 +32,16 @@ time.
 
 ## Where the packages come from
 
-* The FM-1 Firmware Hub mirrors SLOOP 2.8.5, Felucca 1.8.2 and ChoralRoot 0.43.
-  Hashes were checked against the hub's catalogue on 2026-11-21; ChoralRoot 0.43
-  was refreshed then.
-* **Felucca** tracks the hub's stable 1.8.2 package.
+* The FM-1 Firmware Hub mirrors SLOOP 2.8.5, Felucca 1.8.3 and ChoralRoot 0.44.
+  Hashes were checked against the hub's catalogue on 2026-11-22; Felucca 1.8.3
+  and ChoralRoot 0.44 were refreshed then.
+* **Felucca** tracks the hub's 1.8.3 release package.
 * **FM1 Stock V16** is M-VAVE's official firmware (`FM-1.fwsc`, released 2026-10-21)
   from m-vave.com/download; the hub does not mirror it yet. The hash was recorded on
-  download on 2026-10-25 and still matches on 2026-11-21.
+  download on 2026-10-25 and still matches on 2026-11-22.
 * **FM1 Open V14** is the official open firmware bundled with M-VAVE's web workbench
   (open.m-vave.com/fm1-workbench); the hash was recorded on download on 2026-10-24
-  and still matches the V14 release on 2026-11-21.
+  and still matches the V14 release on 2026-11-22.
 * **Baud Girl (FM-1+VA)** downloads from baudgirl.com (it is not open source, so the
   hub does not mirror it); the entry is `index_only`, so only its metadata ships and
   the package is never baked into the binary. Version 102 and its hash were checked

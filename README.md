@@ -3,7 +3,9 @@
 ![Logo Image](./logo.svg)
 
 Four M-VAVE FM-1 synths in a 2×2 grid. Each pane has its own firmware and screen.
-Built with gpui-kit.
+Built with gpui-kit. The Devices tab also flashes live FM-1 units and SMK-37
+units of all types (including the Donner StarryKeys), and copies firmware to
+running Cardputers over Wi-Fi.
 
 ![Emulator tab](./screenshot/emulator.png)
 
@@ -197,6 +199,7 @@ cargo run --release -p fm1-remotes > firmware.json
 - Linux also needs ALSA headers and the usual X11/Wayland dev packages for gpui.
 - macOS needs the Xcode command-line tools. Download-mode recovery needs sudo.
 - The recovery build downloads m-bootloader v3.0 and its loader from the upstream release, verifies their SHA-256, and keeps them gitignored.
+- The Cardputer build downloads the newest fm1-card full-flash image from its GitHub release, verifies it against the release's `SHA256SUMS`, and keeps it gitignored. Delete `fm1-cardputer/data/` to refresh it.
 - Windows needs the MSVC build tools. Download-mode recovery needs administrator access.
 - Windows MSIX builds: set `FM1_GRID_MSIX_URL` at build time to enable the hosted vanilla-MSIX updater. The URL may point at a `.msix` or an `.msixbundle` (x64 and arm64 packages under one identity). Store installs update through the Store and need no variable.
 - macOS app builds: set `MAC_APP_URL` at build time to a JSON feed (`{ "version": "0.2.0", "url": "https://…/FM1-Grid.zip" }`). The zip holds the signed `.app`; the updater swaps it in after quit and reopens it. See `GARDEN-TENDING.md` for the artifact and feed checklist.

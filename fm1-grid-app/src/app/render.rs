@@ -175,8 +175,9 @@ impl GridApp {
                     .child(button(TABS[4].0, 4, cx)),
             )
     }
-    /// The Devices tab: a centered pill tab bar over the two sections — the live USB
-    /// units and the MIDI graph. The picked section is session state.
+    /// The Devices tab: a centered pill tab bar over three sections — the live USB
+    /// units, the MIDI graph and the Cardputers. The picked section is session
+    /// state.
     pub(super) fn devices_tab(
         &mut self,
         window: &mut Window,
@@ -221,6 +222,15 @@ impl GridApp {
                                         .child(Icon::new(Lucide::Waypoints).size_4())
                                         .child("MIDI Graph"),
                                 ),
+                            )
+                            .child(
+                                Tab::new().aria_label("Cardputers").child(
+                                    h_flex()
+                                        .items_center()
+                                        .gap_2()
+                                        .child(Icon::new(Lucide::Keyboard).size_4())
+                                        .child("Cardputers"),
+                                ),
                             ),
                     ),
                 ),
@@ -232,7 +242,8 @@ impl GridApp {
                     .w_full()
                     .child(match self.devices_tab {
                         0 => self.devices_pane(window, cx).into_any_element(),
-                        _ => self.graph_section(cx).into_any_element(),
+                        1 => self.graph_section(cx).into_any_element(),
+                        _ => self.cardputers_tab(window, cx).into_any_element(),
                     }),
             )
     }

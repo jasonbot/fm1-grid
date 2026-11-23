@@ -67,7 +67,7 @@ The `.fwsc` files are gitignored. A fresh build downloads and checks any missing
 - An `installs: N` tag counts successful installs; the row also shows the last install date. The TUI shows the count in yellow on the right.
 - **Download** gets an online firmware. **Download All** gets every offer the device filter shows.
 - **Reload** fetches all online lists again.
-- **Flash To…** sends a firmware to a live USB unit, or to an off pane.
+- **Flash To…** sends a firmware to a live USB unit, an off pane, or a Cardputer on the network. Finished downloads and Cardputer copies show as notifications.
 - The bottom form imports a `.fwsc` file with a name, version and description. The package sets the device family and SMK model.
 
 ## Devices
@@ -83,6 +83,18 @@ The `.fwsc` files are gitignored. A fresh build downloads and checks any missing
 - **Back up flash** stores a datestamped, full-flash backup in the app data store; installing m-bootloader also makes one. **Restore backup…** lists backups that match the unit’s model, chip key and flash, and writes the whole flash back.
 - With Rescue on, a download-mode unit gets the same searchable firmware combobox as an emulator pane; picking a Library `.fwsc` flashes its application area, keeping the boot area and factory data.
 - The newer UC25HQ80 flash (`0xB36014`) does not change the bootloader install: upstream says m-bootloader behaves the same on both flash chips and should work. Back up the full flash before installing it.
+
+### Cardputers
+
+![Cardputers section](./screenshot/cardputers.png)
+
+- Open it from the **Cardputers** pill on the Devices tab.
+- Lists M5Stack Cardputer-Adv handhelds. The app embeds the fm1-card release image fetched when the embedded image was last refreshed.
+- **Flashable devices** are Cardputers in ROM download mode (power off, hold G0, plug in USB-C, release G0). **Flash** writes the whole image and verifies it; power-cycle the device afterwards.
+- **Online devices** are Cardputers running fm1-card on your network. Each row expands to show the firmware packages on its SD card.
+- The app scans only while the Cardputers section or the Library tab is open, every 5 seconds. It sends no discovery traffic otherwise.
+- Discovery is off by default. Turn it on from the section's **Enable Cardputers** button or Settings → Cardputers; the pill itself always stays available.
+- In the Library, **Flash To…** lists every online Cardputer. It copies the package only when the same bytes are not already there; success, already-present and failure each raise a notification.
 
 ## MIDI graph
 
@@ -113,6 +125,7 @@ flowchart LR
 - **Mode** follows the OS, or pins Light or Dark.
 - **Accent color** only works for those computed themes.
 - **Firmware sources** turns the Firmware Hub, fm1-editor, shrub.audio, jakehandy.com/h1, mutant.cloud and Reverbose listings on or off. Mutant and Reverbose start off; the others start on.
+- **Cardputers** allows the app to look for fm1-card devices on Wi-Fi. It starts off. Turning it off sends no discovery traffic; the Devices → Cardputers section stays available with an enable button.
 - **Reset** puts the theme and mode back to their defaults.
 
 ## About
@@ -216,6 +229,7 @@ Set `FM1_GRID_BIN` to use an existing binary. A missing `/dev/snd/seq` makes the
 - **fm1-base**: clock, routing, key tables and the state store.
 - **fm1-firmware**: firmware model, online sources and the library.
 - **fm1-hardware**: USB scanner, flasher and rescue.
+- **fm1-cardputer**: Cardputer-Adv serial flashing and the fm1-card LAN client.
 - **fm1-performer**: emulator, audio, affinity and the shared performer API.
 - **fm1-grid-app**: gpui-kit UI and app state.
 - **fm1-grid**: the GUI binary.

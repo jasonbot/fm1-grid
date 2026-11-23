@@ -220,6 +220,7 @@ impl GridApp {
             .collect();
 
         let recovery = crate::recovery::RecoveryState::start(store_ref.clone());
+        let cardputers = crate::cardputers::CardputerState::start();
         let mut app = Self {
             slots: std::array::from_fn(|_| Slot::default()),
             core_cpus,
@@ -326,6 +327,10 @@ impl GridApp {
             rail_h: 740.0,
             recovery,
             recovery_generation: 0,
+            cardputers,
+            cardputer_generation: 0,
+            cardputer_open: Default::default(),
+            cardputers_enabled: session.cardputers,
             combos_at_generation: 0,
             _tick: tick,
             _subscriptions: subscriptions,

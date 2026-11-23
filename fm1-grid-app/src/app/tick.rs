@@ -1,4 +1,7 @@
 use super::*;
+use crate::cardputers::{CardputerEvent, SendOutcome};
+use gpui_kit::component::WindowExt;
+use gpui_kit::component::notification::Notification;
 
 impl GridApp {
     /// The 16 ms pump: merge inputs, upload LCD frames, refresh the ghost, decay the
@@ -48,7 +51,34 @@ impl GridApp {
             cx.notify();
         }
 
+        // Cardputer discovery is demand-driven: only the section that shows the
+        // list, or the Library that offers them as Flash To targets, keeps the
+        // scanner awake.
+        let cardputers_section = self.active_tab == 1 && self.devices_tab == 2;
+        self.cardputers.set_wanted(
+            self.cardputers_enabled && (self.active_tab == 2 || cardputers_section),
+            self.cardputers_enabled && cardputers_section,
+        );
         let mut dirty = self.sync_held();
+        // A finished download lands in the library through `list()`/`pump_downloads`;
+        // its notification uses one identity so Download All does not stack a toast
+        // per package.
+        for event in self.library.take_download_events() {
+            let note = match event {
+                fm1_performer::library::DownloadEvent::Done { name, version } => {
+                    Notification::success(format!("Downloaded {name} {version}."))
+                }
+                fm1_performer::library::DownloadEvent::Failed { name, error } => {
+                    Notification::error(format!("Could not download {name}: {error}"))
+                }
+            };
+            window.push_notification(
+                note.title("Firmware download")
+                    .id::<FirmwareDownloadNotification>(),
+                cx,
+            );
+            dirty = true;
+        }
         dirty |= self.upload_lcds();
         dirty |= self.refresh_ghost();
         dirty |= self.ease_background();
@@ -80,6 +110,64 @@ impl GridApp {
                 0.5
             };
         dirty |= std::mem::replace(&mut self.grid_scale, scale) != scale;
+        // Cardputer discovery and finished flash/send jobs arrive on their own
+        // threads.
+        let cardputer_changed = self.cardputers.changed(&mut self.cardputer_generation);
+        dirty |= cardputer_changed;
+        if cardputer_changed {
+            let online = self.cardputers.online();
+            let hosts: Vec<String> = online.iter().map(|device| device.host.clone()).collect();
+            self.cardputer_open.retain(|host| hosts.contains(host));
+        }
+        for event in self.cardputers.take_events() {
+            match event {
+                CardputerEvent::Flashed {
+                    path,
+                    device,
+                    result,
+                } => {
+                    let note = match result {
+                        Ok(()) => Notification::success(format!(
+                            "Flashed fm1-card {} to {device}. Power-cycle it.",
+                            fm1_cardputer::FIRMWARE_VERSION
+                        )),
+                        Err(error) => {
+                            Notification::error(format!("Could not flash {device}: {error}"))
+                        }
+                    };
+                    window.push_notification(
+                        note.title("Cardputer firmware")
+                            .id1::<CardputerFlashNotification>(path),
+                        cx,
+                    );
+                }
+                CardputerEvent::Sent {
+                    host,
+                    device,
+                    firmware,
+                    file,
+                    result,
+                } => {
+                    let note = match result {
+                        Ok(SendOutcome::Sent) => {
+                            Notification::success(format!("{firmware} is now on {device}."))
+                        }
+                        Ok(SendOutcome::Already) => {
+                            Notification::warning(format!("{firmware} is already on {device}."))
+                        }
+                        Err(error) => Notification::error(format!(
+                            "Could not copy {firmware} to {device}: {error}"
+                        )),
+                    };
+                    window.push_notification(
+                        note.title("Cardputer firmware")
+                            .id1::<CardputerSendNotification>(format!("{host}:{file}")),
+                        cx,
+                    );
+                }
+            }
+            dirty = true;
+        }
         // Raw download-mode probes arrive on their own thread.
         let recovery_changed = self.recovery.changed(&mut self.recovery_generation);
         dirty |= recovery_changed;

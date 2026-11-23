@@ -31,7 +31,7 @@ DATA=$TMP/data
 LOG=$TMP/app.log
 ALSA=$TMP/asound.conf
 mkdir -p "$DATA/objects"
-printf '%s\n' '{"sidebar_width":512,"tab":0}' >"$DATA/objects/session.json"
+printf '%s\n' '{"sidebar_width":512,"tab":0,"cardputers":true}' >"$DATA/objects/session.json"
 # Seed a little install history for the README: the library's install tags and
 # last-install dates are part of the UI now.
 NOW=$(date +%s)
@@ -64,6 +64,8 @@ sleep 2
 export DISPLAY=$DISPLAY_NUM
 export ALSA_CONFIG_PATH=$ALSA
 export FM1_GRID_DATA_DIR=$DATA
+# Keep real Cardputers off the README screenshots (names and IP addresses).
+export FM1_GRID_NO_CARDPUTERS=1
 "$BIN" >"$LOG" 2>&1 &
 APP=$!
 WID=
@@ -107,16 +109,20 @@ convert "$TMP/pressed.png" -crop 1050x130+220+730 +repage -scale 200% "$OUT/pres
 click 22 148 8
 shot library
 
-# Devices and its MIDI Graph section.
+# Devices and its pill sections.
 click 22 104 1
 shot devices
-click 785 58 2
+click 738 58 2
 click 1382 132 0.5
 click 1350 166 2
 shot midi-graph
+click 864 58 1
+shot cardputers
 
-# Settings (gear at the bottom of the rail).
+# Settings (gear at the bottom of the rail). Turn the Cardputers preference off
+# again so the image shows the default state.
 click 22 192 2
+click 1418 869 0.5
 shot settings
 
 echo "==> wrote screenshots to $OUT"

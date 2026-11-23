@@ -271,6 +271,54 @@ impl GridApp {
                 reverbose_item,
             ]);
 
+        let cardputers_app = app.clone();
+        let cardputers_item = SettingItem::render(move |_options, _window, cx| {
+            let on = cardputers_app.read(cx).cardputers_enabled;
+            let set_app = cardputers_app.clone();
+            h_flex()
+                .w_full()
+                .justify_between()
+                .items_center()
+                .gap_3()
+                .child(
+                    v_flex()
+                        .flex_1()
+                        .max_w_3_5()
+                        .child(div().text_sm().child("Find Cardputers on the network"))
+                        .child(
+                            div()
+                                .text_sm()
+                                .text_color(cx.theme().muted_foreground)
+                                .child(
+                                    "Look for fm1-card devices on Wi-Fi. Off by default; \
+                                     the Cardputers section has an enable button.",
+                                ),
+                        ),
+                )
+                .child(
+                    Checkbox::new("cardputers-enabled")
+                        .accessibility_label("Cardputers")
+                        .checked(on)
+                        .on_click(move |checked: &bool, _, cx: &mut App| {
+                            set_app.update(cx, |this, cx| {
+                                this.set_cardputers_enabled(*checked, cx);
+                            });
+                        }),
+                )
+        })
+        .keywords(["cardputer", "cardputers", "network", "discovery", "wifi"]);
+        let reset_check = app.clone();
+        let reset_set = app.clone();
+        let cardputers_item = cardputers_item.on_reset(
+            move |cx: &App| reset_check.read(cx).cardputers_enabled,
+            move |_, cx: &mut App| {
+                reset_set.update(cx, |this, cx| this.set_cardputers_enabled(false, cx));
+            },
+        );
+        let cardputers_group = SettingGroup::new()
+            .title("Cardputers")
+            .items(vec![cardputers_item]);
+
         let appearance_group = SettingGroup::new().title("Appearance").items(vec![
             SettingItem::new("Theme", theme_field)
                 .description("Choose your rainbow. Micromanage your button radii.")
@@ -288,8 +336,22 @@ impl GridApp {
             SettingPage::new("General")
                 .resettable(true)
                 .group(appearance_group)
-                .group(source_group),
+                .group(source_group)
+                .group(cardputers_group),
         )
+    }
+
+    /// The Settings preference: allow Cardputer discovery and the Devices pill.
+    pub(crate) fn set_cardputers_enabled(&mut self, on: bool, cx: &mut Context<Self>) {
+        if self.cardputers_enabled == on {
+            return;
+        }
+        self.cardputers_enabled = on;
+        if !on {
+            self.cardputers.set_wanted(false, false);
+        }
+        self.save_session(cx);
+        cx.notify();
     }
 
     pub(crate) fn set_hub_feeds(&mut self, feeds: HubFeeds, cx: &mut Context<Self>) {

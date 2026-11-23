@@ -91,6 +91,15 @@ pub struct Library {
     generation: u64,
     /// Per-firmware install history, keyed by normalized name + device.
     installs: HashMap<String, InstallRecord>,
+    /// Download outcomes the UI has not turned into notifications yet.
+    events: Vec<DownloadEvent>,
+}
+
+/// A finished background download, for the app's notification layer.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum DownloadEvent {
+    Done { name: String, version: String },
+    Failed { name: String, error: String },
 }
 
 /// The catalog URLs one refresh walks. [`Library::refresh_hub_from`] takes them
@@ -273,6 +282,7 @@ impl Library {
             last_stat: Instant::now(),
             generation: 0,
             installs: installs::load(store),
+            events: Vec::new(),
         }
     }
 
@@ -742,12 +752,17 @@ impl Library {
                 Some(Ok(entry)) => {
                     // Replace by firmware, not by exact name: the row that armed
                     // this download can be a variant spelling of the hub's name.
+                    self.events.push(DownloadEvent::Done {
+                        name: entry.name.clone(),
+                        version: entry.version.clone(),
+                    });
                     self.stored.retain(|f| !same_firmware(f, &entry));
                     self.stored.push(entry);
                     changed = true;
                 }
-                Some(Err(_)) => {
-                    self.download_failed.insert(name);
+                Some(Err(error)) => {
+                    self.download_failed.insert(name.clone());
+                    self.events.push(DownloadEvent::Failed { name, error });
                 }
                 None => {}
             }
@@ -780,6 +795,14 @@ impl Library {
         }
         self.view_dirty = true;
         self.generation = self.generation.wrapping_add(1);
+    }
+
+    /// Fold finished downloads in and take their outcomes. The app calls this
+    /// from its tick, so a download that completes while another tab is open
+    /// still notifies immediately.
+    pub fn take_download_events(&mut self) -> Vec<DownloadEvent> {
+        self.collect_downloads();
+        std::mem::take(&mut self.events)
     }
 
     /// The installed list's change counter (see the field).

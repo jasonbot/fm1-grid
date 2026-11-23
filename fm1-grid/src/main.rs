@@ -12,15 +12,15 @@ use gpui_kit::*;
 use std::borrow::Cow;
 
 // Lucide icons beyond gpui-kit's default set: the sidebar's pin and power toggles,
-// the tab and pill-tab icons, the rescue toggle's life buoy, the settings tab's
-// palette and auto-appearance icons, and the button icons (the default set covers
-// RefreshCw, Plus, ChevronDown, ArrowRight, Sun and Moon; ListFilter is the Library's
-// device combo). Settings is repeated because the component assets did not serve it
-// in this build.
+// the tab and pill-tab icons (Keyboard is the Cardputers tab), the rescue toggle's
+// life buoy, the settings tab's palette and auto-appearance icons, and the button
+// icons (the default set covers RefreshCw, Plus, ChevronDown, ArrowRight, Sun and
+// Moon; ListFilter is the Library's device combo). Settings is repeated because the
+// component assets did not serve it in this build.
 // The macro embeds exactly these SVGs; a misspelled name fails the build.
 icon_assets!(
     ExtraIcons,
-    [Pin, Monitor, KeyboardMusic, Library, Download, Trash, Zap, FilePlus, Save, X, Usb, Waypoints, Power, LifeBuoy, Palette, SunMoon, ListFilter, Settings, Info, FileText, Github, Globe]
+    [Pin, Monitor, Keyboard, KeyboardMusic, Library, Download, Trash, Zap, FilePlus, Save, X, Usb, Waypoints, Power, LifeBuoy, Palette, SunMoon, ListFilter, Settings, Info, FileText, Github, Globe]
 );
 
 actions!(fm1_grid, [Quit]);

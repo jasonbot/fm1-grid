@@ -72,8 +72,8 @@ fn graph_rows_animate_on_link_changes(cx: &mut TestAppContext) {
         })
     });
 }
-/// The Devices tab's pill sections: Devices and MIDI Graph swap the display area
-/// under the centered pill tab bar.
+/// The Devices tab's pill sections: Devices, MIDI Graph and Cardputers swap the
+/// display area under the centered pill tab bar.
 #[gpui_kit::test]
 fn devices_tab_sections_switch(cx: &mut TestAppContext) {
     let _guard = ui_lock();
@@ -100,6 +100,14 @@ fn devices_tab_sections_switch(cx: &mut TestAppContext) {
         window.render_frame(cx);
         assert!(window.find("graph-scroll").visible());
         assert!(window.try_find("devices-scroll").is_none());
+        window.click(2usize, cx); // the Cardputers pill
+    })
+    .unwrap();
+    cx.update(|cx| assert_eq!(app.read(cx).devices_tab, 2));
+    cx.update_window(window.into(), |_, window, cx| {
+        window.render_frame(cx);
+        assert!(window.find("cardputers-scroll").visible());
+        assert!(window.try_find("graph-scroll").is_none());
         window.click(0usize, cx); // back to the Devices pill
     })
     .unwrap();

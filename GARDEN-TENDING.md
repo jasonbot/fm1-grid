@@ -121,6 +121,29 @@ and SHA-256 values. To upgrade them:
 
 A mismatch fails the build; delete the bad file to force a new download.
 
+## Cardputer firmware
+
+`fm1-cardputer/data/fm1-card-full.bin` is the merged full-flash image for the
+M5Stack Cardputer-Adv, and `assets.json` records its release tag, URL and
+SHA-256. Both are gitignored. When they are missing, `fm1-cardputer/build.rs`
+asks the GitHub API for the newest
+[jasonbot/fm1-card](https://github.com/jasonbot/fm1-card/releases) release,
+downloads its `-full.bin` asset and `SHA256SUMS`, verifies the hash, and writes
+the manifest. A fresh clone therefore builds without a manual download.
+
+To refresh the embedded firmware:
+
+1. Delete `fm1-cardputer/data/fm1-card-full.bin` and
+   `fm1-cardputer/data/assets.json`.
+2. Rebuild (for example `cargo build -p fm1-grid-app`) so the build script
+   fetches the current latest release.
+3. Commit nothing under `fm1-cardputer/data/`; it is generated and ignored.
+   The app shows the version recorded by the build.
+
+Deleting only the image re-downloads the release named by the manifest;
+deleting the manifest makes the next build ask for the latest release. A hash
+mismatch fails the build; delete the image to retry.
+
 ## Online firmware feeds
 
 The listings live in `fm1-firmware/src/sources/`:
@@ -212,8 +235,8 @@ the same change.
   changes and review the diff.
 - `Cargo.lock` is tracked. Commit it with dependency, emulator-pin or toolchain
   changes.
-- `target/`, `*.fwsc`, recovery binaries and `.part` files are ignored; never
-  force-add them.
+- `target/`, `*.fwsc`, recovery binaries, the Cardputer image and manifest, and
+  `.part` files are ignored; never force-add them.
 - Remove completed items from `BACKLOG.md`, and keep README instructions in
   sync with the code and scripts.
 - If the file ~/projects/homepage/firmware-zoo/firmwares.json exists, refresh

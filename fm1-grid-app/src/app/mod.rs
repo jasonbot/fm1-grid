@@ -48,6 +48,13 @@ use std::time::{Duration, Instant};
 /// 400 ms window.
 pub(crate) const GRAPH_ANIM: Duration = Duration::from_millis(400);
 
+/// Notification identities in the library: one shared download status (so a
+/// Download All run replaces its toast instead of stacking one per package), and
+/// one per Cardputer copy.
+pub(crate) struct FirmwareDownloadNotification;
+pub(crate) struct CardputerSendNotification;
+pub(crate) struct CardputerFlashNotification;
+
 #[derive(Clone)]
 pub(crate) enum Source {
     Builtin(usize),
@@ -342,7 +349,8 @@ pub struct GridApp {
     /// The main area's tab: 0 = Emulator (grid + sidebar split), 1 = Devices, 2 =
     /// Library, 3 = Settings, 4 = About.
     pub(crate) active_tab: usize,
-    /// The Devices tab's section: 0 = Devices, 1 = MIDI Graph (saved in the session).
+    /// The Devices tab's section: 0 = Devices, 1 = MIDI Graph, 2 = Cardputers
+    /// (saved in the session).
     pub(crate) devices_tab: usize,
     /// The About tab's section: 0 = About this app, 1 = Licenses.
     pub(crate) about_tab: usize,
@@ -440,6 +448,14 @@ pub struct GridApp {
     /// Raw download-mode units and their flash analysis.
     pub(crate) recovery: crate::recovery::RecoveryState,
     recovery_generation: u64,
+    /// Cardputers in ROM download mode and running fm1-card on the LAN.
+    pub(crate) cardputers: crate::cardputers::CardputerState,
+    cardputer_generation: u64,
+    /// Which online Cardputers the accordion has expanded, by host.
+    pub(crate) cardputer_open: std::collections::HashSet<String>,
+    /// The Settings preference: allow network discovery and the Cardputers
+    /// section. Off means no discovery traffic and a disabled pill.
+    pub(crate) cardputers_enabled: bool,
     /// The library generation the firmware pickers were last built from.
     combos_at_generation: u64,
     _tick: Task<()>,

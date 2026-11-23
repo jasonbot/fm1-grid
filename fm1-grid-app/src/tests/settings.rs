@@ -153,6 +153,12 @@ fn settings_theme_and_appearance(cx: &mut TestAppContext) {
         assert!(window.within("group-1").find("feed-check-mutant.cloud").visible());
         assert!(window.within("group-1").find("feed-link-mutant.cloud").visible());
         assert!(window.within("group-1").find("feed-check-shrub.audio").visible());
+        assert!(window.within("group-2").find("cardputers-enabled").visible());
+        assert!(!app.read(cx).cardputers_enabled);
+        window.click("cardputers-enabled", cx);
+        assert!(app.read(cx).cardputers_enabled);
+        window.click("cardputers-enabled", cx);
+        assert!(!app.read(cx).cardputers_enabled);
         assert!(app.read(cx).library.feeds().shrub);
         assert!(!app.read(cx).library.feeds().mutant);
         window.click("feed-check-mutant.cloud", cx);

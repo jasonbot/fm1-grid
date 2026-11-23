@@ -3,6 +3,7 @@
 
 mod support;
 
+mod cardputers;
 mod devices;
 mod library;
 mod power;

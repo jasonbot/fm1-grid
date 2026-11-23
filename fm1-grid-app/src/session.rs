@@ -24,7 +24,7 @@ pub(crate) struct Session {
     /// The main tab (0 = Emulator, 1 = Devices, 2 = Library, 3 = Settings,
     /// 4 = About).
     pub tab: usize,
-    /// The Devices tab's section (0 = Devices, 1 = MIDI Graph).
+    /// The Devices tab's section (0 = Devices, 1 = MIDI Graph, 2 = Cardputers).
     pub devices_tab: usize,
     /// The selected emulator pane.
     pub slot: usize,
@@ -42,6 +42,11 @@ pub(crate) struct Session {
     pub accent: String,
     /// Which online catalog feeds the Library may use.
     pub feeds: HubFeeds,
+    /// Whether the app may look for Cardputers on the network. Default off;
+    /// old records have no field and stay off until the section or Settings
+    /// turns it on.
+    #[serde(default)]
+    pub cardputers: bool,
 }
 
 impl Default for Session {
@@ -57,6 +62,7 @@ impl Default for Session {
             appearance: crate::app::Appearance::default(),
             accent: crate::themes::accent("blue").id.to_string(),
             feeds: HubFeeds::default(),
+            cardputers: false,
         }
     }
 }
@@ -71,7 +77,7 @@ impl Session {
             .unwrap_or_default();
         session.sidebar_width = session.sidebar_width.clamp(SIDEBAR_MIN, SIDEBAR_MAX);
         session.tab = session.tab.min(4);
-        session.devices_tab = session.devices_tab.min(1);
+        session.devices_tab = session.devices_tab.min(2);
         session.slot = session.slot.min(fm1_performer::MAX_SLOTS - 1);
         // A stale or hand-edited accent id falls back to Blue.
         session.accent = crate::themes::accent(&session.accent).id.to_string();
@@ -119,6 +125,7 @@ impl GridApp {
             appearance: self.appearance,
             accent: self.accent.clone(),
             feeds: self.library.feeds(),
+            cardputers: self.cardputers_enabled,
         };
         if let Err(e) = store.store_object(SESSION_OBJECT, &session) {
             eprintln!("fm1-grid: {e}");
@@ -158,16 +165,18 @@ mod tests {
             appearance: crate::app::Appearance::Dark,
             accent: "not-a-colour".to_string(),
             feeds: HubFeeds::default(),
+            cardputers: false,
         };
         store.store_object(SESSION_OBJECT, &record).unwrap();
         let loaded = Session::load(Some(&store));
         assert_eq!(loaded.sidebar_width, SIDEBAR_MAX);
         assert_eq!(loaded.tab, 4);
-        assert_eq!(loaded.devices_tab, 1);
+        assert_eq!(loaded.devices_tab, 2);
         assert_eq!(loaded.theme, "ayu");
         assert_eq!(loaded.appearance, crate::app::Appearance::Dark);
         // An unknown accent id comes back as the default Blue.
         assert_eq!(loaded.accent, "blue");
+        assert!(!loaded.cardputers);
         assert_eq!(loaded.slot, fm1_performer::MAX_SLOTS - 1);
         assert!(loaded.favorites.contains("felucca"));
         // The pre-rename builtin's star follows to "Baud Girl (FM-1+VA)".

@@ -1,0 +1,20 @@
+[package]
+name = "fm1-cardputer"
+version = "0.1.0"
+edition = "2021"
+description = "M5Stack Cardputer-Adv firmware flashing and fm1-card network client"
+license = "MIT"
+
+[dependencies]
+md-5 = "0.10"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serialport = "4"
+sha2 = "0.10"
+ureq = "3"
+
+[build-dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+ureq = "3"

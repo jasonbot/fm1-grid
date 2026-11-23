@@ -39,6 +39,9 @@ pub(super) fn open_app_at(cx: &mut TestAppContext, w: f32, h: f32) -> (WindowHan
     }
     unsafe {
         std::env::set_var("FM1_GRID_NO_HUB", "1");
+        // No LAN discovery in tests: a real Cardputer must not change the UI
+        // mid-test or leak its address into a screenshot assertion.
+        std::env::set_var("FM1_GRID_NO_CARDPUTERS", "1");
     }
     // Boot every test app off a default session: writers (the favorite toggle, the
     // settings pickers) save into this shared store, and a previous test's leftover

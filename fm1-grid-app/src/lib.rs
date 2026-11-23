@@ -17,6 +17,8 @@ pub(crate) const APP_VERSION: &str = match option_env!("FM1_GRID_BUILD_VERSION")
 pub mod app;
 mod about;
 mod audio;
+mod cardputers;
+mod cardputers_tab;
 mod devices;
 mod firmware_picker;
 mod flash_dialog;

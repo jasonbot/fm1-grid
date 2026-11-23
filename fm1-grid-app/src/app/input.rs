@@ -47,15 +47,21 @@ impl GridApp {
     /// The scroll handle of the Devices tab's visible section.
     pub(super) fn devices_handle(&self) -> &ScrollHandle {
         match self.devices_tab {
-            0 => &self.devices_scroll,
-            _ => &self.graph_scroll,
+            0 | 2 => &self.devices_scroll,
+            1 => &self.graph_scroll,
+            _ => &self.devices_scroll,
         }
     }
     /// PgUp/PgDn on the Devices tab: scroll the visible section by ~a viewport.
     pub(super) fn scroll_devices(&mut self, pages: f32) {
+        // Cardputers has no pane-level scroll; only its inner firmware lists scroll.
+        if self.devices_tab == 2 {
+            return;
+        }
         let view_h = match self.devices_tab {
             0 => self.devices_view_h,
-            _ => self.graph_view_h,
+            1 => self.graph_view_h,
+            _ => self.devices_view_h,
         };
         let handle = self.devices_handle();
         let next = page_offset(
@@ -101,10 +107,12 @@ impl GridApp {
             // The Devices tab pages its visible section.
             "pageup" if self.active_tab == 1 => self.scroll_devices(-1.0),
             "pagedown" if self.active_tab == 1 => self.scroll_devices(1.0),
-            "home" if self.active_tab == 1 => {
+            "home" if self.active_tab == 1 && self.devices_tab != 2 => {
                 self.devices_handle().set_offset(point(px(0.0), px(0.0)))
             }
-            "end" if self.active_tab == 1 => self.devices_handle().scroll_to_bottom(),
+            "end" if self.active_tab == 1 && self.devices_tab != 2 => {
+                self.devices_handle().scroll_to_bottom()
+            }
             // Everything below plays the panel's pane; with the panel hidden the
             // keys stay inert.
             _ if self.active_tab != 0 => return,

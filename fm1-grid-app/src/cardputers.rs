@@ -70,6 +70,13 @@ pub struct CardputerState {
     /// A flash is keyed by its serial path; an upload or catalog sync by its host.
     /// One job per key at a time.
     busy: Arc<Mutex<HashSet<String>>>,
+    /// One exclusive lane per Cardputer host: every LAN request (scan, upload,
+    /// catalog sync) holds it, so a card never sees two at once. A second upload
+    /// waits for the first instead of the card juggling both.
+    lanes: Arc<Mutex<HashMap<String, Arc<Mutex<()>>>>>,
+    /// Queued plus running uploads per host; the host stays busy until the lane
+    /// is empty.
+    upload_counts: Arc<Mutex<HashMap<String, usize>>>,
     events: Arc<Mutex<Vec<CardputerEvent>>>,
     generation: Arc<AtomicU64>,
     /// Whether a visible place needs the online list, and whether the Cardputers
@@ -97,6 +104,8 @@ impl CardputerState {
             serial: Arc::new(Mutex::new(Vec::new())),
             online: Arc::new(Mutex::new(Arc::new(Vec::new()))),
             busy: Arc::new(Mutex::new(HashSet::new())),
+            lanes: Arc::new(Mutex::new(HashMap::new())),
+            upload_counts: Arc::new(Mutex::new(HashMap::new())),
             events: Arc::new(Mutex::new(Vec::new())),
             generation: Arc::new(AtomicU64::new(0)),
             wanted_network: Arc::new(AtomicBool::new(false)),
@@ -119,6 +128,7 @@ impl CardputerState {
         let wanted_network = state.wanted_network.clone();
         let wanted_serial = state.wanted_serial.clone();
         let detail_hosts = state.detail_hosts.clone();
+        let lanes = state.lanes.clone();
         let catalog_store = state.store.clone();
         let catalog_listing = state.listing.clone();
         let catalog_needs_pass = state.needs_pass.clone();
@@ -187,23 +197,52 @@ impl CardputerState {
                     let found_serial = serial_wanted.then(cardputer::find_flashable);
                     let mut found_online = Vec::new();
                     let mut publish_online = !network_wanted;
+                    let mut fresh_detail: HashSet<String> = HashSet::new();
                     if network_wanted {
                         if let Ok(found) = cardputer::discover(DISCOVERY_TIMEOUT) {
                             publish_online = true;
                             // One hung Cardputer must not hold up the others.
-                            found_online = std::thread::scope(|scope| {
-                                let handles: Vec<_> = found
-                                    .into_iter()
-                                    .map(|discovery| {
-                                        let detail = detail_requested.contains(&discovery.host);
-                                        scope.spawn(move || fetch_online(discovery, detail))
-                                    })
-                                    .collect();
-                                handles
-                                    .into_iter()
-                                    .filter_map(|handle| handle.join().ok())
-                                    .collect()
-                            });
+                            let previous = online.lock().unwrap().clone();
+                            let fetched: Vec<(OnlineDevice, bool)> =
+                                std::thread::scope(|scope| {
+                                    let handles: Vec<_> = found
+                                        .into_iter()
+                                        .map(|discovery| {
+                                            let detail =
+                                                detail_requested.contains(&discovery.host);
+                                            let lane = lane_for(&lanes, &discovery.host);
+                                            let last = previous
+                                                .iter()
+                                                .find(|last| last.host == discovery.host)
+                                                .cloned();
+                                            scope.spawn(move || {
+                                                // An upload or catalog sync owns the
+                                                // host right now: keep its last
+                                                // snapshot and ask again next pass.
+                                                match lane.try_lock() {
+                                                    Ok(_gate) => Some((
+                                                        fetch_online(discovery, detail),
+                                                        true,
+                                                    )),
+                                                    Err(_) => {
+                                                        last.map(|last| (last, false))
+                                                    }
+                                                }
+                                            })
+                                        })
+                                        .collect();
+                                    handles
+                                        .into_iter()
+                                        .filter_map(|handle| handle.join().ok().flatten())
+                                        .collect()
+                                });
+                            fresh_detail = fetched
+                                .iter()
+                                .filter(|(_, fresh)| *fresh)
+                                .map(|(device, _)| device.host.clone())
+                                .collect();
+                            found_online =
+                                fetched.into_iter().map(|(device, _)| device).collect();
                         }
                     }
                     found_online.sort_by(|a, b| a.name.cmp(&b.name).then(a.host.cmp(&b.host)));
@@ -226,7 +265,9 @@ impl CardputerState {
                                     .map(|firmware| firmware.name.clone())
                                     .collect();
                                 if detail_requested.contains(&device.host) {
-                                    detailed.insert(device.host.clone(), names);
+                                    if fresh_detail.contains(&device.host) {
+                                        detailed.insert(device.host.clone(), names);
+                                    }
                                 } else if detailed.get(&device.host) != Some(&names) {
                                     // A package appeared or vanished since the
                                     // detail fetch; refresh it on the next poll.
@@ -399,7 +440,8 @@ impl CardputerState {
     /// Copy a package onto a running Cardputer unless the same bytes are already
     /// there. The duplicate check compares SHA-256, using `/firmwares/info` for a
     /// file whose sidecar hash is absent. `metadata` is stored beside the package
-    /// so the card shows its title and author.
+    /// so the card shows its title and author. Copies to the same host queue on
+    /// one lane; each waits for the previous upload to finish.
     pub fn send(
         &self,
         host: String,
@@ -409,18 +451,22 @@ impl CardputerState {
         bytes: Vec<u8>,
         metadata: cardputer::UploadMetadata,
     ) -> bool {
-        if !self.claim(host.clone()) {
-            return false;
-        }
+        let lane = self.begin_upload(&host);
         let events = self.events.clone();
         let busy = self.busy.clone();
+        let counts = self.upload_counts.clone();
         let generation = self.generation.clone();
         let failed = (host.clone(), device.clone(), firmware.clone(), file.clone());
         let spawned = std::thread::Builder::new()
             .name("fm1-cardputer-send".into())
             .spawn(move || {
-                let result = send_inner(&host, &file, &bytes, &metadata)
-                    .map_err(|error| error.to_string());
+                let result = {
+                    let _lane = lane
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner());
+                    send_inner(&host, &file, &bytes, &metadata)
+                        .map_err(|error| error.to_string())
+                };
                 events.lock().unwrap().push(CardputerEvent::Sent {
                     host: host.clone(),
                     device,
@@ -428,20 +474,18 @@ impl CardputerState {
                     file,
                     result,
                 });
-                busy.lock().unwrap().remove(&host);
-                generation.fetch_add(1, Ordering::Relaxed);
+                end_upload(&counts, &busy, &generation, &host);
             });
         if let Err(error) = spawned {
             let (host, device, firmware, file) = failed;
-            self.busy.lock().unwrap().remove(&host);
             self.events.lock().unwrap().push(CardputerEvent::Sent {
-                host,
+                host: host.clone(),
                 device,
                 firmware,
                 file,
                 result: Err(format!("could not start the send thread: {error}")),
             });
-            self.generation.fetch_add(1, Ordering::Relaxed);
+            self.end_upload(&host);
             return false;
         }
         true
@@ -464,10 +508,16 @@ impl CardputerState {
         let store = self.store.clone();
         let garden = self.garden.clone();
         let listing = self.listing.clone();
+        let lane = self.lane(&host);
         let spawned = std::thread::Builder::new()
             .name("fm1-cardputer-catalog".into())
             .spawn(move || {
-                let result = sync_catalog_inner(&host, &store, &garden, &listing);
+                let result = {
+                    let _gate = lane
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner());
+                    sync_catalog_inner(&host, &store, &garden, &listing)
+                };
                 events.lock().unwrap().push(CardputerEvent::CatalogSynced {
                     host: host.clone(),
                     device,
@@ -499,6 +549,71 @@ impl CardputerState {
         self.generation.fetch_add(1, Ordering::Relaxed);
         true
     }
+
+    /// The host's exclusive LAN lane, created on first use.
+    fn lane(&self, host: &str) -> Arc<Mutex<()>> {
+        lane_for(&self.lanes, host)
+    }
+
+    /// Reserve the host's lane for one upload and mark it busy while the upload
+    /// is queued or running.
+    fn begin_upload(&self, host: &str) -> Arc<Mutex<()>> {
+        let lane = self.lane(host);
+        *self
+            .upload_counts
+            .lock()
+            .unwrap()
+            .entry(host.to_string())
+            .or_default() += 1;
+        self.busy.lock().unwrap().insert(host.to_string());
+        self.generation.fetch_add(1, Ordering::Relaxed);
+        lane
+    }
+
+    fn end_upload(&self, host: &str) {
+        end_upload(&self.upload_counts, &self.busy, &self.generation, host);
+    }
+}
+
+/// The host's lane, creating it when a scan reaches the host before any upload.
+fn lane_for(
+    lanes: &Mutex<HashMap<String, Arc<Mutex<()>>>>,
+    host: &str,
+) -> Arc<Mutex<()>> {
+    lanes
+        .lock()
+        .unwrap()
+        .entry(host.to_string())
+        .or_default()
+        .clone()
+}
+
+/// Drop one queued/running upload; the host leaves `busy` when the last one ends.
+fn end_upload(
+    counts: &Mutex<HashMap<String, usize>>,
+    busy: &Mutex<HashSet<String>>,
+    generation: &AtomicU64,
+    host: &str,
+) {
+    let empty = {
+        let mut counts = counts.lock().unwrap();
+        match counts.get_mut(host) {
+            Some(count) => {
+                *count = count.saturating_sub(1);
+                if *count == 0 {
+                    counts.remove(host);
+                    true
+                } else {
+                    false
+                }
+            }
+            None => false,
+        }
+    };
+    if empty {
+        busy.lock().unwrap().remove(host);
+    }
+    generation.fetch_add(1, Ordering::Relaxed);
 }
 
 fn fetch_online(discovery: cardputer::Discovery, detail: bool) -> OnlineDevice {
@@ -720,29 +835,181 @@ mod tests {
         assert_eq!(fresh[0].product, "FM-1_900");
     }
 
-    #[test]
-    fn busy_keys_are_one_job_at_a_time() {
-        let state = CardputerState {
+    fn test_state(name: &str) -> CardputerState {
+        CardputerState {
             serial: Arc::new(Mutex::new(Vec::new())),
             online: Arc::new(Mutex::new(Arc::new(Vec::new()))),
             busy: Arc::new(Mutex::new(HashSet::new())),
+            lanes: Arc::new(Mutex::new(HashMap::new())),
+            upload_counts: Arc::new(Mutex::new(HashMap::new())),
             events: Arc::new(Mutex::new(Vec::new())),
             generation: Arc::new(AtomicU64::new(0)),
             wanted_network: Arc::new(AtomicBool::new(false)),
             wanted_serial: Arc::new(AtomicBool::new(false)),
             detail_hosts: Arc::new(Mutex::new(HashSet::new())),
-            store: Store::in_dir(
-                &std::env::temp_dir().join(format!("fm1-grid-cardputer-{}", std::process::id())),
-            ),
+            store: Store::in_dir(&std::env::temp_dir().join(format!(
+                "fm1-grid-cardputer-{name}-{}",
+                std::process::id()
+            ))),
             enabled: Arc::new(AtomicBool::new(false)),
             listing: Arc::new(Mutex::new(None)),
             needs_pass: Arc::new(AtomicBool::new(false)),
             garden: Arc::new(Mutex::new(())),
-        };
+        }
+    }
+
+    #[test]
+    fn busy_keys_are_one_job_at_a_time() {
+        let state = test_state("busy");
         assert!(state.claim("1.2.3.4".into()));
         assert!(!state.claim("1.2.3.4".into()));
         assert!(state.claim("5.6.7.8".into()));
         state.busy.lock().unwrap().remove("1.2.3.4");
         assert!(state.claim("1.2.3.4".into()));
+    }
+
+    /// Uploads to one host share an exclusive lane; the host stays busy until the
+    /// last queued upload ends, while another host runs independently.
+    #[test]
+    fn uploads_serialize_per_host() {
+        let state = test_state("lanes");
+        let first = state.begin_upload("1.2.3.4");
+        let second = state.begin_upload("1.2.3.4");
+        let other = state.begin_upload("5.6.7.8");
+        {
+            let _held = first.lock().unwrap();
+            assert!(
+                second.try_lock().is_err(),
+                "a second upload must wait for the first"
+            );
+            assert!(other.try_lock().is_ok(), "another host has its own lane");
+        }
+        state.end_upload("1.2.3.4");
+        assert!(
+            state.busy("1.2.3.4"),
+            "a queued upload still owns the host"
+        );
+        state.end_upload("1.2.3.4");
+        assert!(!state.busy("1.2.3.4"));
+        state.end_upload("5.6.7.8");
+        assert!(!state.busy("5.6.7.8"));
+    }
+
+    /// The card never sees overlapping upload requests: two copies queue up and
+    /// both finish, but the fake card records one request at a time.
+    #[test]
+    fn queued_uploads_do_not_overlap_requests() {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+        use std::sync::atomic::{AtomicBool, AtomicU64};
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let host = format!("127.0.0.1:{}", listener.local_addr().unwrap().port());
+        let active = Arc::new(AtomicU64::new(0));
+        let peak = Arc::new(AtomicU64::new(0));
+        let stop = Arc::new(AtomicBool::new(false));
+        let server = {
+            let active = active.clone();
+            let peak = peak.clone();
+            let stop = stop.clone();
+            std::thread::spawn(move || {
+                while !stop.load(Ordering::Relaxed) {
+                    let Ok((mut stream, _)) = listener.accept() else {
+                        std::thread::sleep(Duration::from_millis(1));
+                        continue;
+                    };
+                    let active = active.clone();
+                    let peak = peak.clone();
+                    std::thread::spawn(move || {
+                        let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
+                        let mut request = Vec::new();
+                        let mut chunk = [0u8; 4096];
+                        let header_end = loop {
+                            match stream.read(&mut chunk) {
+                                Ok(0) | Err(_) => return,
+                                Ok(read) => request.extend_from_slice(&chunk[..read]),
+                            }
+                            if let Some(at) = request.windows(4).position(|w| w == b"\r\n\r\n")
+                            {
+                                break at;
+                            }
+                        };
+                        let headers = String::from_utf8_lossy(&request[..header_end + 4])
+                            .to_ascii_lowercase();
+                        let length: usize = headers
+                            .lines()
+                            .find_map(|line| line.strip_prefix("content-length:"))
+                            .and_then(|value| value.trim().parse().ok())
+                            .unwrap_or(0);
+                        while request.len() < header_end + 4 + length {
+                            match stream.read(&mut chunk) {
+                                Ok(0) | Err(_) => break,
+                                Ok(read) => request.extend_from_slice(&chunk[..read]),
+                            }
+                        }
+                        let now = active.fetch_add(1, Ordering::SeqCst) + 1;
+                        peak.fetch_max(now, Ordering::SeqCst);
+                        // Keep the request open long enough for an ungated second
+                        // upload to overlap it.
+                        std::thread::sleep(Duration::from_millis(100));
+                        let line = String::from_utf8_lossy(&request[..header_end]);
+                        let body = if line.starts_with("GET /firmwares") {
+                            "[]"
+                        } else {
+                            r#"{"ok":true,"name":"x","product":"FM-1_1","size":1}"#
+                        };
+                        let reply = format!(
+                            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\
+                             Content-Length: {}\r\nConnection: close\r\n\r\n{}",
+                            body.len(),
+                            body
+                        );
+                        let _ = stream.write_all(reply.as_bytes());
+                        active.fetch_sub(1, Ordering::SeqCst);
+                    });
+                }
+            })
+        };
+
+        let state = test_state("serialize");
+        let metadata = cardputer::UploadMetadata::default();
+        assert!(state.send(
+            host.clone(),
+            "fake card".into(),
+            "First".into(),
+            "a.fwsc".into(),
+            b"first".to_vec(),
+            metadata.clone(),
+        ));
+        assert!(state.send(
+            host.clone(),
+            "fake card".into(),
+            "Second".into(),
+            "b.fwsc".into(),
+            b"second".to_vec(),
+            metadata,
+        ));
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let mut outcomes = Vec::new();
+        while outcomes.len() < 2 && Instant::now() < deadline {
+            for event in state.take_events() {
+                match event {
+                    CardputerEvent::Sent { result, .. } => outcomes.push(result),
+                    _ => {}
+                }
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        stop.store(true, Ordering::Relaxed);
+        server.join().unwrap();
+        assert_eq!(outcomes.len(), 2, "both uploads must finish");
+        assert!(outcomes.iter().all(|outcome| outcome.is_ok()));
+        assert_eq!(
+            peak.load(Ordering::SeqCst),
+            1,
+            "the card must never see two requests at once"
+        );
+        assert!(!state.busy(&host));
     }
 }

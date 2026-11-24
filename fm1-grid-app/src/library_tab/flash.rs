@@ -210,19 +210,20 @@ impl GridApp {
             metadata,
         ) {
             window.push_notification(
-                Notification::warning(format!(
-                    "Another copy to {device} is already running."
-                ))
-                .title("Cardputer firmware")
-                .id1::<crate::app::CardputerSendNotification>(key),
+                Notification::error(format!("Could not start the copy to {device}."))
+                    .title("Cardputer firmware")
+                    .id1::<crate::app::CardputerSendNotification>(key),
                 cx,
             );
             return;
         }
+        // Uploads queue behind one another; the toast stays until this copy's
+        // completion event replaces it.
         window.push_notification(
             Notification::info(format!("Sending {} to {}…", firmware.name, device))
                 .title("Cardputer firmware")
-                .id1::<crate::app::CardputerSendNotification>(key),
+                .id1::<crate::app::CardputerSendNotification>(key)
+                .autohide(false),
             cx,
         );
     }

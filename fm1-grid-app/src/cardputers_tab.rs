@@ -8,6 +8,7 @@ use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::component::accordion::Accordion;
 use gpui_kit::component::button::{Button, ButtonVariants};
+use gpui_kit::component::scroll::ScrollableElement;
 use gpui_kit::component::{ActiveTheme, Disableable, Icon, Sizable};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{TestSupportExt as _, *};
@@ -30,34 +31,27 @@ impl GridApp {
                 theme.danger,
             )
         };
-        let intro = v_flex()
-            .w_full()
-            .gap_2()
+        let intro = div()
+            .text_size(px(13.5))
+            .text_color(ink)
             .child(
-                div()
-                    .text_size(px(13.5))
-                    .text_color(ink)
-                    .child(
-                        "This tab works with the M5Stack Cardputer-Adv, a tiny handheld \
-                         computer that runs fm1-card. Plug one in while it is in flash \
-                         mode and you can put the fm1-card firmware on it from here. If \
-                         one is already running fm1-card on your Wi-Fi, it shows up below \
-                         and you can copy firmware packages to it from the Library tab.",
-                    ),
-            )
-            .child(
-                h_flex()
-                    .id("cardputers-repo")
-                    .test_support()
-                    .items_center()
-                    .gap_1()
-                    .cursor_pointer()
-                    .text_size(px(12.0))
-                    .text_color(accent)
-                    .on_click(|_, _, cx| cx.open_url(fm1_cardputer::REPOSITORY_URL))
-                    .child(Icon::new(Lucide::Github).size_3())
-                    .child("github.com/jasonbot/fm1-card"),
+                "This tab works with the M5Stack Cardputer-Adv, a tiny handheld \
+                 computer that runs fm1-card. Plug one in while it is in flash \
+                 mode and you can put the fm1-card firmware on it from here. If \
+                 one is already running fm1-card on your Wi-Fi, it shows up below \
+                 and you can copy firmware packages to it from the Library tab.",
             );
+        let repo_link = h_flex()
+            .id("cardputers-repo")
+            .test_support()
+            .items_center()
+            .gap_1()
+            .cursor_pointer()
+            .text_size(px(12.0))
+            .text_color(accent)
+            .on_click(|_, _, cx| cx.open_url(fm1_cardputer::REPOSITORY_URL))
+            .child(Icon::new(Lucide::Github).size_3())
+            .child("github.com/jasonbot/fm1-card");
 
         if !self.cardputers_enabled {
             return v_flex()
@@ -77,6 +71,7 @@ impl GridApp {
                                 .max_w(px(880.0))
                                 .gap_5()
                                 .child(intro)
+                                .child(repo_link)
                                 .child(
                                     Button::new("cardputers-enable")
                                         .label("Enable Cardputers")
@@ -114,7 +109,11 @@ impl GridApp {
         }
 
         let hosts: Vec<String> = online.iter().map(|device| device.host.clone()).collect();
-        let mut accordion = Accordion::new("cardputers-online").multiple(true);
+        let mut accordion = Accordion::new("cardputers-online")
+            .multiple(true)
+            // The component fills its parent; inside the scrolling pane it must
+            // grow with its open panel instead, or the panel clips.
+            .h_auto();
         for (ix, device) in online.iter().cloned().enumerate() {
             let open = self.cardputer_open.contains(&device.host);
             let busy = self.cardputers.busy(&device.host);
@@ -229,12 +228,20 @@ impl GridApp {
             .test_support()
             .size_full()
             .bg(background)
-            .p_4()
-            .gap_4()
             .overflow_hidden()
-            .child(div().w_full().max_w(px(880.0)).child(intro))
-            .child(div().w_full().max_w(px(880.0)).child(flashable))
-            .child(div().w_full().max_w(px(880.0)).child(online_section))
+            .child(
+                v_flex()
+                    .w_full()
+                    .h_full()
+                    .p_4()
+                    .gap_4()
+                    // Component scroll area: it sizes its content above a
+                    // size_full child and draws the bar itself.
+                    .overflow_y_scrollbar()
+                    .child(div().w_full().max_w(px(880.0)).child(repo_link))
+                    .child(div().w_full().max_w(px(880.0)).child(flashable))
+                    .child(div().w_full().max_w(px(880.0)).child(online_section)),
+            )
     }
 
     fn flashable_row(

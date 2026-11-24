@@ -102,7 +102,10 @@ impl Render for FlashDialog {
                     .child(
                         v_flex().w_full().children(lines.iter().map(|line| {
                             div()
-                                .h(px(TERMINAL_ROW_H))
+                                .w_full()
+                                // Grow past one row when the line wraps; a fixed
+                                // height made wrapped lines overlap the next one.
+                                .min_h(px(TERMINAL_ROW_H))
                                 .text_size(px(10.0))
                                 .font_family(mono.clone())
                                 .text_color(dim)

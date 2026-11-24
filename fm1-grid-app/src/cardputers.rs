@@ -8,14 +8,19 @@
 
 use fm1_cardputer as cardputer;
 pub use fm1_cardputer::FlashableDevice;
+use fm1_performer::library::Firmware;
+use fm1_performer::store::Store;
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 const SCAN_INTERVAL: Duration = Duration::from_secs(5);
 const DISCOVERY_TIMEOUT: Duration = Duration::from_millis(700);
 const IDLE_SLEEP: Duration = Duration::from_millis(500);
+/// How often the catalog is gardened while Cardputers is enabled. New listings
+/// trigger a pass at once; this is the blank-filling retry cadence.
+const GARDEN_INTERVAL: Duration = Duration::from_secs(30 * 60);
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OnlineDevice {
@@ -34,7 +39,7 @@ pub enum SendOutcome {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CatalogOutcome {
-    Synced { entries: u64 },
+    Synced { entries: u64, pending: u64 },
     UpToDate,
 }
 
@@ -73,10 +78,21 @@ pub struct CardputerState {
     wanted_serial: Arc<AtomicBool>,
     /// Hosts whose accordion is open: their next scan asks for full metadata.
     detail_hosts: Arc<Mutex<HashSet<String>>>,
+    /// The catalog's persistent home (store objects, never raw files).
+    store: Store,
+    /// Whether the Cardputers preference is on; the gardener idles otherwise.
+    enabled: Arc<AtomicBool>,
+    /// The library's last successful online listing, and whether every feed
+    /// answered (a partial listing keeps cached rows instead of dropping them).
+    listing: Arc<Mutex<Option<(Vec<Firmware>, bool)>>>,
+    /// A new listing (or a fresh enable) wants a garden pass now.
+    needs_pass: Arc<AtomicBool>,
+    /// One catalog pass at a time, shared by the gardener and Sync catalog.
+    garden: Arc<Mutex<()>>,
 }
 
 impl CardputerState {
-    pub fn start() -> Self {
+    pub fn start(store: Store) -> Self {
         let state = Self {
             serial: Arc::new(Mutex::new(Vec::new())),
             online: Arc::new(Mutex::new(Arc::new(Vec::new()))),
@@ -86,6 +102,11 @@ impl CardputerState {
             wanted_network: Arc::new(AtomicBool::new(false)),
             wanted_serial: Arc::new(AtomicBool::new(false)),
             detail_hosts: Arc::new(Mutex::new(HashSet::new())),
+            store,
+            enabled: Arc::new(AtomicBool::new(false)),
+            listing: Arc::new(Mutex::new(None)),
+            needs_pass: Arc::new(AtomicBool::new(false)),
+            garden: Arc::new(Mutex::new(())),
         };
         // Tests and the README screenshot run offline: no broadcast, no HTTP,
         // and no chance of publishing a real device's address.
@@ -98,6 +119,44 @@ impl CardputerState {
         let wanted_network = state.wanted_network.clone();
         let wanted_serial = state.wanted_serial.clone();
         let detail_hosts = state.detail_hosts.clone();
+        let catalog_store = state.store.clone();
+        let catalog_listing = state.listing.clone();
+        let catalog_needs_pass = state.needs_pass.clone();
+        let catalog_garden = state.garden.clone();
+        let catalog_enabled = state.enabled.clone();
+        std::thread::Builder::new()
+            .name("fm1-cardputer-catalog".into())
+            .spawn(move || {
+                let mut last: Option<Instant> = None;
+                loop {
+                    if !catalog_enabled.load(Ordering::Relaxed) {
+                        std::thread::sleep(IDLE_SLEEP);
+                        continue;
+                    }
+                    let due = catalog_needs_pass.swap(false, Ordering::Relaxed)
+                        || last.is_none_or(|at| at.elapsed() >= GARDEN_INTERVAL);
+                    if !due {
+                        std::thread::sleep(Duration::from_secs(1));
+                        continue;
+                    }
+                    let snapshot = catalog_listing.lock().unwrap().clone();
+                    let Some((entries, complete)) = snapshot else {
+                        last = Some(Instant::now());
+                        continue;
+                    };
+                    if let Ok(_guard) = catalog_garden.lock() {
+                        if let Err(error) = fm1_performer::library::garden_remote_catalog(
+                            &catalog_store,
+                            entries,
+                            complete,
+                        ) {
+                            eprintln!("fm1-grid: cardputer catalog: {error}");
+                        }
+                    }
+                    last = Some(Instant::now());
+                }
+            })
+            .expect("spawn cardputer catalog gardener");
         std::thread::Builder::new()
             .name("fm1-cardputer-scan".into())
             .spawn(move || {
@@ -254,6 +313,28 @@ impl CardputerState {
         self.wanted_serial.store(serial, Ordering::Relaxed);
     }
 
+    /// Cardputers preference on/off. Enabling asks for a catalog pass right away;
+    /// disabling parks the gardener.
+    pub fn set_enabled(&self, enabled: bool) {
+        if self.enabled.load(Ordering::Relaxed) == enabled {
+            return;
+        }
+        self.enabled.store(enabled, Ordering::Relaxed);
+        if enabled {
+            self.needs_pass.store(true, Ordering::Relaxed);
+        }
+    }
+
+    /// Hand the gardener the library's last successful online listing. An empty
+    /// listing means no fetch has succeeded yet, so it never clears the catalog.
+    pub fn set_listing(&self, listing: Vec<Firmware>, complete: bool) {
+        if listing.is_empty() {
+            return;
+        }
+        *self.listing.lock().unwrap() = Some((listing, complete));
+        self.needs_pass.store(true, Ordering::Relaxed);
+    }
+
     /// The hosts whose accordion is open. Their scans fetch the slower detail
     /// listing; every other host stays on the fast name-only one.
     pub fn set_detail(&self, hosts: HashSet<String>) {
@@ -366,9 +447,8 @@ impl CardputerState {
         true
     }
 
-    /// Send the online catalog to a Cardputer, skipping the upload when the card
-    /// already holds the same manifest. The catalog is built the same way
-    /// fm1-remotes prints it: every online entry resolved to a direct package URL.
+    /// Send the card the catalog built so far, skipping the upload when it already
+    /// holds the same manifest. The gardener fills unresolved entries in later.
     pub fn sync_catalog(&self, host: String, device: String) -> bool {
         // Tests and the README screenshot stay offline, like the scanner.
         if std::env::var_os("FM1_GRID_NO_CARDPUTERS").is_some() {
@@ -381,10 +461,13 @@ impl CardputerState {
         let busy = self.busy.clone();
         let generation = self.generation.clone();
         let failed = (host.clone(), device.clone());
+        let store = self.store.clone();
+        let garden = self.garden.clone();
+        let listing = self.listing.clone();
         let spawned = std::thread::Builder::new()
             .name("fm1-cardputer-catalog".into())
             .spawn(move || {
-                let result = sync_catalog_inner(&host);
+                let result = sync_catalog_inner(&host, &store, &garden, &listing);
                 events.lock().unwrap().push(CardputerEvent::CatalogSynced {
                     host: host.clone(),
                     device,
@@ -449,10 +532,37 @@ fn fetch_online(discovery: cardputer::Discovery, detail: bool) -> OnlineDevice {
     device
 }
 
-fn sync_catalog_inner(host: &str) -> Result<CatalogOutcome, String> {
-    let remotes = fm1_performer::library::fetch_remotes()?;
-    let manifest =
-        serde_json::to_vec(&remotes).map_err(|error| format!("serialize catalog: {error}"))?;
+fn sync_catalog_inner(
+    host: &str,
+    store: &Store,
+    garden: &Mutex<()>,
+    listing: &Mutex<Option<(Vec<Firmware>, bool)>>,
+) -> Result<CatalogOutcome, String> {
+    let mut catalog = fm1_performer::library::load_remote_catalog(store);
+    if catalog.entries.is_empty() {
+        // Nothing gardened yet (or every link failed): build from the listing the
+        // library already fetched, once.
+        let _guard = garden.lock().unwrap();
+        catalog = fm1_performer::library::load_remote_catalog(store);
+        if catalog.entries.is_empty() {
+            let (entries, complete) = listing
+                .lock()
+                .unwrap()
+                .clone()
+                .ok_or("the online firmware listing has not loaded yet")?;
+            fm1_performer::library::garden_remote_catalog(store, entries, complete)?;
+            catalog = fm1_performer::library::load_remote_catalog(store);
+        }
+    }
+    if catalog.entries.is_empty() {
+        return Err(
+            "no package links could be resolved yet; the catalog will fill in as the \
+             online feeds answer"
+                .to_string(),
+        );
+    }
+    let manifest = serde_json::to_vec(&catalog.entries)
+        .map_err(|error| format!("serialize catalog: {error}"))?;
     let digest = cardputer::sha256(&manifest);
     let installed = cardputer::catalog(host).map_err(|error| error.to_string())?;
     if catalog_is_current(installed.as_ref(), &digest) {
@@ -462,6 +572,7 @@ fn sync_catalog_inner(host: &str) -> Result<CatalogOutcome, String> {
         cardputer::upload_catalog(host, &manifest).map_err(|error| error.to_string())?;
     Ok(CatalogOutcome::Synced {
         entries: reply.entries,
+        pending: catalog.pending.len() as u64,
     })
 }
 
@@ -620,6 +731,13 @@ mod tests {
             wanted_network: Arc::new(AtomicBool::new(false)),
             wanted_serial: Arc::new(AtomicBool::new(false)),
             detail_hosts: Arc::new(Mutex::new(HashSet::new())),
+            store: Store::in_dir(
+                &std::env::temp_dir().join(format!("fm1-grid-cardputer-{}", std::process::id())),
+            ),
+            enabled: Arc::new(AtomicBool::new(false)),
+            listing: Arc::new(Mutex::new(None)),
+            needs_pass: Arc::new(AtomicBool::new(false)),
+            garden: Arc::new(Mutex::new(())),
         };
         assert!(state.claim("1.2.3.4".into()));
         assert!(!state.claim("1.2.3.4".into()));

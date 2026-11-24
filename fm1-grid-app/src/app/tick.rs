@@ -55,10 +55,27 @@ impl GridApp {
         // list, or the Library that offers them as Flash To targets, keeps the
         // scanner awake.
         let cardputers_section = self.active_tab == 1 && self.devices_tab == 2;
+        self.cardputers.set_enabled(self.cardputers_enabled);
         self.cardputers.set_wanted(
             self.cardputers_enabled && (self.active_tab == 2 || cardputers_section),
             self.cardputers_enabled && cardputers_section,
         );
+        // The Cardputer catalog starts from the library's first successful online
+        // listing and follows each hourly swap; while the feature is on, keep that
+        // listing fresh even if the Library tab is never opened.
+        if self.cardputers_enabled && hub_online() {
+            self.library.refresh_hub();
+        }
+        let hub_generation = self.library.hub_generation();
+        if hub_generation != self.cardputer_listing_generation {
+            self.cardputer_listing_generation = hub_generation;
+            let listing = self.library.online_listing();
+            let complete = !matches!(
+                self.library.hub_status(),
+                fm1_performer::library::HubStatus::Failed(_)
+            );
+            self.cardputers.set_listing(listing, complete);
+        }
         let mut dirty = self.sync_held();
         // A finished download lands in the library through `list()`/`pump_downloads`;
         // its notification uses one identity so Download All does not stack a toast
@@ -175,9 +192,17 @@ impl GridApp {
                     result,
                 } => {
                     let note = match result {
-                        Ok(CatalogOutcome::Synced { entries }) => Notification::success(format!(
-                            "Sent the {entries}-entry catalog to {device}."
-                        )),
+                        Ok(CatalogOutcome::Synced { entries, pending }) => {
+                            let mut message =
+                                format!("Sent the {entries}-entry catalog to {device}.");
+                            if pending > 0 {
+                                message.push_str(&format!(
+                                    " {pending} entries still lack package links; they will fill \
+                                     in later."
+                                ));
+                            }
+                            Notification::success(message)
+                        }
                         Ok(CatalogOutcome::UpToDate) => Notification::info(format!(
                             "The catalog on {device} is already up to date."
                         )),

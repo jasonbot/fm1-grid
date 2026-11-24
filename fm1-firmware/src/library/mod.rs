@@ -10,7 +10,7 @@
 //! downloads) runs on background threads; `list()` picks up finished downloads.
 
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -83,6 +83,9 @@ pub struct Library {
     view_generation: u64,
     /// Set by the hub refresh thread when it swaps the listing in.
     hub_swapped: Arc<AtomicBool>,
+    /// Bumped by the refresh thread after a successful listing swap; consumers that
+    /// snapshot the online listing wait for this to move.
+    hub_generation: Arc<AtomicU64>,
     /// The last on-disk existence sweep (file/blob stats), throttled so the per-frame
     /// `list()` doesn't stat every entry every frame.
     last_stat: Instant,
@@ -279,6 +282,7 @@ impl Library {
             view_dirty: true,
             view_generation: 0,
             hub_swapped: Arc::new(AtomicBool::new(false)),
+            hub_generation: Arc::new(AtomicU64::new(0)),
             last_stat: Instant::now(),
             generation: 0,
             installs: installs::load(store),
@@ -422,6 +426,18 @@ impl Library {
     /// The online listing's size (0 until the first successful fetch).
     pub fn hub_len(&self) -> usize {
         self.hub.lock().unwrap().len()
+    }
+
+    /// The merged online listing from the last successful fetch, for callers that
+    /// need a snapshot (the Cardputer catalog). `hub_generation` says when to retake
+    /// it.
+    pub fn online_listing(&self) -> Vec<Firmware> {
+        self.hub.lock().unwrap().clone()
+    }
+
+    /// Bumped whenever a refresh swaps a new online listing in.
+    pub fn hub_generation(&self) -> u64 {
+        self.hub_generation.load(Ordering::Relaxed)
     }
 
     /// Fetch today's hub catalog and every additive listing on a background thread
@@ -604,12 +620,14 @@ impl Library {
         let hub = Arc::clone(&self.hub);
         let status = Arc::clone(&self.hub_status);
         let swapped = Arc::clone(&self.hub_swapped);
+        let hub_generation = Arc::clone(&self.hub_generation);
         std::thread::spawn(move || {
             let next = match fetch_sources(&urls, feeds) {
                 Err(e) => HubStatus::Failed(e),
                 Ok((listing, outcome)) => {
                     *hub.lock().unwrap() = merge_listings(listing, index_listing());
                     swapped.store(true, Ordering::Relaxed);
+                    hub_generation.fetch_add(1, Ordering::Relaxed);
                     outcome
                 }
             };

@@ -452,6 +452,8 @@ pub struct GridApp {
     /// Cardputers in ROM download mode and running fm1-card on the LAN.
     pub(crate) cardputers: crate::cardputers::CardputerState,
     cardputer_generation: u64,
+    /// The library's `hub_generation` last handed to the Cardputer catalog.
+    cardputer_listing_generation: u64,
     /// Which online Cardputers the accordion has expanded, by host.
     pub(crate) cardputer_open: std::collections::HashSet<String>,
     /// The Settings preference: allow network discovery and the Cardputers

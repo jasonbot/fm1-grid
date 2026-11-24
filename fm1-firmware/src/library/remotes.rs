@@ -4,9 +4,13 @@
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
+use std::time::{SystemTime, UNIX_EPOCH};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
+use fm1_base::store::Store;
+
+use super::merge::name_key;
 use super::*;
 
 /// How many entries resolve at once. Resolution is network-bound (a release or
@@ -14,9 +18,40 @@ use super::*;
 /// short without hammering any one host.
 const RESOLVE_WORKERS: usize = 8;
 
+/// Failed resolutions retried per garden pass. Rate limiting is the usual cause, so
+/// a full retry of every blank would recreate the load that hit the limit.
+const PENDING_RETRIES_PER_PASS: usize = 8;
+
+/// The store object holding the card-bound catalog and its unresolved blanks.
+const REMOTE_CATALOG_OBJECT: &str = "remote-catalog";
+
+/// The persisted card catalog: ready-to-send rows plus the listing entries whose
+/// package link could not be resolved yet.
+#[derive(Clone, Default, Serialize, Deserialize)]
+pub struct RemoteCatalog {
+    pub entries: Vec<RemoteFirmware>,
+    pub pending: Vec<PendingRemote>,
+    /// Unix seconds of the last garden pass.
+    pub updated: u64,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct PendingRemote {
+    pub firmware: Firmware,
+    /// Unix seconds of the last resolution attempt.
+    pub tried: u64,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct GardenReport {
+    pub entries: usize,
+    pub pending: usize,
+    pub attempted: usize,
+}
+
 /// One firmware in the hosted feed. The fields a minimal client needs to list and
 /// download it; `url` is always a direct `.fwsc` package.
-#[derive(Serialize, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct RemoteFirmware {
     pub name: String,
     pub version: String,
@@ -70,25 +105,41 @@ fn resolve_listing(
     listing: Vec<Firmware>,
     resolve: &(impl Fn(&str) -> Result<String, String> + Sync),
 ) -> Vec<RemoteFirmware> {
+    resolve_each(listing, resolve)
+        .into_iter()
+        .filter_map(|(firmware, outcome)| match outcome {
+            Ok(remote) => Some(remote),
+            Err(e) => {
+                eprintln!("fm1-remotes: skipped {}: {e}", firmware.name);
+                None
+            }
+        })
+        .collect()
+}
+
+/// Resolve a batch concurrently, keeping each entry and its own outcome so the
+/// caller can tell which links failed.
+fn resolve_each(
+    listing: Vec<Firmware>,
+    resolve: &(impl Fn(&str) -> Result<String, String> + Sync),
+) -> Vec<(Firmware, Result<RemoteFirmware, String>)> {
     let next = AtomicUsize::new(0);
-    let resolved: Mutex<Vec<Option<RemoteFirmware>>> =
+    let results: Mutex<Vec<Option<(Firmware, Result<RemoteFirmware, String>)>>> =
         Mutex::new(listing.iter().map(|_| None).collect());
     let workers = RESOLVE_WORKERS.min(listing.len()).max(1);
     std::thread::scope(|scope| {
         for _ in 0..workers {
             scope.spawn(|| loop {
                 let index = next.fetch_add(1, Ordering::Relaxed);
-                let Some(firmware) = listing.get(index) else {
+                let Some(firmware) = listing.get(index).cloned() else {
                     break;
                 };
-                match remote_entry(firmware, resolve) {
-                    Ok(remote) => resolved.lock().unwrap()[index] = Some(remote),
-                    Err(e) => eprintln!("fm1-remotes: skipped {}: {e}", firmware.name),
-                }
+                let outcome = remote_entry(&firmware, resolve);
+                results.lock().unwrap()[index] = Some((firmware, outcome));
             });
         }
     });
-    resolved
+    results
         .into_inner()
         .unwrap()
         .into_iter()
@@ -107,7 +158,12 @@ fn remote_entry(
     let FirmwareSource::Hub { path, .. } = &firmware.source else {
         return Err("not an online listing entry".to_string());
     };
-    let url = resolve(&hub_download_url(path))?;
+    remote_row(firmware, resolve(&hub_download_url(path))?)
+}
+
+/// A hosted row with a known package URL; the display fields always come from the
+/// current listing.
+fn remote_row(firmware: &Firmware, url: String) -> Result<RemoteFirmware, String> {
     if !is_fwsc(&url) {
         return Err(format!("{url} is not a .fwsc package"));
     }
@@ -129,6 +185,201 @@ fn remote_entry(
     })
 }
 
+/// The identity the catalog keeps across passes: a version bump or a different
+/// device/variant is a new row, a respelling is not.
+fn catalog_key(
+    name: &str,
+    version: &str,
+    device: FirmwareDevice,
+    variant: Option<&str>,
+) -> String {
+    format!(
+        "{}|{version}|{device:?}|{}",
+        name_key(name),
+        variant.unwrap_or("")
+    )
+}
+
+fn firmware_key(firmware: &Firmware) -> String {
+    catalog_key(
+        &firmware.name,
+        &firmware.version,
+        firmware.device,
+        firmware.variant(),
+    )
+}
+
+fn remote_key(row: &RemoteFirmware) -> String {
+    let variant = row.tags.iter().find_map(|tag| match tag.as_str() {
+        "SMK-37 Pro" | "SMK-37 Elite" | "MKE-P37" => Some(tag.as_str()),
+        _ => None,
+    });
+    catalog_key(&row.name, &row.version, row.device, variant)
+}
+
+/// The persisted catalog, or an empty one before the first pass.
+pub fn load_remote_catalog(store: &Store) -> RemoteCatalog {
+    store.fetch_object(REMOTE_CATALOG_OBJECT).unwrap_or_default()
+}
+
+/// Bring the persisted card catalog up to date from the library's online listing.
+/// Resolved URLs are reused; only new rows and a bounded batch of earlier failures
+/// hit the network. `complete` is false when an additive feed failed, so rows the
+/// listing does not carry this time are kept instead of dropped.
+pub fn garden_remote_catalog(
+    store: &Store,
+    listing: Vec<Firmware>,
+    complete: bool,
+) -> Result<GardenReport, String> {
+    garden_from(
+        store,
+        listing,
+        complete,
+        &crate::download_heuristics::resolve_package_url,
+    )
+}
+
+fn garden_from(
+    store: &Store,
+    listing: Vec<Firmware>,
+    complete: bool,
+    resolve: &(impl Fn(&str) -> Result<String, String> + Sync),
+) -> Result<GardenReport, String> {
+    // The GUI and the TUI share the store; one writer at a time.
+    let _lock = store.lock_file(REMOTE_CATALOG_OBJECT).ok().map(|lock| {
+        let _ = lock.lock();
+        lock
+    });
+    if listing.is_empty() {
+        // No successful fetch yet: an empty listing must not erase the catalog.
+        let cached = load_remote_catalog(store);
+        return Ok(GardenReport {
+            entries: cached.entries.len(),
+            pending: cached.pending.len(),
+            attempted: 0,
+        });
+    }
+    let cached = load_remote_catalog(store);
+    let now = now_seconds();
+    let mut rows: HashMap<String, RemoteFirmware> = cached
+        .entries
+        .into_iter()
+        .map(|row| (remote_key(&row), row))
+        .collect();
+    let mut pending: HashMap<String, PendingRemote> = cached
+        .pending
+        .into_iter()
+        .map(|row| (firmware_key(&row.firmware), row))
+        .collect();
+
+    // Retry the least recently attempted first, a batch at a time: a rate-limit
+    // streak must not turn every pass into the full walk that caused it.
+    let mut retry_order: Vec<String> = pending.keys().cloned().collect();
+    retry_order.sort_by_key(|key| pending.get(key).map_or(0, |row| row.tried));
+    let retry: HashSet<String> = retry_order
+        .into_iter()
+        .take(PENDING_RETRIES_PER_PASS)
+        .collect();
+
+    let mut resolve_now: Vec<(String, Firmware)> = Vec::new();
+    for firmware in &listing {
+        if !matches!(firmware.source, FirmwareSource::Hub { .. }) {
+            continue;
+        }
+        let key = firmware_key(firmware);
+        if rows.contains_key(&key) {
+            continue;
+        }
+        match pending.get(&key) {
+            Some(_) if !retry.contains(&key) => {}
+            _ => resolve_now.push((key, firmware.clone())),
+        }
+    }
+    for (key, _) in &resolve_now {
+        pending.remove(key);
+    }
+
+    let keys: Vec<String> = resolve_now.iter().map(|(key, _)| key.clone()).collect();
+    let outcomes = resolve_each(
+        resolve_now
+            .into_iter()
+            .map(|(_, firmware)| firmware)
+            .collect(),
+        resolve,
+    );
+    let attempted = keys.len();
+    for (key, (firmware, outcome)) in keys.into_iter().zip(outcomes) {
+        match outcome {
+            Ok(row) => {
+                rows.insert(key, row);
+            }
+            Err(_) => {
+                pending.insert(
+                    key,
+                    PendingRemote {
+                        firmware,
+                        tried: now,
+                    },
+                );
+            }
+        }
+    }
+
+    let mut entries = Vec::new();
+    let mut pending_rows = Vec::new();
+    for firmware in &listing {
+        if !matches!(firmware.source, FirmwareSource::Hub { .. }) {
+            continue;
+        }
+        let key = firmware_key(firmware);
+        if let Some(cached) = rows.remove(&key) {
+            // Rebuild from the current listing so display metadata stays fresh.
+            if let Ok(row) = remote_row(firmware, cached.url) {
+                entries.push(row);
+            }
+        } else if let Some(row) = pending.remove(&key) {
+            pending_rows.push(row);
+        }
+    }
+    if !complete {
+        // A failed additive feed is not a deleted firmware: keep the rows it would
+        // have carried.
+        let mut extra_rows: Vec<RemoteFirmware> = rows.into_values().collect();
+        extra_rows.sort_by(|a, b| a.name.cmp(&b.name).then(a.version.cmp(&b.version)));
+        entries.extend(extra_rows);
+        let mut extra_pending: Vec<PendingRemote> = pending.into_values().collect();
+        extra_pending.sort_by(|a, b| {
+            a.firmware
+                .name
+                .cmp(&b.firmware.name)
+                .then(a.firmware.version.cmp(&b.firmware.version))
+        });
+        pending_rows.extend(extra_pending);
+    }
+
+    let report = GardenReport {
+        entries: entries.len(),
+        pending: pending_rows.len(),
+        attempted,
+    };
+    store.store_object(
+        REMOTE_CATALOG_OBJECT,
+        &RemoteCatalog {
+            entries,
+            pending: pending_rows,
+            updated: now,
+        },
+    )?;
+    Ok(report)
+}
+
+fn now_seconds() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .unwrap_or(0)
+}
+
 /// Whether a URL names a `.fwsc` file, ignoring its query and fragment.
 fn is_fwsc(url: &str) -> bool {
     url.split(['?', '#'])
@@ -141,6 +392,110 @@ fn is_fwsc(url: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn temp_store(name: &str) -> (Store, std::path::PathBuf) {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|duration| duration.as_nanos())
+            .unwrap_or(0);
+        let dir = std::env::temp_dir().join(format!(
+            "fm1-remotes-{name}-{}-{nanos}",
+            std::process::id()
+        ));
+        (Store::in_dir(&dir), dir)
+    }
+
+    #[test]
+    fn garden_reuses_resolved_urls_and_keeps_failures_pending() {
+        let (store, dir) = temp_store("garden");
+        let listing = vec![
+            listing_entry("A", "fw/a.fwsc"),
+            listing_entry("B", "fw/b.fwsc"),
+        ];
+        let calls = Mutex::new(Vec::new());
+        let flaky = |url: &str| {
+            calls.lock().unwrap().push(url.to_string());
+            if url.contains("b.fwsc") {
+                Err("rate limited".to_string())
+            } else {
+                Ok(url.to_string())
+            }
+        };
+        let report = garden_from(&store, listing.clone(), true, &flaky).unwrap();
+        assert_eq!(report.entries, 1);
+        assert_eq!(report.pending, 1);
+        let catalog = load_remote_catalog(&store);
+        assert_eq!(catalog.entries[0].name, "A");
+        assert_eq!(catalog.pending[0].firmware.name, "B");
+
+        calls.lock().unwrap().clear();
+        let ok = |url: &str| {
+            calls.lock().unwrap().push(url.to_string());
+            Ok(url.to_string())
+        };
+        let report = garden_from(&store, listing, true, &ok).unwrap();
+        assert_eq!(report.entries, 2);
+        assert_eq!(report.pending, 0);
+        assert_eq!(report.attempted, 1, "only the blank is resolved again");
+        let calls = calls.lock().unwrap();
+        assert!(calls.iter().any(|url| url.contains("b.fwsc")));
+        assert!(!calls.iter().any(|url| url.contains("a.fwsc")));
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn garden_retries_only_a_bounded_batch_of_pending_rows() {
+        let (store, dir) = temp_store("garden-batch");
+        let listing: Vec<Firmware> = (0..PENDING_RETRIES_PER_PASS + 4)
+            .map(|ix| listing_entry(&format!("F{ix}"), &format!("fw/f{ix}.fwsc")))
+            .collect();
+        let failed = |_: &str| Err("rate limited".to_string());
+        let report = garden_from(&store, listing.clone(), true, &failed).unwrap();
+        assert_eq!(report.pending, PENDING_RETRIES_PER_PASS + 4);
+
+        let ok = |url: &str| Ok(url.to_string());
+        let report = garden_from(&store, listing.clone(), true, &ok).unwrap();
+        assert_eq!(report.attempted, PENDING_RETRIES_PER_PASS);
+        assert_eq!(report.entries, PENDING_RETRIES_PER_PASS);
+        assert_eq!(report.pending, 4);
+
+        // A new row is attempted even when the retry budget is spent.
+        let mut with_new = listing;
+        with_new.push(listing_entry("NEW", "fw/new.fwsc"));
+        let report = garden_from(&store, with_new, true, &ok).unwrap();
+        assert_eq!(report.pending, 0);
+        assert_eq!(report.entries, PENDING_RETRIES_PER_PASS + 5);
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn an_empty_listing_never_erases_the_catalog() {
+        let (store, dir) = temp_store("garden-empty");
+        let listing = vec![listing_entry("A", "fw/a.fwsc")];
+        let ok = |url: &str| Ok(url.to_string());
+        garden_from(&store, listing, true, &ok).unwrap();
+        let report = garden_from(&store, Vec::new(), true, &ok).unwrap();
+        assert_eq!(report.entries, 1);
+        assert_eq!(load_remote_catalog(&store).entries.len(), 1);
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn a_partial_listing_keeps_the_rows_it_does_not_carry() {
+        let (store, dir) = temp_store("garden-partial");
+        let both = vec![
+            listing_entry("A", "fw/a.fwsc"),
+            listing_entry("B", "fw/b.fwsc"),
+        ];
+        let ok = |url: &str| Ok(url.to_string());
+        garden_from(&store, both, true, &ok).unwrap();
+        let only_a = vec![listing_entry("A", "fw/a.fwsc")];
+        let report = garden_from(&store, only_a.clone(), false, &ok).unwrap();
+        assert_eq!(report.entries, 2, "B stays while a feed is down");
+        let report = garden_from(&store, only_a, true, &ok).unwrap();
+        assert_eq!(report.entries, 1, "a complete listing drops B");
+        std::fs::remove_dir_all(dir).ok();
+    }
 
     fn listing_entry(name: &str, path: &str) -> Firmware {
         Firmware {

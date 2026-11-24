@@ -171,13 +171,14 @@ listing's `source:` tag and the device/chip tags affect deduplication and
 filtering, so preserve them when editing a parser.
 
 `cargo run --release -p fm1-remotes` prints the same merged listing with every
-entry resolved to a direct `.fwsc` URL. The Cardputers **Sync catalog** button
-builds that listing in-process and sends it to a card, so no hosted file needs
-regenerating; entries the heuristics can't resolve are omitted, so a sync is
-only as complete as the current sources and network. Export
-`GITHUB_TOKEN` (or `GH_TOKEN`, for example `GITHUB_TOKEN=$(gh auth token)`)
-before either one: the unauthenticated GitHub API allows only 60 requests an
-hour, which drops most GitHub-hosted entries.
+entry resolved to a direct `.fwsc` URL. The Cardputers feature keeps those rows
+in the app's store instead: the library's online listing is resolved
+incrementally, reusing known package URLs and retrying a bounded batch of
+blanks every 30 minutes while Cardputers is on. A rate-limited GitHub pass
+therefore leaves blanks that fill in later, and no hosted file needs
+regenerating. Export `GITHUB_TOKEN` (or `GH_TOKEN`, for example
+`GITHUB_TOKEN=$(gh auth token)`) before either one: the unauthenticated GitHub
+API allows only 60 requests an hour, which drops most GitHub-hosted entries.
 
 ## Releases and update feeds
 

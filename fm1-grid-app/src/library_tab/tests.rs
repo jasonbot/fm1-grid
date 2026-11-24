@@ -1,10 +1,12 @@
 // No `use super::*` — the parent's gpui glob import would drag in GPUI's `test`
 // attribute macro, which re-expands the built-in #[test] (see tests/mod.rs).
+use super::flash::cardputer_file_name;
 use super::{
     favorite_key, flatten_library, is_installed, matches_filter, snap_in, tag_index, tag_palette,
     toggle_tag, LibItem,
 };
 use super::{DeviceFilter, NO_THANKS_GLYPH};
+use fm1_performer::firmware_picker::FirmwarePick;
 use fm1_performer::library::{Firmware, FirmwareDevice, FirmwareSource, Status};
 use std::collections::{HashMap, HashSet};
 
@@ -44,6 +46,25 @@ pub(super) fn firmware(name: &str, tags: &[&str]) -> Firmware {
         status: Status::Available,
         source: FirmwareSource::Builtin,
     }
+}
+
+/// A local file or hub name can carry characters FAT32 rejects; every source is
+/// sanitized before the upload names the package.
+#[test]
+pub(super) fn cardputer_names_are_fat32_safe_for_every_source() {
+    let fw = firmware("Odd: Name", &[]);
+    assert_eq!(
+        cardputer_file_name(&fw, &FirmwarePick::File("/tmp/a:b*c?.fwsc".into())),
+        "abc.fwsc"
+    );
+    assert_eq!(
+        cardputer_file_name(&fw, &FirmwarePick::File("/tmp/NUL".into())),
+        "_NUL.fwsc"
+    );
+    assert_eq!(
+        cardputer_file_name(&fw, &FirmwarePick::HubBlob("hub/sloop 2.fwsc".into())),
+        "sloop-2.fwsc"
+    );
 }
 
 /// The snap-in curve starts at 0, lands at 1 with a slight overshoot on the way,

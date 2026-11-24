@@ -361,9 +361,10 @@ pub fn sha256(bytes: &[u8]) -> String {
     format!("{:x}", hasher.finalize())
 }
 
-/// A filename the Cardputer accepts: its API rejects path separators. The
-/// display name is a safe fallback when a blob key carries no usable package
-/// name.
+/// A filename the Cardputer accepts: its API rejects path separators, and the
+/// SD card is FAT32. The display name is a safe fallback when a blob key carries
+/// no usable package name. Keeps the `.fwsc` extension, avoids Windows device
+/// names, and stays within FAT's 255-character limit.
 pub fn safe_file_name(name: &str) -> String {
     let mut out = String::with_capacity(name.len());
     for ch in name.chars() {
@@ -374,13 +375,40 @@ pub fn safe_file_name(name: &str) -> String {
         }
     }
     let out = out.trim_matches('-').trim_matches('.');
-    if out.is_empty() {
+    let mut out = if out.is_empty() {
         "firmware.fwsc".to_string()
     } else if out.to_ascii_lowercase().ends_with(".fwsc") {
         out.to_string()
     } else {
         format!("{out}.fwsc")
+    };
+
+    let stem = out.split('.').next().unwrap_or_default();
+    if is_dos_device_name(stem) {
+        out.insert(0, '_');
     }
+
+    const MAX_LEN: usize = 255;
+    const EXT: &str = ".fwsc";
+    if out.len() > MAX_LEN {
+        let stem = out.strip_suffix(EXT).unwrap_or(&out);
+        let keep = MAX_LEN - EXT.len();
+        let stem = stem[..keep.min(stem.len())].trim_end_matches(['-', '.']);
+        out = format!("{stem}{EXT}");
+    }
+    out
+}
+
+/// Names Windows refuses on FAT, even with an extension.
+fn is_dos_device_name(stem: &str) -> bool {
+    let stem = stem.to_ascii_uppercase();
+    if matches!(stem.as_str(), "CON" | "PRN" | "AUX" | "NUL" | "CLOCK$") {
+        return true;
+    }
+    let bytes = stem.as_bytes();
+    bytes.len() == 4
+        && (stem.starts_with("COM") || stem.starts_with("LPT"))
+        && matches!(bytes[3], b'1'..=b'9')
 }
 
 #[cfg(test)]
@@ -473,7 +501,21 @@ mod tests {
         assert_eq!(safe_file_name("sloop-2.8.5.fwsc"), "sloop-2.8.5.fwsc");
         assert_eq!(safe_file_name("SLOOP 2.8.5"), "SLOOP-2.8.5.fwsc");
         assert_eq!(safe_file_name("a/b"), "ab.fwsc");
+        assert_eq!(safe_file_name("a:b*c?.fwsc"), "abc.fwsc");
         assert_eq!(safe_file_name(""), "firmware.fwsc");
+        assert_eq!(safe_file_name("  .  "), "firmware.fwsc");
+    }
+
+    #[test]
+    fn package_names_avoid_windows_devices_and_fat_limits() {
+        assert_eq!(safe_file_name("CON"), "_CON.fwsc");
+        assert_eq!(safe_file_name("lpt9.fwsc"), "_lpt9.fwsc");
+        assert_eq!(safe_file_name("CONSOLE"), "CONSOLE.fwsc");
+        assert_eq!(safe_file_name("COM0"), "COM0.fwsc");
+        let long = format!("{}.fwsc", "a".repeat(400));
+        let name = safe_file_name(&long);
+        assert_eq!(name.len(), 255);
+        assert!(name.ends_with(".fwsc"));
     }
 
     #[test]

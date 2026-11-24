@@ -239,10 +239,10 @@ impl GridApp {
     }
 }
 
-/// The name the Cardputer stores a package under. Builtin and on-disk packages
-/// keep their real file name; a blob key can carry a hash suffix, so a display
-/// name stands in when it does not end in `.fwsc`.
-fn cardputer_file_name(firmware: &Firmware, pick: &FirmwarePick) -> String {
+/// The name the Cardputer stores one package under. Every source goes through
+/// `safe_file_name`, so a local file or hub name cannot carry a FAT32-hostile
+/// character; a blob key with a hash suffix falls back to the display name.
+pub(super) fn cardputer_file_name(firmware: &Firmware, pick: &FirmwarePick) -> String {
     let candidate = match pick {
         FirmwarePick::Builtin(index) => Some(BUILTINS[*index].file.to_string()),
         FirmwarePick::File(path) => path
@@ -254,7 +254,7 @@ fn cardputer_file_name(firmware: &Firmware, pick: &FirmwarePick) -> String {
             .filter(|name| name.to_ascii_lowercase().ends_with(".fwsc"))
             .map(str::to_string),
     };
-    candidate.unwrap_or_else(|| {
-        fm1_cardputer::safe_file_name(&format!("{}-{}", firmware.name, firmware.version))
-    })
+    fm1_cardputer::safe_file_name(&candidate.unwrap_or_else(|| {
+        format!("{}-{}", firmware.name, firmware.version)
+    }))
 }

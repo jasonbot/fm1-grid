@@ -131,6 +131,7 @@ impl CardputerState {
         let wanted_serial = state.wanted_serial.clone();
         let detail_hosts = state.detail_hosts.clone();
         let lanes = state.lanes.clone();
+        let upload_counts = state.upload_counts.clone();
         let catalog_store = state.store.clone();
         let catalog_listing = state.listing.clone();
         let catalog_needs_pass = state.needs_pass.clone();
@@ -213,13 +214,14 @@ impl CardputerState {
                                             let detail =
                                                 detail_requested.contains(&discovery.host);
                                             let lane = lane_for(&lanes, &discovery.host);
+                                            let uploads = upload_counts.clone();
                                             let last = previous
                                                 .iter()
                                                 .find(|last| last.host == discovery.host)
                                                 .cloned();
                                             scope.spawn(move || {
                                                 fetch_online_if_free(
-                                                    &lane, last, discovery, detail,
+                                                    &lane, &uploads, last, discovery, detail,
                                                 )
                                             })
                                         })
@@ -597,25 +599,29 @@ fn end_upload(
     generation.fetch_add(1, Ordering::Relaxed);
 }
 
-/// Scan one host unless its lane is busy. A busy lane means an upload or catalog
-/// sync owns the card, so keep the last snapshot and retry the detail pass later.
-/// A poisoned lane (a panicking upload) still belongs to this process, so scan.
+/// Scan one host unless an upload owns or wants its lane. Each REST call takes
+/// the lane on its own, so a queued copy waits for at most one in-flight request
+/// and the scan stops at the next request boundary. A poisoned lane (a panicking
+/// upload) still belongs to this process, so scan.
 fn fetch_online_if_free(
     lane: &Mutex<()>,
+    uploads: &Mutex<HashMap<String, usize>>,
     last: Option<OnlineDevice>,
     discovery: cardputer::Discovery,
     detail: bool,
 ) -> Option<(OnlineDevice, bool)> {
-    match lane.try_lock() {
-        Ok(_gate) => Some((fetch_online(discovery, detail), true)),
-        Err(std::sync::TryLockError::WouldBlock) => last.map(|last| (last, false)),
-        Err(std::sync::TryLockError::Poisoned(_gate)) => {
-            Some((fetch_online(discovery, detail), true))
-        }
+    if upload_pending(uploads, &discovery.host) {
+        return last.map(|last| (last, false));
     }
-}
-
-fn fetch_online(discovery: cardputer::Discovery, detail: bool) -> OnlineDevice {
+    let Some(status) = scan_request(lane, || cardputer::status(&discovery.host)) else {
+        return last.map(|last| (last, false));
+    };
+    if upload_pending(uploads, &discovery.host) {
+        return last.map(|last| (last, false));
+    }
+    let Some(list) = scan_request(lane, || cardputer::firmwares(&discovery.host, detail)) else {
+        return last.map(|last| (last, false));
+    };
     let mut device = OnlineDevice {
         name: discovery.name,
         host: discovery.host.clone(),
@@ -623,7 +629,7 @@ fn fetch_online(discovery: cardputer::Discovery, detail: bool) -> OnlineDevice {
         firmwares: Vec::new(),
         error: None,
     };
-    match cardputer::status(&discovery.host) {
+    match status {
         Ok(status) => {
             if !status.name.trim().is_empty() {
                 device.name = status.name.clone();
@@ -632,7 +638,7 @@ fn fetch_online(discovery: cardputer::Discovery, detail: bool) -> OnlineDevice {
         }
         Err(error) => device.error = Some(error.to_string()),
     }
-    match cardputer::firmwares(&discovery.host, detail) {
+    match list {
         Ok(mut list) => {
             list.sort_by(|a, b| a.name.cmp(&b.name));
             device.firmwares = list;
@@ -643,7 +649,20 @@ fn fetch_online(discovery: cardputer::Discovery, detail: bool) -> OnlineDevice {
             }
         }
     }
-    device
+    Some((device, true))
+}
+
+/// One gated REST call; None means an upload holds the lane right now.
+fn scan_request<T>(lane: &Mutex<()>, call: impl FnOnce() -> T) -> Option<T> {
+    match lane.try_lock() {
+        Ok(_gate) => Some(call()),
+        Err(std::sync::TryLockError::WouldBlock) => None,
+        Err(std::sync::TryLockError::Poisoned(_gate)) => Some(call()),
+    }
+}
+
+fn upload_pending(uploads: &Mutex<HashMap<String, usize>>, host: &str) -> bool {
+    uploads.lock().unwrap().contains_key(host)
 }
 
 fn sync_catalog_inner(
@@ -868,7 +887,8 @@ mod tests {
         assert!(state.claim("1.2.3.4".into()));
     }
 
-    /// A busy host keeps its last row and retries; a poisoned lane still scans.
+    /// A busy host keeps its last row and retries; a queued upload also holds
+    /// scans off; a poisoned lane still scans.
     #[test]
     fn a_busy_lane_keeps_the_last_scan_snapshot() {
         let state = test_state("scan-gate");
@@ -889,11 +909,41 @@ mod tests {
         {
             let _held = lane.lock().unwrap();
             assert_eq!(
-                fetch_online_if_free(&lane, Some(previous.clone()), discovery.clone(), false),
+                fetch_online_if_free(
+                    &lane,
+                    &state.upload_counts,
+                    Some(previous.clone()),
+                    discovery.clone(),
+                    false
+                ),
                 Some((previous.clone(), false))
             );
-            assert_eq!(fetch_online_if_free(&lane, None, discovery.clone(), false), None);
+            assert_eq!(
+                fetch_online_if_free(
+                    &lane,
+                    &state.upload_counts,
+                    None,
+                    discovery.clone(),
+                    false
+                ),
+                None
+            );
         }
+
+        // A copy waiting behind another upload skips the scan even though the
+        // lane itself is momentarily free.
+        state.begin_upload(host);
+        assert_eq!(
+            fetch_online_if_free(
+                &lane,
+                &state.upload_counts,
+                Some(previous.clone()),
+                discovery.clone(),
+                false
+            ),
+            Some((previous.clone(), false))
+        );
+        state.end_upload(host);
 
         let poisoned = lane.clone();
         std::thread::spawn(move || {
@@ -903,7 +953,8 @@ mod tests {
         .join()
         .ok();
         assert!(lane.try_lock().is_err(), "the lane must now be poisoned");
-        let scanned = fetch_online_if_free(&lane, Some(previous), discovery, false);
+        let scanned =
+            fetch_online_if_free(&lane, &state.upload_counts, Some(previous), discovery, false);
         assert_eq!(scanned.as_ref().map(|(_, fresh)| *fresh), Some(true));
     }
 
@@ -999,8 +1050,8 @@ mod tests {
                         let now = active.fetch_add(1, Ordering::SeqCst) + 1;
                         peak.fetch_max(now, Ordering::SeqCst);
                         // Keep the request open long enough for an ungated second
-                        // upload to overlap it.
-                        std::thread::sleep(Duration::from_millis(100));
+                        // upload to overlap it, even on a heavily loaded machine.
+                        std::thread::sleep(Duration::from_millis(500));
                         let line = String::from_utf8_lossy(&request[..header_end]);
                         let body = if line.starts_with("GET /firmwares") {
                             "[]"

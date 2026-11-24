@@ -330,7 +330,7 @@ impl GridApp {
         let pick = pick_of(&firmware);
         let flashable = flashable(&firmware, pick.as_ref());
         let downloading = firmware.status == Status::Downloading;
-        let percent = self.library.download_percent(&firmware.name);
+        let percent = self.library.download_percent(&firmware);
 
         // The pills: the favorite glyph (★ by default, ☆ when not a favorite) first,
         // then one per tag, then the device. A tag pill click toggles the tag's words
@@ -547,6 +547,7 @@ impl GridApp {
                 );
             } else {
                 let name = name.clone();
+                let row = firmware.clone();
                 buttons.push(
                     Button::new(format!("lib-download-{name}"))
                         .label("Download")
@@ -556,7 +557,7 @@ impl GridApp {
                         .rounded_none()
                         .tooltip("Download from the FM-1 Firmware Hub into the library")
                         .on_click(cx.listener(move |this, _, _, cx| {
-                            this.library.start_download(&name);
+                            this.library.start_download(&row);
                             // On completion the row lands in Installed; scroll to it.
                             this.lib_scroll_to = Some(name.clone());
                             cx.notify();

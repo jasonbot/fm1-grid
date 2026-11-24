@@ -39,6 +39,17 @@ pub(super) fn variant_of(firmware: &Firmware) -> Option<&str> {
     firmware.variant()
 }
 
+/// A download's identity. Two rows can share a name across device families (an
+/// FM-1 and an SMK-37 ChoralRoot), so name alone is not enough.
+pub(super) fn download_key(firmware: &Firmware) -> String {
+    format!(
+        "{}|{:?}|{}",
+        name_key(&firmware.name),
+        firmware.device,
+        firmware.variant().unwrap_or_default()
+    )
+}
+
 pub(super) fn same_firmware(a: &Firmware, b: &Firmware) -> bool {
     if a.device != b.device {
         return false;

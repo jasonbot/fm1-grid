@@ -29,6 +29,15 @@
         }
     }
 
+    fn next_name(library: &mut Library) -> Option<String> {
+        library.next_download().map(|firmware| firmware.name)
+    }
+
+    /// The download-map key for an FM-1 row named `name`.
+    fn fm1_key(name: &str) -> String {
+        download_key(&hub_offer(name, "0", "x.fwsc"))
+    }
+
     #[test]
     fn store_round_trip() {
         let (store, dir) = temp_store("roundtrip");
@@ -243,14 +252,14 @@
         assert!(entry.upgradable, "an installed hub package flags upgradable");
         // The offer hides behind the install: one row, and the sweep offers it.
         assert_eq!(view.iter().filter(|f| f.name == "pkg").count(), 1);
-        assert_eq!(library.next_download().as_deref(), Some("pkg"));
+        assert_eq!(next_name(&mut library).as_deref(), Some("pkg"));
 
         // Caught up: the same version neither flags nor sweeps.
         *library.hub.lock().unwrap() = vec![hub_offer("pkg", "1.0", "pkg.fwsc")];
         library.view_dirty = true;
         let view = library.list();
         assert!(!view.iter().find(|f| f.name == "pkg").unwrap().upgradable);
-        assert_eq!(library.next_download(), None);
+        assert_eq!(next_name(&mut library), None);
         std::fs::remove_dir_all(dir).ok();
     }
 
@@ -265,14 +274,14 @@
         library.view_dirty = true;
 
         library.set_device_filter(Some(crate::filter::DeviceFilter::Fm1));
-        assert_eq!(library.next_download().as_deref(), Some("fm1-thing"));
+        assert_eq!(next_name(&mut library).as_deref(), Some("fm1-thing"));
         library.set_device_filter(Some(crate::filter::DeviceFilter::All));
-        assert_eq!(library.next_download().as_deref(), Some("smk-thing"));
+        assert_eq!(next_name(&mut library).as_deref(), Some("smk-thing"));
         library.set_device_filter(Some(crate::filter::DeviceFilter::Smk37Pro));
-        assert_eq!(library.next_download().as_deref(), Some("smk-thing"));
+        assert_eq!(next_name(&mut library).as_deref(), Some("smk-thing"));
         // None means no UI filter: everything is offered.
         library.set_device_filter(None);
-        assert_eq!(library.next_download().as_deref(), Some("smk-thing"));
+        assert_eq!(next_name(&mut library).as_deref(), Some("smk-thing"));
         std::fs::remove_dir_all(dir).ok();
     }
 
@@ -285,7 +294,7 @@
         library.hub.lock().unwrap().clear();
 
         // No hub listing: nothing to fetch.
-        assert_eq!(library.next_download(), None);
+        assert_eq!(next_name(&mut library), None);
 
         // An upgradable builtin comes before a hub-only offer (list order: builtins
         // first); the upgrade downloads under the builtin's name.
@@ -294,22 +303,22 @@
             hub_offer("hub-only", "1.0", "hubonly.fwsc"),
         ];
         library.view_dirty = true;
-        assert_eq!(library.next_download().as_deref(), Some(builtin.name));
+        assert_eq!(next_name(&mut library).as_deref(), Some(builtin.name));
 
         // One at a time: an in-flight download parks the pump.
         library.downloads.insert(
-            "hub-only".to_string(),
+            fm1_key("hub-only"),
             Arc::new(Download {
                 percent: AtomicU32::new(0),
                 outcome: Mutex::new(None),
             }),
         );
-        assert_eq!(library.next_download(), None);
+        assert_eq!(next_name(&mut library), None);
         library.downloads.clear();
 
         // A failed name is skipped, not retried forever.
-        library.download_failed.insert(builtin.name.to_string());
-        assert_eq!(library.next_download().as_deref(), Some("hub-only"));
+        library.download_failed.insert(fm1_key(builtin.name));
+        assert_eq!(next_name(&mut library).as_deref(), Some("hub-only"));
 
         // Once the hub's newer package sits downloaded under the builtin's name,
         // the upgrade is satisfied — only the offer remains.
@@ -327,11 +336,11 @@
         };
         library.stored.push(done);
         library.view_dirty = true;
-        assert_eq!(library.next_download().as_deref(), Some("hub-only"));
+        assert_eq!(next_name(&mut library).as_deref(), Some("hub-only"));
 
         // Everything at hand: nothing left.
-        library.download_failed.insert("hub-only".to_string());
-        assert_eq!(library.next_download(), None);
+        library.download_failed.insert(fm1_key("hub-only"));
+        assert_eq!(next_name(&mut library), None);
         std::fs::remove_dir_all(dir).ok();
     }
 
@@ -365,7 +374,7 @@
         library.hub_swapped.store(true, Ordering::Relaxed);
         library.pump_downloads();
         assert!(
-            library.downloads.contains_key("fail-one"),
+            library.downloads.contains_key(&fm1_key("fail-one")),
             "the swap should kick the first download"
         );
 
@@ -374,13 +383,13 @@
         for _ in 0..100 {
             std::thread::sleep(Duration::from_millis(50));
             library.pump_downloads();
-            if library.downloads.contains_key("fail-two") {
+            if library.downloads.contains_key(&fm1_key("fail-two")) {
                 break;
             }
         }
-        assert!(library.download_failed.contains("fail-one"));
+        assert!(library.download_failed.contains(&fm1_key("fail-one")));
         assert!(
-            library.downloads.contains_key("fail-two"),
+            library.downloads.contains_key(&fm1_key("fail-two")),
             "the walk should move past the failure"
         );
 
@@ -392,7 +401,7 @@
                 break;
             }
         }
-        assert!(library.download_failed.contains("fail-two"));
+        assert!(library.download_failed.contains(&fm1_key("fail-two")));
         assert!(library.downloads.is_empty());
         library.pump_downloads();
         assert!(library.downloads.is_empty(), "nothing left: no retry loop");
@@ -400,7 +409,7 @@
         // A fresh toggle-on clears the marks and retries once.
         library.set_download_all(false);
         library.set_download_all(true);
-        assert!(library.downloads.contains_key("fail-one"));
+        assert!(library.downloads.contains_key(&fm1_key("fail-one")));
         library.set_download_all(false);
         std::fs::remove_dir_all(dir).ok();
     }
@@ -485,17 +494,26 @@
             offer("install-page", format!("{base}/install/")),
         ];
         for name in ["error-page", "install-page"] {
-            library.start_download(name);
+            let target = library
+                .hub
+                .lock()
+                .unwrap()
+                .iter()
+                .find(|f| f.name == name)
+                .cloned()
+                .expect("offer");
+            let key = download_key(&target);
+            library.start_download(&target);
             for _ in 0..100 {
                 std::thread::sleep(Duration::from_millis(50));
-                if !library.downloads.contains_key(name) {
+                if !library.downloads.contains_key(&key) {
                     break;
                 }
                 library.collect_downloads();
             }
             library.collect_downloads();
             assert!(
-                library.download_failed.contains(name),
+                library.download_failed.contains(&key),
                 "{name} must be marked failed"
             );
         }
@@ -758,6 +776,54 @@
         std::fs::remove_dir_all(dir).ok();
     }
 
+    /// An FM-1 and an SMK-37 build can share a name. Downloading the SMK row must
+    /// arm that row, not the first same-name offer in the merged listing.
+    #[test]
+    fn same_name_downloads_the_clicked_device() {
+        let (store, dir) = temp_store("same-name");
+        let mut library = Library::load(&store);
+        library.hub.lock().unwrap().clear();
+        let dead = |firmware: &mut Firmware, name: &str| {
+            firmware.source = FirmwareSource::Hub {
+                path: format!("http://127.0.0.1:1/{name}.fwsc"),
+                blob: None,
+            };
+        };
+        let mut fm1 = hub_offer("ChoralRoot", "0.46", "ignored.fwsc");
+        dead(&mut fm1, "choralroot-0.46");
+        let mut smk = hub_offer("ChoralRoot", "0.40-smk37", "ignored.fwsc");
+        smk.device = FirmwareDevice::Smk37;
+        dead(&mut smk, "choralroot-0.40-smk37");
+        *library.hub.lock().unwrap() = vec![fm1, smk];
+        library.view_dirty = true;
+
+        let view = library.list().to_vec();
+        let fm1_row = view
+            .iter()
+            .find(|f| f.name == "ChoralRoot" && f.device == FirmwareDevice::Fm1)
+            .unwrap()
+            .clone();
+        let smk_row = view
+            .iter()
+            .find(|f| f.name == "ChoralRoot" && f.device == FirmwareDevice::Smk37)
+            .unwrap()
+            .clone();
+        assert_ne!(download_key(&fm1_row), download_key(&smk_row));
+
+        library.start_download(&smk_row);
+        assert!(library.downloads.contains_key(&download_key(&smk_row)));
+        assert!(!library.downloads.contains_key(&download_key(&fm1_row)));
+        assert_eq!(
+            entry_status(&smk_row, &library.downloads, &store),
+            Status::Downloading
+        );
+        assert_eq!(
+            entry_status(&fm1_row, &library.downloads, &store),
+            Status::Available
+        );
+        std::fs::remove_dir_all(dir).ok();
+    }
+
     /// The variant-spelled row must still download: the version bump flags it
     /// upgradable, Download All targets it by its own name, `start_download`
     /// resolves the hub's offer (an exact-name lookup would miss), and completion
@@ -783,11 +849,11 @@
             .unwrap()
             .clone();
         assert!(row.upgradable, "hub's 0.12 moves ahead of the stored 0.11");
-        assert_eq!(library.next_download().as_deref(), Some("PurpleMonkey FM-1"));
+        assert_eq!(next_name(&mut library).as_deref(), Some("PurpleMonkey FM-1"));
 
-        // The row's own name arms the download; the offer resolves fuzzily.
-        library.start_download("PurpleMonkey FM-1");
-        assert!(library.downloads.contains_key("PurpleMonkey FM-1"));
+        // The row's own identity arms the download; the offer resolves fuzzily.
+        library.start_download(&row);
+        assert!(library.downloads.contains_key(&download_key(&row)));
         assert_eq!(entry_status(&row, &library.downloads, &store), Status::Downloading);
 
         // Completion folds the package in under the hub's name, replacing the
@@ -795,7 +861,7 @@
         let path = "http://127.0.0.1:1/pm.fwsc";
         store.store_blob(&blob_key(path), b"\x00\x01 firmware").unwrap();
         library.downloads.insert(
-            "PurpleMonkey FM-1".to_string(),
+            download_key(&row),
             Arc::new(Download {
                 percent: AtomicU32::new(100),
                 outcome: Mutex::new(Some(Ok(Firmware {
@@ -817,7 +883,7 @@
             .collect();
         assert_eq!(names, vec!["PurpleMonkey"], "the variant row is replaced");
         // Versions equal: nothing re-arms, Download All parks.
-        assert_eq!(library.next_download(), None);
+        assert_eq!(next_name(&mut library), None);
         std::fs::remove_dir_all(dir).ok();
     }
 

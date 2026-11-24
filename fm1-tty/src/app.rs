@@ -378,7 +378,7 @@ impl TuiApp {
             .firmwares
             .iter()
             .filter(|firmware| firmware.status == Status::Downloading)
-            .filter_map(|firmware| self.download_percent(&firmware.name))
+            .filter_map(|firmware| self.download_percent(firmware))
             .collect();
         if percents.is_empty() {
             if self.osc_percent.take().is_some() {
@@ -643,9 +643,9 @@ impl TuiApp {
             });
             return;
         }
-        let name = firmware.name.clone();
+        let target = firmware.clone();
         if let Some(library) = &mut self.library {
-            library.start_download(&name);
+            library.start_download(&target);
         }
     }
 
@@ -745,10 +745,10 @@ impl TuiApp {
         }
     }
 
-    pub fn download_percent(&self, name: &str) -> Option<u32> {
+    pub fn download_percent(&self, firmware: &Firmware) -> Option<u32> {
         self.library
             .as_ref()
-            .and_then(|library| library.download_percent(name))
+            .and_then(|library| library.download_percent(firmware))
     }
 
     /// How many times the library entry has been installed.

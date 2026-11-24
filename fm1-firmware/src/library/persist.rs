@@ -19,7 +19,7 @@ pub(super) fn entry_status(
 ) -> Status {
     match &firmware.source {
         FirmwareSource::Builtin => Status::Available,
-        _ if downloads.contains_key(&firmware.name) => Status::Downloading,
+        _ if downloads.contains_key(&download_key(firmware)) => Status::Downloading,
         FirmwareSource::File { path } => {
             if std::path::Path::new(path).is_file() {
                 Status::Available

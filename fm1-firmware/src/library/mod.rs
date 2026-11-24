@@ -57,8 +57,10 @@ pub struct Library {
     hub_status: Arc<Mutex<HubStatus>>,
     /// When the last fetch started — automatic refreshes keep an hourly cadence.
     last_refresh: Arc<Mutex<Option<Instant>>>,
+    /// In-flight downloads by row identity (name, device and variant), so two
+    /// builds that share a name never share progress.
     downloads: HashMap<String, Arc<Download>>,
-    /// Names whose last download failed; [`Library::next_download`] skips them so a
+    /// Rows whose last download failed; [`Library::next_download`] skips them so a
     /// broken offer can't jam a Download All sweep. A forced hub refresh, an
     /// explicit [`Library::start_download`] or a fresh toggle-on clears the mark.
     download_failed: HashSet<String>,
@@ -414,8 +416,10 @@ impl Library {
     }
 
     /// The percent of a download in flight, for the UI's progress display.
-    pub fn download_percent(&self, name: &str) -> Option<u32> {
-        self.downloads.get(name).map(|d| d.percent.load(Ordering::Relaxed))
+    pub fn download_percent(&self, firmware: &Firmware) -> Option<u32> {
+        self.downloads
+            .get(&download_key(firmware))
+            .map(|d| d.percent.load(Ordering::Relaxed))
     }
 
     /// The hub refresh's status (the Library tab's status item reads it).
@@ -511,8 +515,8 @@ impl Library {
         // A single attempt: if `start_download` no-ops (the offer vanished under a
         // hub swap mid-sweep), the walk stalls until the next trigger rather than
         // spin on the same name.
-        if let Some(name) = self.next_download() {
-            self.start_download(&name);
+        if let Some(firmware) = self.next_download() {
+            self.start_download(&firmware);
         }
     }
 
@@ -525,7 +529,7 @@ impl Library {
     /// once a failed name (marked by [`Library::collect_downloads`]) is all that
     /// remains. An upgrade counts as done once a downloaded same-firmware entry is
     /// at least the hub's version, so a completed upgrade isn't fetched again.
-    pub fn next_download(&mut self) -> Option<String> {
+    pub fn next_download(&mut self) -> Option<Firmware> {
         self.list();
         if !self.downloads.is_empty() {
             return None;
@@ -535,7 +539,7 @@ impl Library {
         let failed = &self.download_failed;
         let devices = self.devices;
         view.iter().find_map(|firmware| {
-            if failed.contains(&firmware.name) {
+            if failed.contains(&download_key(firmware)) {
                 return None;
             }
             let shown = devices.is_none_or(|filter| filter.shows(firmware));
@@ -554,17 +558,17 @@ impl Library {
                             && other.status == Status::Available
                             && !version_newer(&offer.version, &other.version)
                     });
-                    (!done).then(|| firmware.name.clone())
+                    (!done).then(|| firmware.clone())
                 }
-                FirmwareSource::Hub { blob: None, .. } => Some(firmware.name.clone()),
+                FirmwareSource::Hub { blob: None, .. } => Some(firmware.clone()),
                 FirmwareSource::Hub { .. } if firmware.status == Status::Missing => {
-                    Some(firmware.name.clone())
+                    Some(firmware.clone())
                 }
                 // An installed hub package the listing moved ahead of: the upgrade
                 // lands under the same name and replaces the entry, so a satisfied
                 // upgrade (equal versions) never re-arms this arm.
                 FirmwareSource::Hub { blob: Some(_), .. } if firmware.upgradable => {
-                    Some(firmware.name.clone())
+                    Some(firmware.clone())
                 }
                 _ => None,
             }
@@ -638,43 +642,39 @@ impl Library {
     /// Download a hub package into the blob store on a background thread. On
     /// completion the entry joins the persisted list (folded in by the next
     /// `list()`).
-    pub fn start_download(&mut self, name: &str) {
-        self.download_failed.remove(name);
-        if self.downloads.contains_key(name) {
+    pub fn start_download(&mut self, target: &Firmware) {
+        let map_key = download_key(target);
+        self.download_failed.remove(&map_key);
+        if self.downloads.contains_key(&map_key) {
             return;
         }
+        // The row arms the download; the offer is its same-firmware counterpart.
+        // Name alone is not enough: an FM-1 and an SMK-37 build share it.
         let entry = {
             let hub = self.hub.lock().unwrap();
-            hub.iter().find(|f| f.name == name).cloned().or_else(|| {
-                // The caller passes a view row's name; a stored row whose spelling
-                // is a variant of the hub's (the fuzzy merge flags it upgradable)
-                // resolves to its offer by the same predicate. The download still
-                // keys on the row's name, so the row shows the progress.
-                let row = self.view.iter().find(|f| f.name == name)?;
-                hub.iter().find(|offer| same_firmware(row, offer)).cloned()
-            })
+            hub.iter().find(|offer| same_firmware(offer, target)).cloned()
         };
         let Some(entry) = entry else { return };
         let FirmwareSource::Hub { path, .. } = entry.source.clone() else {
             return;
         };
-        let key = blob_key(&path);
+        let blob = blob_key(&path);
         let url = hub_download_url(&path);
         let download = Arc::new(Download {
             percent: AtomicU32::new(0),
             outcome: Mutex::new(None),
         });
-        self.downloads.insert(name.to_string(), Arc::clone(&download));
+        self.downloads.insert(map_key, Arc::clone(&download));
         self.view_dirty = true;
         let store = self.store.clone();
         std::thread::spawn(move || {
             let result = fetch_package(&url, &download.percent)
-                .and_then(|bytes| store.store_blob(&key, &bytes));
+                .and_then(|bytes| store.store_blob(&blob, &bytes));
             let outcome = result.map(|()| Firmware {
                 status: Status::Available,
                 source: FirmwareSource::Hub {
                     path,
-                    blob: Some(key),
+                    blob: Some(blob),
                 },
                 ..entry
             });

@@ -69,14 +69,44 @@ fn github_release_api(url: &str) -> Option<String> {
 fn fwsc_asset_url(release_json: &str) -> Result<String, String> {
     let json: serde_json::Value =
         serde_json::from_str(release_json).map_err(|e| format!("release JSON: {e}"))?;
-    json.get("assets")
+    let tag = json
+        .get("tag_name")
+        .and_then(|tag| tag.as_str())
+        .unwrap_or_default()
+        .trim_start_matches(['v', 'V']);
+    let assets: Vec<&str> = json
+        .get("assets")
         .and_then(|assets| assets.as_array())
-        .unwrap_or(&vec![])
+        .map(|assets| {
+            assets
+                .iter()
+                .filter_map(|asset| asset.get("browser_download_url")?.as_str())
+                .filter(|url| url.to_ascii_lowercase().ends_with(".fwsc"))
+                .collect()
+        })
+        .unwrap_or_default();
+    if assets.is_empty() {
+        return Err("the release has no .fwsc asset".to_string());
+    }
+    // A release can carry universal, 1-core and per-model builds. Prefer the one
+    // named for this tag, and among those the shortest: the generic package, not
+    // a variant someone else's row needs.
+    let tagged: Vec<&&str> = assets
         .iter()
-        .filter_map(|asset| asset.get("browser_download_url")?.as_str())
-        .find(|url| url.to_ascii_lowercase().ends_with(".fwsc"))
-        .map(str::to_string)
-        .ok_or_else(|| "the release has no .fwsc asset".to_string())
+        .filter(|url| {
+            !tag.is_empty()
+                && url
+                    .rsplit('/')
+                    .next()
+                    .is_some_and(|file| file.to_ascii_lowercase().contains(&tag.to_ascii_lowercase()))
+        })
+        .collect();
+    let chosen = tagged
+        .iter()
+        .min_by_key(|url| url.rsplit('/').next().map_or(usize::MAX, str::len))
+        .map(|url| **url)
+        .unwrap_or(assets[0]);
+    Ok(chosen.to_string())
 }
 
 /// The fm1 install-page template carries its firmware in a metadata block —
@@ -247,6 +277,23 @@ mod tests {
         );
         assert!(fwsc_asset_url(r#"{"assets": []}"#).is_err());
         assert!(fwsc_asset_url("not json").is_err());
+    }
+
+    #[test]
+    fn a_multi_variant_release_resolves_its_universal_package() {
+        // ChoralRoot ships universal, 1-core and per-model builds; the tag names
+        // the release and the shortest matching file is the generic package.
+        let json = r#"{"tag_name": "v0.40-smk37", "assets": [
+            {"browser_download_url": "https://github.com/o/r/releases/download/v0.40-smk37/choralroot-0.40-smk37-1core.fwsc"},
+            {"browser_download_url": "https://github.com/o/r/releases/download/v0.40-smk37/choralroot-0.40-smk37-elite-1core.fwsc"},
+            {"browser_download_url": "https://github.com/o/r/releases/download/v0.40-smk37/choralroot-0.40-smk37-elite.fwsc"},
+            {"browser_download_url": "https://github.com/o/r/releases/download/v0.40-smk37/choralroot-0.40-smk37.fwsc"},
+            {"browser_download_url": "https://github.com/o/r/releases/download/v0.40-smk37/choralroot-0.40-smk37-app.bin"}
+        ]}"#;
+        assert_eq!(
+            fwsc_asset_url(json).as_deref(),
+            Ok("https://github.com/o/r/releases/download/v0.40-smk37/choralroot-0.40-smk37.fwsc")
+        );
     }
 
     #[test]

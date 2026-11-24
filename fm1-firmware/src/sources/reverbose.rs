@@ -188,6 +188,31 @@ pub(crate) fn package_link(page: &str) -> Option<String> {
         .find(|href| href.ends_with("/install/"))
         .map(|s| s.to_string())
         .or_else(|| {
+            // The detail page's own download link carries the release tag:
+            // /d/<slug>/<tag>/<file>.fwsc. Resolve that exact release, not the
+            // latest one (an SMK-37 row must not fetch the FM-1 build).
+            let tag = hrefs.iter().find_map(|href| {
+                let rest = href.strip_prefix("/d/")?;
+                let mut parts = rest.split('/');
+                let _slug = parts.next()?;
+                let tag = parts.next()?;
+                let file = parts.next()?;
+                (!tag.is_empty() && file.to_ascii_lowercase().ends_with(".fwsc"))
+                    .then(|| tag.to_string())
+            })?;
+            let repo = hrefs
+                .iter()
+                .filter(|href| href.contains("github.com/") && href.contains("/releases"))
+                .find_map(|href| {
+                    let path = href.strip_prefix("https://github.com/")?;
+                    let mut parts = path.split('/').filter(|s| !s.is_empty());
+                    let owner = parts.next()?;
+                    let repo = parts.next()?;
+                    Some(format!("https://github.com/{owner}/{repo}"))
+                })?;
+            Some(format!("{repo}/releases/tag/{tag}"))
+        })
+        .or_else(|| {
             hrefs
                 .iter()
                 .find(|href| href.contains("github.com/") && href.contains("/releases"))
@@ -303,6 +328,18 @@ mod tests {
         assert_eq!(
             package_link(page).as_deref(),
             Some("https://fartypants.github.io/fm1-nachtfahrt/install/")
+        );
+    }
+
+    #[test]
+    fn package_link_uses_the_versioned_release_when_the_page_names_one() {
+        // The SMK-37 card's download link carries its own tag; /releases/latest
+        // would hand that row the FM-1 build.
+        let page = r#"<a href="https://github.com/Quixotic7/ChoralRootFM1/releases">releases</a>
+            <a href="/d/choralroot/v0.40-smk37/choralroot-0.40-smk37-1core.fwsc">Download</a>"#;
+        assert_eq!(
+            package_link(page).as_deref(),
+            Some("https://github.com/Quixotic7/ChoralRootFM1/releases/tag/v0.40-smk37")
         );
     }
 

@@ -340,7 +340,7 @@ fn library(frame: &mut Frame, app: &mut TuiApp, area: Rect) {
         .map(|firmware| {
             library_row(
                 firmware,
-                app.download_percent(&firmware.name),
+                app.download_percent(firmware),
                 app.install_count(firmware),
                 width,
             )

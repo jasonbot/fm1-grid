@@ -51,10 +51,9 @@ pub enum CardputerEvent {
         result: Result<(), String>,
     },
     Sent {
-        host: String,
+        id: u64,
         device: String,
         firmware: String,
-        file: String,
         result: Result<SendOutcome, String>,
     },
     CatalogSynced {
@@ -77,6 +76,8 @@ pub struct CardputerState {
     /// Queued plus running uploads per host; the host stays busy until the lane
     /// is empty.
     upload_counts: Arc<Mutex<HashMap<String, usize>>>,
+    /// Identity for each queued copy, so identical files keep separate notices.
+    send_seq: Arc<AtomicU64>,
     events: Arc<Mutex<Vec<CardputerEvent>>>,
     generation: Arc<AtomicU64>,
     /// Whether a visible place needs the online list, and whether the Cardputers
@@ -106,6 +107,7 @@ impl CardputerState {
             busy: Arc::new(Mutex::new(HashSet::new())),
             lanes: Arc::new(Mutex::new(HashMap::new())),
             upload_counts: Arc::new(Mutex::new(HashMap::new())),
+            send_seq: Arc::new(AtomicU64::new(0)),
             events: Arc::new(Mutex::new(Vec::new())),
             generation: Arc::new(AtomicU64::new(0)),
             wanted_network: Arc::new(AtomicBool::new(false)),
@@ -216,27 +218,9 @@ impl CardputerState {
                                                 .find(|last| last.host == discovery.host)
                                                 .cloned();
                                             scope.spawn(move || {
-                                                // An upload or catalog sync owns the
-                                                // host right now: keep its last
-                                                // snapshot and ask again next pass.
-                                                match lane.try_lock() {
-                                                    Ok(_gate) => Some((
-                                                        fetch_online(discovery, detail),
-                                                        true,
-                                                    )),
-                                                    Err(std::sync::TryLockError::WouldBlock) => {
-                                                        last.map(|last| (last, false))
-                                                    }
-                                                    // A panicking upload poisons the
-                                                    // lane but not the card; scans
-                                                    // must not stop forever.
-                                                    Err(std::sync::TryLockError::Poisoned(
-                                                        _gate,
-                                                    )) => Some((
-                                                        fetch_online(discovery, detail),
-                                                        true,
-                                                    )),
-                                                }
+                                                fetch_online_if_free(
+                                                    &lane, last, discovery, detail,
+                                                )
                                             })
                                         })
                                         .collect();
@@ -451,7 +435,8 @@ impl CardputerState {
     /// there. The duplicate check compares SHA-256, using `/firmwares/info` for a
     /// file whose sidecar hash is absent. `metadata` is stored beside the package
     /// so the card shows its title and author. Copies to the same host queue on
-    /// one lane; each waits for the previous upload to finish.
+    /// one lane; each waits for the previous upload to finish. Returns the copy's
+    /// identity for its notification, or None when the thread could not start.
     pub fn send(
         &self,
         host: String,
@@ -460,12 +445,13 @@ impl CardputerState {
         file: String,
         bytes: Vec<u8>,
         metadata: cardputer::UploadMetadata,
-    ) -> bool {
+    ) -> Option<u64> {
+        let id = self.send_seq.fetch_add(1, Ordering::Relaxed);
         let lane = self.begin_upload(&host);
         let events = self.events.clone();
         let counts = self.upload_counts.clone();
         let generation = self.generation.clone();
-        let failed = (host.clone(), device.clone(), firmware.clone(), file.clone());
+        let failed = (host.clone(), device.clone(), firmware.clone());
         let spawned = std::thread::Builder::new()
             .name("fm1-cardputer-send".into())
             .spawn(move || {
@@ -477,27 +463,25 @@ impl CardputerState {
                         .map_err(|error| error.to_string())
                 };
                 events.lock().unwrap().push(CardputerEvent::Sent {
-                    host: host.clone(),
+                    id,
                     device,
                     firmware,
-                    file,
                     result,
                 });
                 end_upload(&counts, &generation, &host);
             });
         if let Err(error) = spawned {
-            let (host, device, firmware, file) = failed;
+            let (host, device, firmware) = failed;
             self.events.lock().unwrap().push(CardputerEvent::Sent {
-                host: host.clone(),
+                id,
                 device,
                 firmware,
-                file,
                 result: Err(format!("could not start the send thread: {error}")),
             });
             self.end_upload(&host);
-            return false;
+            return None;
         }
-        true
+        Some(id)
     }
 
     /// Send the card the catalog built so far, skipping the upload when it already
@@ -611,6 +595,24 @@ fn end_upload(
     }
     drop(counts);
     generation.fetch_add(1, Ordering::Relaxed);
+}
+
+/// Scan one host unless its lane is busy. A busy lane means an upload or catalog
+/// sync owns the card, so keep the last snapshot and retry the detail pass later.
+/// A poisoned lane (a panicking upload) still belongs to this process, so scan.
+fn fetch_online_if_free(
+    lane: &Mutex<()>,
+    last: Option<OnlineDevice>,
+    discovery: cardputer::Discovery,
+    detail: bool,
+) -> Option<(OnlineDevice, bool)> {
+    match lane.try_lock() {
+        Ok(_gate) => Some((fetch_online(discovery, detail), true)),
+        Err(std::sync::TryLockError::WouldBlock) => last.map(|last| (last, false)),
+        Err(std::sync::TryLockError::Poisoned(_gate)) => {
+            Some((fetch_online(discovery, detail), true))
+        }
+    }
 }
 
 fn fetch_online(discovery: cardputer::Discovery, detail: bool) -> OnlineDevice {
@@ -839,6 +841,7 @@ mod tests {
             busy: Arc::new(Mutex::new(HashSet::new())),
             lanes: Arc::new(Mutex::new(HashMap::new())),
             upload_counts: Arc::new(Mutex::new(HashMap::new())),
+            send_seq: Arc::new(AtomicU64::new(0)),
             events: Arc::new(Mutex::new(Vec::new())),
             generation: Arc::new(AtomicU64::new(0)),
             wanted_network: Arc::new(AtomicBool::new(false)),
@@ -863,6 +866,45 @@ mod tests {
         assert!(state.claim("5.6.7.8".into()));
         state.busy.lock().unwrap().remove("1.2.3.4");
         assert!(state.claim("1.2.3.4".into()));
+    }
+
+    /// A busy host keeps its last row and retries; a poisoned lane still scans.
+    #[test]
+    fn a_busy_lane_keeps_the_last_scan_snapshot() {
+        let state = test_state("scan-gate");
+        let host = "127.0.0.1:1";
+        let lane = state.lane(host);
+        let previous = OnlineDevice {
+            name: "Card".into(),
+            host: host.into(),
+            status: None,
+            firmwares: Vec::new(),
+            error: None,
+        };
+        let discovery = cardputer::Discovery {
+            name: "Card".into(),
+            host: host.into(),
+            addr: host.parse().unwrap(),
+        };
+        {
+            let _held = lane.lock().unwrap();
+            assert_eq!(
+                fetch_online_if_free(&lane, Some(previous.clone()), discovery.clone(), false),
+                Some((previous.clone(), false))
+            );
+            assert_eq!(fetch_online_if_free(&lane, None, discovery.clone(), false), None);
+        }
+
+        let poisoned = lane.clone();
+        std::thread::spawn(move || {
+            let _guard = poisoned.lock().unwrap();
+            panic!("poison the lane");
+        })
+        .join()
+        .ok();
+        assert!(lane.try_lock().is_err(), "the lane must now be poisoned");
+        let scanned = fetch_online_if_free(&lane, Some(previous), discovery, false);
+        assert_eq!(scanned.as_ref().map(|(_, fresh)| *fresh), Some(true));
     }
 
     /// Uploads to one host share an exclusive lane; the host stays busy until the
@@ -980,22 +1022,27 @@ mod tests {
 
         let state = test_state("serialize");
         let metadata = cardputer::UploadMetadata::default();
-        assert!(state.send(
-            host.clone(),
-            "fake card".into(),
-            "First".into(),
-            "a.fwsc".into(),
-            b"first".to_vec(),
-            metadata.clone(),
-        ));
-        assert!(state.send(
-            host.clone(),
-            "fake card".into(),
-            "Second".into(),
-            "b.fwsc".into(),
-            b"second".to_vec(),
-            metadata,
-        ));
+        let first = state
+            .send(
+                host.clone(),
+                "fake card".into(),
+                "First".into(),
+                "a.fwsc".into(),
+                b"first".to_vec(),
+                metadata.clone(),
+            )
+            .expect("first copy queued");
+        let second = state
+            .send(
+                host.clone(),
+                "fake card".into(),
+                "Second".into(),
+                "b.fwsc".into(),
+                b"second".to_vec(),
+                metadata,
+            )
+            .expect("second copy queued");
+        assert_ne!(first, second, "each copy needs its own notification");
         let deadline = Instant::now() + Duration::from_secs(10);
         let mut outcomes = Vec::new();
         while outcomes.len() < 2 && Instant::now() < deadline {

@@ -163,10 +163,9 @@ impl GridApp {
                     );
                 }
                 CardputerEvent::Sent {
-                    host,
+                    id,
                     device,
                     firmware,
-                    file,
                     result,
                 } => {
                     let note = match result {
@@ -182,7 +181,7 @@ impl GridApp {
                     };
                     window.push_notification(
                         note.title("Cardputer firmware")
-                            .id1::<CardputerSendNotification>(format!("{host}:{file}")),
+                            .id1::<CardputerSendNotification>(id),
                         cx,
                     );
                 }

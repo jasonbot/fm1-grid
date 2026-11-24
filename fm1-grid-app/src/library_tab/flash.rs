@@ -201,28 +201,24 @@ impl GridApp {
             description: firmware.description.clone(),
             tags: firmware.tags.join(" "),
         };
-        if !self.cardputers.send(
+        let Some(id) = self.cardputers.send(
             host,
             device.clone(),
             firmware.name.clone(),
             file,
             bytes,
             metadata,
-        ) {
-            window.push_notification(
-                Notification::error(format!("Could not start the copy to {device}."))
-                    .title("Cardputer firmware")
-                    .id1::<crate::app::CardputerSendNotification>(key),
-                cx,
-            );
+        ) else {
+            // The send thread failed to start; its event reports the error.
             return;
-        }
+        };
         // Uploads queue behind one another; the toast stays until this copy's
-        // completion event replaces it.
+        // completion event replaces it. The identity is the copy, not the file,
+        // so two queued copies of the same package keep separate toasts.
         window.push_notification(
             Notification::info(format!("Sending {} to {}…", firmware.name, device))
                 .title("Cardputer firmware")
-                .id1::<crate::app::CardputerSendNotification>(key)
+                .id1::<crate::app::CardputerSendNotification>(id)
                 .autohide(false),
             cx,
         );

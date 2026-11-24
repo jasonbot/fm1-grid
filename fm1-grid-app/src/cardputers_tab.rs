@@ -123,48 +123,76 @@ impl GridApp {
             let sync_app = cx.entity().clone();
             let sync_host = device.host.clone();
             let sync_name = device.name.clone();
-            let title = h_flex()
-                .items_center()
-                .gap_2()
+            let title = v_flex()
+                .min_w_0()
+                .gap_0p5()
                 .child(
-                    div()
-                        .text_size(px(12.5))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(ink)
-                        .child(device.name.clone()),
-                )
-                .child(
-                    div()
-                        .text_size(px(10.5))
-                        .text_color(dim)
-                        .child(device.host.clone()),
-                )
-                .when(busy, |this| {
-                    this.child(div().text_size(px(10.0)).text_color(accent).child("working…"))
-                })
-                .child(
-                    Button::new(("cardputer-sync", ix))
-                        .label("Sync catalog")
-                        .icon(Icon::new(Lucide::RefreshCw))
-                        .small()
-                        .ghost()
-                        .disabled(busy)
-                        .tooltip(
-                            "Send this app's online firmware catalog to the card, unless \
-                             it already holds the same one",
+                    h_flex()
+                        .w_full()
+                        .items_center()
+                        .justify_between()
+                        .gap_3()
+                        .child(
+                            h_flex()
+                                .min_w_0()
+                                .items_center()
+                                .gap_2()
+                                .child(
+                                    div()
+                                        .text_size(px(12.5))
+                                        .font_weight(FontWeight::SEMIBOLD)
+                                        .text_color(ink)
+                                        .child(device.name.clone()),
+                                )
+                                .child(
+                                    div()
+                                        .text_size(px(10.5))
+                                        .text_color(dim)
+                                        .child(device.host.clone()),
+                                )
+                                .when(busy, |this| {
+                                    this.child(
+                                        div()
+                                            .text_size(px(10.0))
+                                            .text_color(accent)
+                                            .child("working…"),
+                                    )
+                                }),
                         )
-                        .on_click(move |_, _, cx| {
-                            // The row's click toggles the accordion; keep the button
-                            // from doing both.
-                            cx.stop_propagation();
-                            let host = sync_host.clone();
-                            let name = sync_name.clone();
-                            sync_app.update(cx, |this, _| {
-                                this.cardputers.sync_catalog(host, name);
-                            });
-                        }),
-                );
-            let panel = self.cardputer_panel(ix, &device, border, surface, ink, dim, danger);
+                        .child(
+                            Button::new(("cardputer-sync", ix))
+                                .label("Sync catalog")
+                                .icon(Icon::new(Lucide::RefreshCw))
+                                .small()
+                                .ghost()
+                                .disabled(busy)
+                                .tooltip(
+                                    "Send this app's online firmware catalog to the card, \
+                                     unless it already holds the same one",
+                                )
+                                .on_click(move |_, _, cx| {
+                                    // The row's click toggles the accordion; keep the
+                                    // button from doing both.
+                                    cx.stop_propagation();
+                                    let host = sync_host.clone();
+                                    let name = sync_name.clone();
+                                    sync_app.update(cx, |this, _| {
+                                        this.cardputers.sync_catalog(host, name);
+                                    });
+                                }),
+                        ),
+                )
+                .when_some(device.status.as_ref(), |this, status| {
+                    this.child(
+                        div()
+                            .text_size(px(9.5))
+                            .text_color(dim)
+                            .truncate()
+                            .child(status_line(status)),
+                    )
+                });
+            let panel =
+                self.cardputer_panel(ix, &device, border, surface, ink, dim, danger, accent);
             accordion = accordion.item(move |item| item.open(open).title(title).child(panel));
         }
         let toggle_app = cx.entity().clone();
@@ -284,24 +312,89 @@ impl GridApp {
         ink: Hsla,
         dim: Hsla,
         danger: Hsla,
+        accent: Hsla,
     ) -> AnyElement {
         let mut body = v_flex().w_full().gap_2();
         if let Some(status) = &device.status {
+            let mut head: Vec<String> = Vec::new();
+            if !status.version.is_empty() {
+                head.push(format!("fm1-card {}", status.version));
+            }
+            if !status.ip.is_empty() {
+                head.push(status.ip.clone());
+            }
+            head.push(if status.ssid.is_empty() {
+                wifi_text(status)
+            } else {
+                format!("{} · {}", status.ssid, wifi_text(status))
+            });
             body = body.child(
                 div()
                     .text_size(px(10.0))
                     .text_color(dim)
-                    .child(format!(
-                        "fm1-card {} · Wi-Fi {} · SD {}",
-                        status.version,
-                        if status.wifi.is_empty() {
-                            "unknown"
-                        } else {
-                            status.wifi.as_str()
-                        },
-                        if status.sd { "ready" } else { "missing" }
-                    )),
+                    .child(head.join(" · ")),
             );
+            let mut facts = vec![
+                if status.sd {
+                    "SD ready".to_string()
+                } else {
+                    "SD missing".to_string()
+                },
+            ];
+            if status.library.catalog > 0 {
+                facts.push(format!("{} catalog", status.library.catalog));
+            }
+            if status.library.local_total > 0 {
+                facts.push(format!("{} packages", status.library.local_total));
+            }
+            facts.push(format!(
+                "clock {} BPM ({})",
+                status.clock.bpm,
+                if status.clock.running {
+                    "running"
+                } else {
+                    "stopped"
+                }
+            ));
+            body = body.child(
+                div()
+                    .text_size(px(10.0))
+                    .text_color(dim)
+                    .child(facts.join(" · ")),
+            );
+            if !status.devices.is_empty() {
+                let devices = status
+                    .devices
+                    .iter()
+                    .map(|device| {
+                        let label = if device.identity.is_empty() {
+                            device.path.clone()
+                        } else {
+                            format!("{} ({})", device.identity, device.path)
+                        };
+                        if device.clock {
+                            format!("{label} clock")
+                        } else {
+                            label
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                body = body.child(
+                    div()
+                        .text_size(px(10.0))
+                        .text_color(dim)
+                        .child(format!("USB: {devices}")),
+                );
+            }
+            if let Some(text) = flash_text(status) {
+                body = body.child(
+                    div()
+                        .text_size(px(10.0))
+                        .text_color(if status.flash.error { danger } else { accent })
+                        .child(text),
+                );
+            }
         }
         if let Some(error) = &device.error {
             body = body.child(
@@ -441,4 +534,50 @@ fn hint(text: &str, dim: Hsla) -> AnyElement {
         .text_color(dim)
         .child(text.to_string())
         .into_any_element()
+}
+
+/// "Wi-Fi -62 dBm" when connected, the raw state otherwise.
+fn wifi_text(status: &fm1_cardputer::Status) -> String {
+    match status.wifi.as_str() {
+        "connected" => format!("Wi-Fi {} dBm", status.rssi),
+        "" => "Wi-Fi unknown".to_string(),
+        other => format!("Wi-Fi {other}"),
+    }
+}
+
+/// The one-line summary under an online device's name.
+fn status_line(status: &fm1_cardputer::Status) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    if !status.version.is_empty() {
+        parts.push(format!("fm1-card {}", status.version));
+    }
+    parts.push(wifi_text(status));
+    parts.push(if status.sd {
+        "SD ready".to_string()
+    } else {
+        "SD missing".to_string()
+    });
+    if status.library.catalog > 0 {
+        parts.push(format!("{} catalog", status.library.catalog));
+    }
+    if !status.devices.is_empty() {
+        parts.push(format!("{} USB", status.devices.len()));
+    }
+    parts.join(" · ")
+}
+
+/// The card's own flash progress or last failure, when there is one.
+fn flash_text(status: &fm1_cardputer::Status) -> Option<String> {
+    if status.flash.running {
+        let what = match (status.flash.package.is_empty(), status.flash.step.is_empty()) {
+            (true, _) => status.flash.step.clone(),
+            (false, true) => status.flash.package.clone(),
+            (false, false) => format!("{}: {}", status.flash.package, status.flash.step),
+        };
+        return Some(format!("Flashing {what}"));
+    }
+    status
+        .flash
+        .error
+        .then(|| "The last flash reported an error".to_string())
 }

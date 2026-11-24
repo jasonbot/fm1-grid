@@ -28,10 +28,50 @@ pub struct Status {
     pub app: String,
     pub version: String,
     pub name: String,
+    pub ip: String,
     pub ssid: String,
     pub rssi: i64,
     pub sd: bool,
     pub wifi: String,
+    pub devices: Vec<DeviceStatus>,
+    pub clock: ClockStatus,
+    pub library: LibraryStatus,
+    pub flash: FlashStatus,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(default)]
+pub struct DeviceStatus {
+    pub slot: u64,
+    pub path: String,
+    pub identity: String,
+    pub clock: bool,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(default)]
+pub struct ClockStatus {
+    pub bpm: u64,
+    pub running: bool,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(default)]
+pub struct LibraryStatus {
+    /// Catalog entries the card can offer.
+    pub catalog: u64,
+    /// Packages on the current LIB page, and the full local count.
+    pub local: u64,
+    pub local_total: u64,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(default)]
+pub struct FlashStatus {
+    pub running: bool,
+    pub error: bool,
+    pub step: String,
+    pub package: String,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
@@ -363,6 +403,37 @@ mod tests {
         assert_eq!(parse_reply(b"fm1-card;10.0.0.2;80", claimed).unwrap().host, "10.0.0.9");
         assert!(parse_reply(b"not-a-card", from).is_none());
         assert!(parse_reply(b"fm1-card;1.2.3.4;not-a-port", from).is_none());
+    }
+
+    #[test]
+    fn status_parses_the_device_and_library_summary() {
+        let status: Status = serde_json::from_str(
+            r#"{"app":"fm1-card","version":"0.1.5","name":"Desk Card",
+                "ip":"192.168.1.20","sd":true,"wifi":"connected",
+                "ssid":"scheirer-eero","rssi":-78,
+                "devices":[{"slot":0,"path":"h0p1","identity":"FM-1_916","clock":true}],
+                "msc":0,"clock":{"bpm":120,"running":true},
+                "library":{"catalog":746,"local":32,"local_total":64},
+                "hoard":false,
+                "flash":{"running":true,"error":false,"step":"writing","package":"Sloop"}}"#,
+        )
+        .unwrap();
+        assert_eq!(status.version, "0.1.5");
+        assert_eq!(status.ip, "192.168.1.20");
+        assert_eq!(status.devices.len(), 1);
+        assert_eq!(status.devices[0].identity, "FM-1_916");
+        assert!(status.devices[0].clock);
+        assert_eq!(status.clock.bpm, 120);
+        assert!(status.clock.running);
+        assert_eq!(status.library.catalog, 746);
+        assert_eq!(status.library.local_total, 64);
+        assert!(status.flash.running);
+        assert_eq!(status.flash.step, "writing");
+        // Older firmware without the new fields still parses.
+        let old: Status = serde_json::from_str(r#"{"version":"0.1.2","sd":true}"#).unwrap();
+        assert!(old.devices.is_empty());
+        assert_eq!(old.clock.bpm, 0);
+        assert!(!old.flash.running);
     }
 
     #[test]

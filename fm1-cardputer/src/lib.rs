@@ -16,9 +16,9 @@ mod net;
 
 pub use esp::{FlashableDevice, find_flashable, flash};
 pub use net::{
-    CatalogInfo, CatalogReply, DISCOVERY_PORT, Discovery, FirmwareInfo, InstalledFirmware, Status,
-    UploadMetadata, UploadReply, catalog, discover, firmware_info, firmwares, safe_file_name,
-    sha256, status, upload, upload_catalog,
+    CatalogInfo, CatalogReply, ClockStatus, DeviceStatus, DISCOVERY_PORT, Discovery, FirmwareInfo,
+    FlashStatus, InstalledFirmware, LibraryStatus, Status, UploadMetadata, UploadReply, catalog,
+    discover, firmware_info, firmwares, safe_file_name, sha256, status, upload, upload_catalog,
 };
 
 /// The merged full-flash image downloaded at build time (bootloader, partition

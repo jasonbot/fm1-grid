@@ -8,7 +8,7 @@
 
 use fm1_cardputer as cardputer;
 pub use fm1_cardputer::FlashableDevice;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -101,9 +101,10 @@ impl CardputerState {
         std::thread::Builder::new()
             .name("fm1-cardputer-scan".into())
             .spawn(move || {
-                // Hosts whose detail listing this section has already fetched;
-                // collapsing or leaving the section clears it so a return refreshes.
-                let mut detailed: HashSet<String> = HashSet::new();
+                // The package names each host's detail listing last showed;
+                // collapsing, leaving the section, or a changed file set clears an
+                // entry so the next poll fetches detail again.
+                let mut detailed: HashMap<String, Vec<String>> = HashMap::new();
                 loop {
                     let network_wanted = wanted_network.load(Ordering::Relaxed);
                     let serial_wanted = wanted_serial.load(Ordering::Relaxed);
@@ -117,7 +118,7 @@ impl CardputerState {
                     let mut detail_requested: HashSet<String> = HashSet::new();
                     if let Some(hosts) = &detail {
                         for host in hosts {
-                            if !detailed.contains(host) {
+                            if !detailed.contains_key(host) {
                                 detail_requested.insert(host.clone());
                             }
                         }
@@ -153,14 +154,26 @@ impl CardputerState {
                                 .iter()
                                 .map(|device| device.host.as_str())
                                 .collect();
-                            detailed.retain(|host| {
+                            detailed.retain(|host, _| {
                                 hosts.contains(host) && present.contains(host.as_str())
                             });
-                            detailed.extend(
-                                detail_requested
-                                    .into_iter()
-                                    .filter(|host| present.contains(host.as_str())),
-                            );
+                            for device in &found_online {
+                                if !hosts.contains(&device.host) {
+                                    continue;
+                                }
+                                let names: Vec<String> = device
+                                    .firmwares
+                                    .iter()
+                                    .map(|firmware| firmware.name.clone())
+                                    .collect();
+                                if detail_requested.contains(&device.host) {
+                                    detailed.insert(device.host.clone(), names);
+                                } else if detailed.get(&device.host) != Some(&names) {
+                                    // A package appeared or vanished since the
+                                    // detail fetch; refresh it on the next poll.
+                                    detailed.remove(&device.host);
+                                }
+                            }
                         }
                         None => detailed.clear(),
                     }

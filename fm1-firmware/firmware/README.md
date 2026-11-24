@@ -32,9 +32,9 @@ time.
 
 ## Where the packages come from
 
-* The FM-1 Firmware Hub mirrors SLOOP 2.8.5, Felucca 1.8.3 and ChoralRoot 0.44.
-  Hashes were checked against the hub's catalogue on 2026-11-22; Felucca 1.8.3
-  and ChoralRoot 0.44 were refreshed then.
+* The FM-1 Firmware Hub mirrors SLOOP 2.8.5, Felucca 1.8.3 and ChoralRoot 0.46.
+  Hashes were checked against the hub's catalogue on 2026-11-24; Felucca 1.8.3
+  and ChoralRoot 0.46 were refreshed then.
 * **Felucca** tracks the hub's 1.8.3 release package.
 * **FM1 Stock V16** is M-VAVE's official firmware (`FM-1.fwsc`, released 2026-10-21)
   from m-vave.com/download; the hub does not mirror it yet. The hash was recorded on

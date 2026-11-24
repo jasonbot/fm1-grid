@@ -304,22 +304,91 @@ pub fn upload(
         .map_err(|error| Error::new(format!("upload {}: bad reply: {error}", name)))
 }
 
+/// ESP-IDF's HTTP server keeps the whole request URI in 512 bytes; a longer one
+/// is rejected before the handler runs, which reaches the client as a
+/// connection reset. `POST /firmwares?` and the HTTP version take 27, so the
+/// query gets 480 and the optional metadata is trimmed to fit.
+const MAX_QUERY: usize = 480;
+
 fn upload_url(host: &str, name: &str, meta: &UploadMetadata) -> String {
-    // shortcut: fm1-card drops all metadata when the query reaches 1 KiB and
-    // reports nothing; move the fields into a body or header if that bites.
     let mut url = format!("http://{host}/firmwares?name={}", url_encode(name));
     for (key, value) in [
         ("title", &meta.title),
         ("author", &meta.author),
         ("version", &meta.version),
-        ("description", &meta.description),
-        ("tags", &meta.tags),
     ] {
-        if !value.is_empty() {
-            url.push_str(&format!("&{key}={}", url_encode(value)));
-        }
+        push_whole(&mut url, key, value);
+    }
+    // Tags are short and filterable on the card; reserve their room before the
+    // description spends it, so a long description cannot drop them.
+    let tags = url_encode(&meta.tags);
+    let tags_cost = if tags.is_empty() {
+        0
+    } else {
+        1 + "tags".len() + 1 + tags.len()
+    };
+    let tags_cost = if url.len() + tags_cost <= MAX_QUERY {
+        tags_cost
+    } else {
+        0
+    };
+    push_prefix(&mut url, "description", &meta.description, tags_cost);
+    if tags_cost > 0 {
+        url.push_str("&tags=");
+        url.push_str(&tags);
     }
     url
+}
+
+fn push_whole(url: &mut String, key: &str, value: &str) {
+    if value.is_empty() {
+        return;
+    }
+    let encoded = url_encode(value);
+    if url.len() + 1 + key.len() + 1 + encoded.len() <= MAX_QUERY {
+        url.push('&');
+        url.push_str(key);
+        url.push('=');
+        url.push_str(&encoded);
+    }
+}
+
+/// Append as much of `value` as fits, keeping `reserve` bytes free for the
+/// parameter that follows.
+fn push_prefix(url: &mut String, key: &str, value: &str, reserve: usize) {
+    if value.is_empty() {
+        return;
+    }
+    let base = url.len() + 1 + key.len() + 1;
+    let room = MAX_QUERY.saturating_sub(base + reserve);
+    let mut text = String::new();
+    let mut used = 0;
+    for ch in value.chars() {
+        let width = encoded_width(ch);
+        if used + width > room {
+            break;
+        }
+        used += width;
+        text.push(ch);
+    }
+    let text = text.trim_end();
+    if text.is_empty() {
+        return;
+    }
+    let encoded = url_encode(text);
+    url.push('&');
+    url.push_str(key);
+    url.push('=');
+    url.push_str(&encoded);
+}
+
+/// The bytes `url_encode` spends on one character.
+fn encoded_width(ch: char) -> usize {
+    if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.' | '~') {
+        1
+    } else {
+        3 * ch.len_utf8()
+    }
 }
 
 fn agent(timeout: Duration) -> ureq::Agent {
@@ -364,7 +433,8 @@ pub fn sha256(bytes: &[u8]) -> String {
 /// A filename the Cardputer accepts: its API rejects path separators, and the
 /// SD card is FAT32. The display name is a safe fallback when a blob key carries
 /// no usable package name. Keeps the `.fwsc` extension, avoids Windows device
-/// names, and stays within FAT's 255-character limit.
+/// names, and fits the card's 160-byte `name` query buffer (also inside FAT's
+/// 255-character limit).
 pub fn safe_file_name(name: &str) -> String {
     let mut out = String::with_capacity(name.len());
     for ch in name.chars() {
@@ -388,7 +458,7 @@ pub fn safe_file_name(name: &str) -> String {
         out.insert(0, '_');
     }
 
-    const MAX_LEN: usize = 255;
+    const MAX_LEN: usize = 159;
     const EXT: &str = ".fwsc";
     if out.len() > MAX_LEN {
         let stem = out.strip_suffix(EXT).unwrap_or(&out);
@@ -514,7 +584,7 @@ mod tests {
         assert_eq!(safe_file_name("COM0"), "COM0.fwsc");
         let long = format!("{}.fwsc", "a".repeat(400));
         let name = safe_file_name(&long);
-        assert_eq!(name.len(), 255);
+        assert_eq!(name.len(), 159);
         assert!(name.ends_with(".fwsc"));
     }
 
@@ -536,6 +606,40 @@ mod tests {
             upload_url("1.2.3.4", "x.fwsc", &UploadMetadata::default()),
             "http://1.2.3.4/firmwares?name=x.fwsc"
         );
+    }
+
+    #[test]
+    fn upload_query_stays_inside_the_card_uri_limit() {
+        let meta = UploadMetadata {
+            title: "h1".into(),
+            author: "Jake Handy".into(),
+            version: "0.3.0".into(),
+            description: "handy-1 (h1): sixteen instruments, each a full-screen animated \
+                          picture you play. PRESETS changes the instrument, ALGORITHM \
+                          changes its character, and the four knobs always shape the sound \
+                          and the picture together. Loop recorder, step sequencer, \
+                          arpeggiator and metronome built in."
+                .into(),
+            tags: "synth new chip source:hub synths other remotefm1 any chip".into(),
+        };
+        let url = upload_url("192.168.4.101", "h1-0.3.0.fwsc", &meta);
+        let uri = &url[url.find("/firmwares").expect("path")..];
+        assert!(uri.len() < 512, "URI is {} bytes: {uri}", uri.len());
+        assert!(url.contains("&description="));
+        assert!(url.ends_with("&tags=synth%20new%20chip%20source%3Ahub%20synths%20other%20remotefm1%20any%20chip"));
+    }
+
+    #[test]
+    fn a_huge_description_is_trimmed_not_rejected() {
+        let meta = UploadMetadata {
+            description: "x".repeat(5000),
+            tags: "a b".into(),
+            ..Default::default()
+        };
+        let url = upload_url("host", "a.fwsc", &meta);
+        let uri = &url[url.find("/firmwares").expect("path")..];
+        assert!(uri.len() < 512, "URI is {} bytes", uri.len());
+        assert!(url.ends_with("&tags=a%20b"));
     }
 
     #[test]

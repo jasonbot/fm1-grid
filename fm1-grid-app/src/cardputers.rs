@@ -208,7 +208,8 @@ impl CardputerState {
 
     /// Copy a package onto a running Cardputer unless the same bytes are already
     /// there. The duplicate check compares SHA-256, using `/firmwares/info` for a
-    /// file whose sidecar hash is absent.
+    /// file whose sidecar hash is absent. `metadata` is stored beside the package
+    /// so the card shows its title and author.
     pub fn send(
         &self,
         host: String,
@@ -216,6 +217,7 @@ impl CardputerState {
         firmware: String,
         file: String,
         bytes: Vec<u8>,
+        metadata: cardputer::UploadMetadata,
     ) -> bool {
         if !self.claim(host.clone()) {
             return false;
@@ -226,7 +228,7 @@ impl CardputerState {
         std::thread::Builder::new()
             .name("fm1-cardputer-send".into())
             .spawn(move || {
-                let result = send_inner(&host, &file, &bytes)
+                let result = send_inner(&host, &file, &bytes, &metadata)
                     .map_err(|error| error.to_string());
                 events.lock().unwrap().push(CardputerEvent::Sent {
                     host: host.clone(),
@@ -304,13 +306,18 @@ fn duplicate_decision(list: &[cardputer::InstalledFirmware], local: &str, file: 
     }
 }
 
-fn send_inner(host: &str, file: &str, bytes: &[u8]) -> Result<SendOutcome, cardputer::Error> {
+fn send_inner(
+    host: &str,
+    file: &str,
+    bytes: &[u8],
+    metadata: &cardputer::UploadMetadata,
+) -> Result<SendOutcome, cardputer::Error> {
     let local = cardputer::sha256(bytes);
     let list = cardputer::firmwares(host, true)?;
     match duplicate_decision(&list, &local, file) {
         Duplicate::Already => Ok(SendOutcome::Already),
         Duplicate::Upload => {
-            cardputer::upload(host, file, bytes)?;
+            cardputer::upload(host, file, bytes, metadata)?;
             Ok(SendOutcome::Sent)
         }
         Duplicate::CheckInfo => {
@@ -318,7 +325,7 @@ fn send_inner(host: &str, file: &str, bytes: &[u8]) -> Result<SendOutcome, cardp
             if info.sha256.eq_ignore_ascii_case(&local) {
                 Ok(SendOutcome::Already)
             } else {
-                cardputer::upload(host, file, bytes)?;
+                cardputer::upload(host, file, bytes, metadata)?;
                 Ok(SendOutcome::Sent)
             }
         }

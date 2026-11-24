@@ -64,6 +64,17 @@ pub struct UploadReply {
     pub size: u64,
 }
 
+/// Display metadata the card stores in the package's `.meta` sidecar. Empty
+/// fields are left out of the query.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct UploadMetadata {
+    pub title: String,
+    pub author: String,
+    pub version: String,
+    pub description: String,
+    pub tags: String,
+}
+
 /// Broadcast `hello` and collect every reply for `timeout`. The source address
 /// wins over the IP the payload claims, so a device behind NAT or with a stale
 /// config still gets a reachable host.
@@ -173,8 +184,13 @@ pub fn firmware_info(host: &str, name: &str) -> Result<FirmwareInfo, Error> {
     )
 }
 
-pub fn upload(host: &str, name: &str, bytes: &[u8]) -> Result<UploadReply, Error> {
-    let url = format!("http://{host}/firmwares?name={}", url_encode(name));
+pub fn upload(
+    host: &str,
+    name: &str,
+    bytes: &[u8],
+    meta: &UploadMetadata,
+) -> Result<UploadReply, Error> {
+    let url = upload_url(host, name, meta);
     let mut response = agent(Duration::from_secs(60))
         .post(&url)
         .header("Content-Type", "application/octet-stream")
@@ -186,6 +202,24 @@ pub fn upload(host: &str, name: &str, bytes: &[u8]) -> Result<UploadReply, Error
         .map_err(|error| Error::new(format!("upload {}: {error}", name)))?;
     serde_json::from_str(&text)
         .map_err(|error| Error::new(format!("upload {}: bad reply: {error}", name)))
+}
+
+fn upload_url(host: &str, name: &str, meta: &UploadMetadata) -> String {
+    // shortcut: fm1-card drops all metadata when the query reaches 1 KiB and
+    // reports nothing; move the fields into a body or header if that bites.
+    let mut url = format!("http://{host}/firmwares?name={}", url_encode(name));
+    for (key, value) in [
+        ("title", &meta.title),
+        ("author", &meta.author),
+        ("version", &meta.version),
+        ("description", &meta.description),
+        ("tags", &meta.tags),
+    ] {
+        if !value.is_empty() {
+            url.push_str(&format!("&{key}={}", url_encode(value)));
+        }
+    }
+    url
 }
 
 fn agent(timeout: Duration) -> ureq::Agent {
@@ -288,6 +322,26 @@ mod tests {
         assert_eq!(safe_file_name("SLOOP 2.8.5"), "SLOOP-2.8.5.fwsc");
         assert_eq!(safe_file_name("a/b"), "ab.fwsc");
         assert_eq!(safe_file_name(""), "firmware.fwsc");
+    }
+
+    #[test]
+    fn upload_metadata_rides_the_query_and_empty_fields_are_omitted() {
+        let meta = UploadMetadata {
+            title: "Sloop 2.8".into(),
+            author: String::new(),
+            version: "2.8.5".into(),
+            description: String::new(),
+            tags: "synth new chip".into(),
+        };
+        assert_eq!(
+            upload_url("1.2.3.4", "a b.fwsc", &meta),
+            "http://1.2.3.4/firmwares?name=a%20b.fwsc&title=Sloop%202.8\
+             &version=2.8.5&tags=synth%20new%20chip"
+        );
+        assert_eq!(
+            upload_url("1.2.3.4", "x.fwsc", &UploadMetadata::default()),
+            "http://1.2.3.4/firmwares?name=x.fwsc"
+        );
     }
 
     #[test]

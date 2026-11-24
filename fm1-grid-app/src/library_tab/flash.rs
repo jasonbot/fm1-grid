@@ -194,10 +194,21 @@ impl GridApp {
                 return;
             }
         };
-        if !self
-            .cardputers
-            .send(host, device.clone(), firmware.name.clone(), file, bytes)
-        {
+        let metadata = fm1_cardputer::UploadMetadata {
+            title: firmware.name.clone(),
+            author: firmware.byline.clone(),
+            version: firmware.version.clone(),
+            description: firmware.description.clone(),
+            tags: firmware.tags.join(" "),
+        };
+        if !self.cardputers.send(
+            host,
+            device.clone(),
+            firmware.name.clone(),
+            file,
+            bytes,
+            metadata,
+        ) {
             window.push_notification(
                 Notification::warning(format!(
                     "Another copy to {device} is already running."

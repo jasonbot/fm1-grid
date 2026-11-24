@@ -96,7 +96,7 @@ The `.fwsc` files are gitignored. A fresh build downloads and checks any missing
 - **Online devices** are Cardputers running fm1-card on your network. Each row expands to show the firmware packages on its SD card.
 - The app scans only while the Cardputers section or the Library tab is open, every 5 seconds. It sends no discovery traffic otherwise.
 - Discovery is off by default. Turn it on from the section's **Enable Cardputers** button or Settings → Cardputers; the pill itself always stays available.
-- In the Library, **Flash To…** lists every online Cardputer. It copies the package only when the same bytes are not already there; success, already-present and failure each raise a notification.
+- In the Library, **Flash To…** lists every online Cardputer. It copies the package only when the same bytes are not already there, sending its title, author, version, description and tags so the card shows them; success, already-present and failure each raise a notification.
 
 ## MIDI graph
 

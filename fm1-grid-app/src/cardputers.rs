@@ -93,6 +93,9 @@ pub struct CardputerState {
     wanted_serial: Arc<AtomicBool>,
     /// Hosts whose accordion is open: their next scan asks for full metadata.
     detail_hosts: Arc<Mutex<HashSet<String>>>,
+    /// One discovery pass requested outside the visible tabs, for an accent
+    /// change while no card list is being polled.
+    theme_pass: Arc<AtomicBool>,
     /// The catalog's persistent home (store objects, never raw files).
     store: Store,
     /// Whether the Cardputers preference is on; the gardener idles otherwise.
@@ -122,6 +125,7 @@ impl CardputerState {
             wanted_network: Arc::new(AtomicBool::new(false)),
             wanted_serial: Arc::new(AtomicBool::new(false)),
             detail_hosts: Arc::new(Mutex::new(HashSet::new())),
+            theme_pass: Arc::new(AtomicBool::new(false)),
             store,
             enabled: Arc::new(AtomicBool::new(false)),
             listing: Arc::new(Mutex::new(None)),
@@ -141,6 +145,7 @@ impl CardputerState {
         let detail_hosts = state.detail_hosts.clone();
         let lanes = state.lanes.clone();
         let upload_counts = state.upload_counts.clone();
+        let theme_pass = state.theme_pass.clone();
         let catalog_store = state.store.clone();
         let catalog_listing = state.listing.clone();
         let catalog_needs_pass = state.needs_pass.clone();
@@ -187,7 +192,8 @@ impl CardputerState {
                 // entry so the next poll fetches detail again.
                 let mut detailed: HashMap<String, Vec<String>> = HashMap::new();
                 loop {
-                    let network_wanted = wanted_network.load(Ordering::Relaxed);
+                    let forced = theme_pass.swap(false, Ordering::Relaxed);
+                    let network_wanted = wanted_network.load(Ordering::Relaxed) || forced;
                     let serial_wanted = wanted_serial.load(Ordering::Relaxed);
                     if !network_wanted && !serial_wanted {
                         std::thread::sleep(IDLE_SLEEP);
@@ -520,18 +526,32 @@ impl CardputerState {
         let lane = self.lane(&host);
         let inflight = self.theme_inflight.clone();
         let sent = self.theme_sent.clone();
+        let online = self.online.clone();
         let generation = self.generation.clone();
         let failed_host = host.clone();
         let spawned = std::thread::Builder::new()
             .name("fm1-cardputer-theme".into())
             .spawn(move || {
-                {
+                let stored = {
                     let _gate = lane
                         .lock()
                         .unwrap_or_else(|poisoned| poisoned.into_inner());
                     // A failed write is retried after the throttle; it needs no
                     // toast, since the next scan simply shows the old color.
-                    let _ = cardputer::set_theme(&host, &color);
+                    cardputer::set_theme(&host, &color).ok()
+                };
+                if let Some(reply) = stored {
+                    // Reflect the write at once; when scanning is paused the
+                    // retained status would otherwise stay stale and the tick
+                    // would keep trying the same color.
+                    let mut current = online.lock().unwrap();
+                    let mut devices = (**current).clone();
+                    if let Some(device) = devices.iter_mut().find(|device| device.host == host) {
+                        if let Some(status) = &mut device.status {
+                            status.theme_blue = reply.theme_blue;
+                        }
+                    }
+                    *current = Arc::new(devices);
                 }
                 sent.lock()
                     .unwrap()
@@ -544,6 +564,38 @@ impl CardputerState {
             return false;
         }
         true
+    }
+
+    /// Push the accent to every known card now, without trusting its retained
+    /// status: that snapshot can be stale while the visible tabs have paused
+    /// scanning, which would otherwise skip a change back to the same color.
+    /// With no card known yet, ask the scanner for one discovery pass.
+    pub fn push_theme(&self, color: String) {
+        if std::env::var_os("FM1_GRID_NO_CARDPUTERS").is_some() {
+            return;
+        }
+        let online = self.online();
+        if online.is_empty() {
+            self.theme_pass.store(true, Ordering::Relaxed);
+            return;
+        }
+        // An explicit accent change must not be throttled by the color last sent
+        // while the card's status was still stale.
+        {
+            let mut sent = self.theme_sent.lock().unwrap();
+            for device in online.iter() {
+                sent.remove(&device.host);
+            }
+        }
+        for device in online.iter() {
+            if device
+                .status
+                .as_ref()
+                .is_some_and(|status| !status.theme_blue.is_empty())
+            {
+                self.sync_theme(device.host.clone(), color.clone());
+            }
+        }
     }
 
     /// Send the card the catalog built so far, skipping the upload when it already
@@ -928,6 +980,7 @@ mod tests {
             wanted_network: Arc::new(AtomicBool::new(false)),
             wanted_serial: Arc::new(AtomicBool::new(false)),
             detail_hosts: Arc::new(Mutex::new(HashSet::new())),
+            theme_pass: Arc::new(AtomicBool::new(false)),
             store: Store::in_dir(&std::env::temp_dir().join(format!(
                 "fm1-grid-cardputer-{name}-{}",
                 std::process::id()

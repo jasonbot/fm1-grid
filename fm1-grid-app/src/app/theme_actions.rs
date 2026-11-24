@@ -95,6 +95,10 @@ impl GridApp {
     pub(crate) fn set_accent(&mut self, id: &str, cx: &mut Context<Self>) {
         self.accent = crate::themes::accent(id).id.to_string();
         self.apply_theme(cx);
+        if self.cardputers_enabled {
+            self.cardputers
+                .push_theme(crate::themes::cardputer_accent(&self.accent));
+        }
         self.save_session(cx);
         cx.notify();
     }

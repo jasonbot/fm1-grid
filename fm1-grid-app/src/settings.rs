@@ -349,6 +349,9 @@ impl GridApp {
         self.cardputers_enabled = on;
         if !on {
             self.cardputers.set_wanted(false, false);
+        } else {
+            self.cardputers
+                .push_theme(crate::themes::cardputer_accent(&self.accent));
         }
         self.save_session(cx);
         cx.notify();

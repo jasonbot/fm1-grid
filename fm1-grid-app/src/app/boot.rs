@@ -389,6 +389,12 @@ impl GridApp {
         // registry change re-applies by name, so the order matters).
         crate::theme::load_bundled_themes(cx);
         app.apply_theme(cx);
+        // With support on, make one discovery pass so a card already on the
+        // network picks up the accent even when the cardputer tabs are closed.
+        if app.cardputers_enabled {
+            app.cardputers
+                .push_theme(crate::themes::cardputer_accent(&app.accent));
+        }
 
         app
     }

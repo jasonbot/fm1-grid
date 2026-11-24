@@ -64,11 +64,17 @@ fn agent() -> ureq::Agent {
 }
 
 fn fetch_text(url: &str) -> Result<String, String> {
-    let mut response = agent()
+    let mut request = agent()
         .get(url)
-        .header("Accept", "application/vnd.github+json")
-        .call()
-        .map_err(|e| format!("GET {url}: {e}"))?;
+        .header("Accept", "application/vnd.github+json");
+    // The unauthenticated API allows 60 requests an hour, which a fresh clone
+    // plus several refreshes can exhaust.
+    if url.starts_with("https://api.github.com/") {
+        if let Ok(token) = env::var("GITHUB_TOKEN").or_else(|_| env::var("GH_TOKEN")) {
+            request = request.header("Authorization", &format!("Bearer {token}"));
+        }
+    }
+    let mut response = request.call().map_err(|e| format!("GET {url}: {e}"))?;
     response
         .body_mut()
         .read_to_string()

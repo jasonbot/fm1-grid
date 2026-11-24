@@ -142,6 +142,9 @@ To refresh the embedded firmware:
 3. Commit nothing under `fm1-cardputer/data/`; it is generated and ignored.
    The app shows the version recorded by the build.
 
+Export `GITHUB_TOKEN` (or `GH_TOKEN`) before refreshing if the unauthenticated
+GitHub API limit is exhausted; the build uses it for `api.github.com`.
+
 Deleting only the image re-downloads the release named by the manifest. A
 remaining image with no manifest is treated as hand-placed and labelled `local`,
 so delete both files to fetch the latest release. A hash mismatch fails the

@@ -224,9 +224,18 @@ impl CardputerState {
                                                         fetch_online(discovery, detail),
                                                         true,
                                                     )),
-                                                    Err(_) => {
+                                                    Err(std::sync::TryLockError::WouldBlock) => {
                                                         last.map(|last| (last, false))
                                                     }
+                                                    // A panicking upload poisons the
+                                                    // lane but not the card; scans
+                                                    // must not stop forever.
+                                                    Err(std::sync::TryLockError::Poisoned(
+                                                        _gate,
+                                                    )) => Some((
+                                                        fetch_online(discovery, detail),
+                                                        true,
+                                                    )),
                                                 }
                                             })
                                         })
@@ -387,6 +396,7 @@ impl CardputerState {
 
     pub fn busy(&self, key: &str) -> bool {
         self.busy.lock().unwrap().contains(key)
+            || self.upload_counts.lock().unwrap().contains_key(key)
     }
 
     pub fn changed(&self, seen: &mut u64) -> bool {
@@ -453,7 +463,6 @@ impl CardputerState {
     ) -> bool {
         let lane = self.begin_upload(&host);
         let events = self.events.clone();
-        let busy = self.busy.clone();
         let counts = self.upload_counts.clone();
         let generation = self.generation.clone();
         let failed = (host.clone(), device.clone(), firmware.clone(), file.clone());
@@ -474,7 +483,7 @@ impl CardputerState {
                     file,
                     result,
                 });
-                end_upload(&counts, &busy, &generation, &host);
+                end_upload(&counts, &generation, &host);
             });
         if let Err(error) = spawned {
             let (host, device, firmware, file) = failed;
@@ -555,8 +564,8 @@ impl CardputerState {
         lane_for(&self.lanes, host)
     }
 
-    /// Reserve the host's lane for one upload and mark it busy while the upload
-    /// is queued or running.
+    /// Reserve the host's lane for one upload. The pending count keeps `busy`
+    /// true until the last queued upload ends.
     fn begin_upload(&self, host: &str) -> Arc<Mutex<()>> {
         let lane = self.lane(host);
         *self
@@ -565,13 +574,12 @@ impl CardputerState {
             .unwrap()
             .entry(host.to_string())
             .or_default() += 1;
-        self.busy.lock().unwrap().insert(host.to_string());
         self.generation.fetch_add(1, Ordering::Relaxed);
         lane
     }
 
     fn end_upload(&self, host: &str) {
-        end_upload(&self.upload_counts, &self.busy, &self.generation, host);
+        end_upload(&self.upload_counts, &self.generation, host);
     }
 }
 
@@ -588,31 +596,20 @@ fn lane_for(
         .clone()
 }
 
-/// Drop one queued/running upload; the host leaves `busy` when the last one ends.
+/// Drop one queued/running upload from the host's count.
 fn end_upload(
     counts: &Mutex<HashMap<String, usize>>,
-    busy: &Mutex<HashSet<String>>,
     generation: &AtomicU64,
     host: &str,
 ) {
-    let empty = {
-        let mut counts = counts.lock().unwrap();
-        match counts.get_mut(host) {
-            Some(count) => {
-                *count = count.saturating_sub(1);
-                if *count == 0 {
-                    counts.remove(host);
-                    true
-                } else {
-                    false
-                }
-            }
-            None => false,
+    let mut counts = counts.lock().unwrap();
+    if let Some(count) = counts.get_mut(host) {
+        *count = count.saturating_sub(1);
+        if *count == 0 {
+            counts.remove(host);
         }
-    };
-    if empty {
-        busy.lock().unwrap().remove(host);
     }
+    drop(counts);
     generation.fetch_add(1, Ordering::Relaxed);
 }
 
@@ -893,6 +890,15 @@ mod tests {
         assert!(!state.busy("1.2.3.4"));
         state.end_upload("5.6.7.8");
         assert!(!state.busy("5.6.7.8"));
+
+        // A catalog sync ending must not clear the host while copies are queued.
+        let sync_host = "9.9.9.9";
+        assert!(state.claim(sync_host.into()));
+        state.begin_upload(sync_host);
+        state.busy.lock().unwrap().remove(sync_host);
+        assert!(state.busy(sync_host), "a queued upload still owns the host");
+        state.end_upload(sync_host);
+        assert!(!state.busy(sync_host));
     }
 
     /// The card never sees overlapping upload requests: two copies queue up and

@@ -26,10 +26,16 @@ pub struct OnlineDevice {
     pub error: Option<String>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SendOutcome {
     Sent,
     Already,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CatalogOutcome {
+    Synced { entries: u64 },
+    UpToDate,
 }
 
 #[derive(Clone, Debug)]
@@ -46,13 +52,18 @@ pub enum CardputerEvent {
         file: String,
         result: Result<SendOutcome, String>,
     },
+    CatalogSynced {
+        host: String,
+        device: String,
+        result: Result<CatalogOutcome, String>,
+    },
 }
 
 pub struct CardputerState {
     serial: Arc<Mutex<Vec<FlashableDevice>>>,
     online: Arc<Mutex<Arc<Vec<OnlineDevice>>>>,
-    /// A flash is keyed by its serial path; an upload by its host. One job per
-    /// key at a time.
+    /// A flash is keyed by its serial path; an upload or catalog sync by its host.
+    /// One job per key at a time.
     busy: Arc<Mutex<HashSet<String>>>,
     events: Arc<Mutex<Vec<CardputerEvent>>>,
     generation: Arc<AtomicU64>,
@@ -60,6 +71,8 @@ pub struct CardputerState {
     /// section needs the serial list. The scanner does no work for a false flag.
     wanted_network: Arc<AtomicBool>,
     wanted_serial: Arc<AtomicBool>,
+    /// Hosts whose accordion is open: their next scan asks for full metadata.
+    detail_hosts: Arc<Mutex<HashSet<String>>>,
 }
 
 impl CardputerState {
@@ -72,6 +85,7 @@ impl CardputerState {
             generation: Arc::new(AtomicU64::new(0)),
             wanted_network: Arc::new(AtomicBool::new(false)),
             wanted_serial: Arc::new(AtomicBool::new(false)),
+            detail_hosts: Arc::new(Mutex::new(HashSet::new())),
         };
         // Tests and the README screenshot run offline: no broadcast, no HTTP,
         // and no chance of publishing a real device's address.
@@ -83,65 +97,111 @@ impl CardputerState {
         let generation = state.generation.clone();
         let wanted_network = state.wanted_network.clone();
         let wanted_serial = state.wanted_serial.clone();
+        let detail_hosts = state.detail_hosts.clone();
         std::thread::Builder::new()
             .name("fm1-cardputer-scan".into())
-            .spawn(move || loop {
-                let network_wanted = wanted_network.load(Ordering::Relaxed);
-                let serial_wanted = wanted_serial.load(Ordering::Relaxed);
-                if !network_wanted && !serial_wanted {
-                    std::thread::sleep(IDLE_SLEEP);
-                    continue;
-                }
-                // Serial enumeration is Windows SetupAPI (or Linux udev) and can
-                // be slow; the Library only needs the network list.
-                let found_serial = serial_wanted.then(cardputer::find_flashable);
-                let mut found_online = Vec::new();
-                let mut publish_online = !network_wanted;
-                if network_wanted {
-                    if let Ok(found) = cardputer::discover(DISCOVERY_TIMEOUT) {
-                        publish_online = true;
-                        // One hung Cardputer must not hold up the others.
-                        found_online = std::thread::scope(|scope| {
-                            let handles: Vec<_> = found
-                                .into_iter()
-                                .map(|discovery| scope.spawn(move || fetch_online(discovery)))
-                                .collect();
-                            handles
-                                .into_iter()
-                                .filter_map(|handle| handle.join().ok())
-                                .collect()
-                        });
+            .spawn(move || {
+                // Hosts whose detail listing this section has already fetched;
+                // collapsing or leaving the section clears it so a return refreshes.
+                let mut detailed: HashSet<String> = HashSet::new();
+                loop {
+                    let network_wanted = wanted_network.load(Ordering::Relaxed);
+                    let serial_wanted = wanted_serial.load(Ordering::Relaxed);
+                    if !network_wanted && !serial_wanted {
+                        std::thread::sleep(IDLE_SLEEP);
+                        continue;
                     }
-                }
-                found_online.sort_by(|a, b| a.name.cmp(&b.name).then(a.host.cmp(&b.host)));
-                let serial_changed = match found_serial {
-                    Some(found) => {
-                        let mut current = serial.lock().unwrap();
-                        let changed = *current != found;
+                    // Detail is the slow stat/meta pass: ask for it once per expansion,
+                    // not on every poll.
+                    let detail = serial_wanted.then(|| detail_hosts.lock().unwrap().clone());
+                    let mut detail_requested: HashSet<String> = HashSet::new();
+                    if let Some(hosts) = &detail {
+                        for host in hosts {
+                            if !detailed.contains(host) {
+                                detail_requested.insert(host.clone());
+                            }
+                        }
+                    }
+                    // Serial enumeration is Windows SetupAPI (or Linux udev) and can
+                    // be slow; the Library only needs the network list.
+                    let found_serial = serial_wanted.then(cardputer::find_flashable);
+                    let mut found_online = Vec::new();
+                    let mut publish_online = !network_wanted;
+                    if network_wanted {
+                        if let Ok(found) = cardputer::discover(DISCOVERY_TIMEOUT) {
+                            publish_online = true;
+                            // One hung Cardputer must not hold up the others.
+                            found_online = std::thread::scope(|scope| {
+                                let handles: Vec<_> = found
+                                    .into_iter()
+                                    .map(|discovery| {
+                                        let detail = detail_requested.contains(&discovery.host);
+                                        scope.spawn(move || fetch_online(discovery, detail))
+                                    })
+                                    .collect();
+                                handles
+                                    .into_iter()
+                                    .filter_map(|handle| handle.join().ok())
+                                    .collect()
+                            });
+                        }
+                    }
+                    found_online.sort_by(|a, b| a.name.cmp(&b.name).then(a.host.cmp(&b.host)));
+                    match &detail {
+                        Some(hosts) => {
+                            let present: HashSet<&str> = found_online
+                                .iter()
+                                .map(|device| device.host.as_str())
+                                .collect();
+                            detailed.retain(|host| {
+                                hosts.contains(host) && present.contains(host.as_str())
+                            });
+                            detailed.extend(
+                                detail_requested
+                                    .into_iter()
+                                    .filter(|host| present.contains(host.as_str())),
+                            );
+                        }
+                        None => detailed.clear(),
+                    }
+                    let serial_changed = match found_serial {
+                        Some(found) => {
+                            let mut current = serial.lock().unwrap();
+                            let changed = *current != found;
+                            if changed {
+                                *current = found;
+                            }
+                            changed
+                        }
+                        None => false,
+                    };
+                    // A failed discovery is not "no devices": keep the last list.
+                    let online_changed = if publish_online {
+                        // Compare outside the lock and swap only the Arc: the UI never
+                        // waits for a large firmware list comparison.
+                        let previous = online.lock().unwrap().clone();
+                        // A fast name-only scan must not drop the metadata an earlier
+                        // detail scan already fetched.
+                        for device in &mut found_online {
+                            let Some(old) = previous.iter().find(|old| old.host == device.host)
+                            else {
+                                continue;
+                            };
+                            merge_firmware_metadata(&mut device.firmwares, &old.firmwares);
+                        }
+                        let changed = *previous != found_online;
                         if changed {
-                            *current = found;
+                            *online.lock().unwrap() = Arc::new(found_online);
                         }
                         changed
+                    } else {
+                        false
+                    };
+                    if serial_changed || online_changed {
+                        generation.fetch_add(1, Ordering::Relaxed);
                     }
-                    None => false,
-                };
-                // A failed discovery is not "no devices": keep the last list.
-                let online_changed = if publish_online {
-                    // Compare outside the lock and swap only the Arc: the UI never
-                    // waits for a large firmware list comparison.
-                    let previous = online.lock().unwrap().clone();
-                    let changed = *previous != found_online;
-                    if changed {
-                        *online.lock().unwrap() = Arc::new(found_online);
-                    }
-                    changed
-                } else {
-                    false
-                };
-                if serial_changed || online_changed {
-                    generation.fetch_add(1, Ordering::Relaxed);
+                    std::thread::sleep(SCAN_INTERVAL);
                 }
-                std::thread::sleep(SCAN_INTERVAL);
             })
             .expect("spawn cardputer scanner");
         state
@@ -153,6 +213,14 @@ impl CardputerState {
 
     pub fn online(&self) -> Arc<Vec<OnlineDevice>> {
         self.online.lock().unwrap().clone()
+    }
+
+    /// Tests publish a fake LAN result; the scanner never runs with
+    /// `FM1_GRID_NO_CARDPUTERS` set.
+    #[cfg(test)]
+    pub(crate) fn set_online_for_test(&self, devices: Vec<OnlineDevice>) {
+        *self.online.lock().unwrap() = Arc::new(devices);
+        self.generation.fetch_add(1, Ordering::Relaxed);
     }
 
     /// The online list's flash targets, without cloning every firmware entry.
@@ -167,10 +235,19 @@ impl CardputerState {
     /// Scan only while a place that shows the list is visible. Keeping the last
     /// list means leaving and returning does not flash an empty section. The
     /// Library needs only the network list; the Cardputers section shows the
-    /// serial ports too.
+    /// serial ports too and is the only place that asks for detail.
     pub fn set_wanted(&self, network: bool, serial: bool) {
         self.wanted_network.store(network, Ordering::Relaxed);
         self.wanted_serial.store(serial, Ordering::Relaxed);
+    }
+
+    /// The hosts whose accordion is open. Their scans fetch the slower detail
+    /// listing; every other host stays on the fast name-only one.
+    pub fn set_detail(&self, hosts: HashSet<String>) {
+        let mut detail = self.detail_hosts.lock().unwrap();
+        if *detail != hosts {
+            *detail = hosts;
+        }
     }
 
     pub fn busy(&self, key: &str) -> bool {
@@ -276,6 +353,47 @@ impl CardputerState {
         true
     }
 
+    /// Send the online catalog to a Cardputer, skipping the upload when the card
+    /// already holds the same manifest. The catalog is built the same way
+    /// fm1-remotes prints it: every online entry resolved to a direct package URL.
+    pub fn sync_catalog(&self, host: String, device: String) -> bool {
+        // Tests and the README screenshot stay offline, like the scanner.
+        if std::env::var_os("FM1_GRID_NO_CARDPUTERS").is_some() {
+            return false;
+        }
+        if !self.claim(host.clone()) {
+            return false;
+        }
+        let events = self.events.clone();
+        let busy = self.busy.clone();
+        let generation = self.generation.clone();
+        let failed = (host.clone(), device.clone());
+        let spawned = std::thread::Builder::new()
+            .name("fm1-cardputer-catalog".into())
+            .spawn(move || {
+                let result = sync_catalog_inner(&host);
+                events.lock().unwrap().push(CardputerEvent::CatalogSynced {
+                    host: host.clone(),
+                    device,
+                    result,
+                });
+                busy.lock().unwrap().remove(&host);
+                generation.fetch_add(1, Ordering::Relaxed);
+            });
+        if let Err(error) = spawned {
+            let (host, device) = failed;
+            self.busy.lock().unwrap().remove(&host);
+            self.events.lock().unwrap().push(CardputerEvent::CatalogSynced {
+                host,
+                device,
+                result: Err(format!("could not start the catalog thread: {error}")),
+            });
+            self.generation.fetch_add(1, Ordering::Relaxed);
+            return false;
+        }
+        true
+    }
+
     fn claim(&self, key: String) -> bool {
         let mut busy = self.busy.lock().unwrap();
         if busy.contains(&key) {
@@ -287,7 +405,7 @@ impl CardputerState {
     }
 }
 
-fn fetch_online(discovery: cardputer::Discovery) -> OnlineDevice {
+fn fetch_online(discovery: cardputer::Discovery, detail: bool) -> OnlineDevice {
     let mut device = OnlineDevice {
         name: discovery.name,
         host: discovery.host.clone(),
@@ -304,7 +422,7 @@ fn fetch_online(discovery: cardputer::Discovery) -> OnlineDevice {
         }
         Err(error) => device.error = Some(error.to_string()),
     }
-    match cardputer::firmwares(&discovery.host, false) {
+    match cardputer::firmwares(&discovery.host, detail) {
         Ok(mut list) => {
             list.sort_by(|a, b| a.name.cmp(&b.name));
             device.firmwares = list;
@@ -316,6 +434,62 @@ fn fetch_online(discovery: cardputer::Discovery) -> OnlineDevice {
         }
     }
     device
+}
+
+fn sync_catalog_inner(host: &str) -> Result<CatalogOutcome, String> {
+    let remotes = fm1_performer::library::fetch_remotes()?;
+    let manifest =
+        serde_json::to_vec(&remotes).map_err(|error| format!("serialize catalog: {error}"))?;
+    let digest = cardputer::sha256(&manifest);
+    let installed = cardputer::catalog(host).map_err(|error| error.to_string())?;
+    if catalog_is_current(installed.as_ref(), &digest) {
+        return Ok(CatalogOutcome::UpToDate);
+    }
+    let reply =
+        cardputer::upload_catalog(host, &manifest).map_err(|error| error.to_string())?;
+    Ok(CatalogOutcome::Synced {
+        entries: reply.entries,
+    })
+}
+
+/// The card's manifest hash is the whole check: same bytes means no upload.
+fn catalog_is_current(info: Option<&cardputer::CatalogInfo>, digest: &str) -> bool {
+    info.and_then(|info| info.sha256.as_deref())
+        .is_some_and(|sha| sha.eq_ignore_ascii_case(digest))
+}
+
+/// Fill in what a fast name-only scan can never return from the previous listing.
+fn merge_firmware_metadata(
+    fresh: &mut [cardputer::InstalledFirmware],
+    previous: &[cardputer::InstalledFirmware],
+) {
+    for entry in fresh {
+        let Some(old) = previous.iter().find(|old| old.name == entry.name) else {
+            continue;
+        };
+        entry.size = entry.size.or(old.size);
+        if entry.sha256.is_none() {
+            entry.sha256 = old.sha256.clone();
+        }
+        if entry.title.is_empty() {
+            entry.title = old.title.clone();
+        }
+        if entry.author.is_empty() {
+            entry.author = old.author.clone();
+        }
+        if entry.version.is_empty() {
+            entry.version = old.version.clone();
+        }
+        if entry.description.is_empty() {
+            entry.description = old.description.clone();
+        }
+        if entry.tags.is_empty() {
+            entry.tags = old.tags.clone();
+        }
+        if entry.product.is_empty() {
+            entry.product = old.product.clone();
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -387,6 +561,42 @@ mod tests {
     }
 
     #[test]
+    fn catalog_upload_is_skipped_only_for_matching_hashes() {
+        let info = |sha: Option<&str>| cardputer::CatalogInfo {
+            sha256: sha.map(str::to_string),
+            ..Default::default()
+        };
+        assert!(catalog_is_current(Some(&info(Some("ABCD"))), "abcd"));
+        assert!(!catalog_is_current(Some(&info(Some("abcd"))), "abce"));
+        assert!(!catalog_is_current(Some(&info(None)), "abcd"));
+        assert!(!catalog_is_current(None, "abcd"));
+    }
+
+    #[test]
+    fn a_fast_scan_keeps_the_metadata_it_already_fetched() {
+        let mut fresh = vec![entry("a.fwsc", None)];
+        let previous = [cardputer::InstalledFirmware {
+            name: "a.fwsc".into(),
+            size: Some(1024),
+            title: "Sloop".into(),
+            author: "isod89".into(),
+            version: "2.8.5".into(),
+            description: "A groovebox".into(),
+            tags: "groove".into(),
+            product: "FM-1_900".into(),
+            ..Default::default()
+        }];
+        merge_firmware_metadata(&mut fresh, &previous);
+        assert_eq!(fresh[0].size, Some(1024));
+        assert_eq!(fresh[0].title, "Sloop");
+        assert_eq!(fresh[0].author, "isod89");
+        assert_eq!(fresh[0].version, "2.8.5");
+        assert_eq!(fresh[0].description, "A groovebox");
+        assert_eq!(fresh[0].tags, "groove");
+        assert_eq!(fresh[0].product, "FM-1_900");
+    }
+
+    #[test]
     fn busy_keys_are_one_job_at_a_time() {
         let state = CardputerState {
             serial: Arc::new(Mutex::new(Vec::new())),
@@ -396,6 +606,7 @@ mod tests {
             generation: Arc::new(AtomicU64::new(0)),
             wanted_network: Arc::new(AtomicBool::new(false)),
             wanted_serial: Arc::new(AtomicBool::new(false)),
+            detail_hosts: Arc::new(Mutex::new(HashSet::new())),
         };
         assert!(state.claim("1.2.3.4".into()));
         assert!(!state.claim("1.2.3.4".into()));

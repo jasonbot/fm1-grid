@@ -248,4 +248,30 @@ mod tests {
         let names: Vec<&str> = resolved.iter().map(|r| r.name.as_str()).collect();
         assert_eq!(names, vec!["A", "C"]);
     }
+
+    /// fm1-card's catalog parser reads `url` as the package path and
+    /// `byline`/`description` as author/what. A rename would silently leave every
+    /// synced card without a download URL, so pin the wire shape.
+    #[test]
+    fn hosted_feed_matches_the_card_manifest_keys() {
+        let feed = vec![RemoteFirmware {
+            name: "Sloop".into(),
+            version: "2.8.5".into(),
+            byline: "isod89".into(),
+            description: "A groovebox".into(),
+            device: FirmwareDevice::Fm1,
+            tags: vec!["synth".into(), "new chip".into()],
+            url: "https://cdn.test/sloop-2.8.5.fwsc".into(),
+            website: None,
+            source_url: None,
+        }];
+        let value = serde_json::to_value(&feed).unwrap();
+        let entry = &value[0];
+        for key in ["name", "version", "byline", "description", "device", "tags", "url"] {
+            assert!(entry.get(key).is_some(), "{key} is part of the card manifest");
+        }
+        assert_eq!(entry["url"], "https://cdn.test/sloop-2.8.5.fwsc");
+        assert_eq!(entry["device"], "fm1");
+        assert_eq!(entry["tags"][1], "new chip");
+    }
 }

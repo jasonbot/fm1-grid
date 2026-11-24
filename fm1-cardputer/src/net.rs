@@ -41,6 +41,13 @@ pub struct InstalledFirmware {
     pub dir: String,
     pub size: Option<u64>,
     pub sha256: Option<String>,
+    /// Sidecar display metadata, returned only with `detail=1`.
+    pub title: String,
+    pub author: String,
+    pub version: String,
+    pub description: String,
+    pub tags: String,
+    pub product: String,
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
@@ -62,6 +69,25 @@ pub struct UploadReply {
     pub name: String,
     pub product: String,
     pub size: u64,
+}
+
+/// `GET /catalog`: the installed manifest's identity, used to skip an upload.
+/// A device with no manifest answers 404, which [`catalog`] reports as `None`.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct CatalogInfo {
+    pub name: String,
+    pub size: u64,
+    pub sha256: Option<String>,
+    pub entries: u64,
+    pub modified: u64,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct CatalogReply {
+    pub ok: bool,
+    pub entries: u64,
 }
 
 /// Display metadata the card stores in the package's `.meta` sidecar. Empty
@@ -182,6 +208,40 @@ pub fn firmware_info(host: &str, name: &str) -> Result<FirmwareInfo, Error> {
         &format!("http://{host}/firmwares/info?name={}", url_encode(name)),
         Duration::from_secs(30),
     )
+}
+
+/// The installed catalog manifest's identity, or `None` when the card has none.
+pub fn catalog(host: &str) -> Result<Option<CatalogInfo>, Error> {
+    let url = format!("http://{host}/catalog");
+    let mut response = match agent(Duration::from_secs(15)).get(&url).call() {
+        Ok(response) => response,
+        Err(ureq::Error::StatusCode(404)) => return Ok(None),
+        Err(error) => return Err(Error::new(format!("GET {url}: {error}"))),
+    };
+    let text = response
+        .body_mut()
+        .read_to_string()
+        .map_err(|error| Error::new(format!("read {url}: {error}")))?;
+    serde_json::from_str(&text)
+        .map(Some)
+        .map_err(|error| Error::new(format!("{url}: bad JSON: {error}")))
+}
+
+/// Replace the card's catalog manifest. The body is the same bare JSON array
+/// fm1-remotes prints; the card rebuilds its catalog cache before answering.
+pub fn upload_catalog(host: &str, manifest: &[u8]) -> Result<CatalogReply, Error> {
+    let url = format!("http://{host}/catalog");
+    let mut response = agent(Duration::from_secs(120))
+        .post(&url)
+        .header("Content-Type", "application/json")
+        .send(manifest)
+        .map_err(|error| Error::new(format!("upload catalog: {error}")))?;
+    let text = response
+        .body_mut()
+        .read_to_string()
+        .map_err(|error| Error::new(format!("upload catalog: {error}")))?;
+    serde_json::from_str(&text)
+        .map_err(|error| Error::new(format!("upload catalog: bad reply: {error}")))
 }
 
 pub fn upload(
@@ -309,11 +369,32 @@ mod tests {
     fn firmware_listing_uses_the_optional_detail_fields() {
         let list: Vec<InstalledFirmware> = serde_json::from_str(
             r#"[{"name":"sloop-2.8.5.fwsc","dir":"fm1-card/firmwares"},
-                {"name":"x.fwsc","dir":"firmwares","size":610076,"sha256":"abc"}]"#,
+                {"name":"x.fwsc","dir":"firmwares","size":610076,"sha256":"abc",
+                 "title":"Sloop","author":"isod89","version":"2.8.5",
+                 "description":"A groovebox","tags":"groove new chip","product":"FM-1_900"}]"#,
         )
         .unwrap();
         assert_eq!(list[0].size, None);
+        assert_eq!(list[0].title, "");
         assert_eq!(list[1].sha256.as_deref(), Some("abc"));
+        assert_eq!(list[1].title, "Sloop");
+        assert_eq!(list[1].author, "isod89");
+        assert_eq!(list[1].version, "2.8.5");
+        assert_eq!(list[1].description, "A groovebox");
+        assert_eq!(list[1].tags, "groove new chip");
+        assert_eq!(list[1].product, "FM-1_900");
+    }
+
+    #[test]
+    fn catalog_identity_accepts_a_null_hash() {
+        let info: CatalogInfo = serde_json::from_str(
+            r#"{"name":"fm1-card/firmwares.json.upload","size":10,"sha256":null,
+                "entries":3,"modified":5}"#,
+        )
+        .unwrap();
+        assert_eq!(info.entries, 3);
+        assert_eq!(info.size, 10);
+        assert!(info.sha256.is_none());
     }
 
     #[test]

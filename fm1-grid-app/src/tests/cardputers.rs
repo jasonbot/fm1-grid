@@ -68,3 +68,42 @@ fn disabling_cardputers_shows_the_enable_button(cx: &mut TestAppContext) {
     })
     .unwrap();
 }
+
+/// An online Cardputer row offers the catalog sync button.
+#[gpui_kit::test]
+fn online_cardputer_offers_catalog_sync(cx: &mut TestAppContext) {
+    let _guard = ui_lock();
+    let (window, app) = open_app(cx);
+    app.update(cx, |app, cx| app.set_cardputers_enabled(true, cx));
+    app.update(cx, |app, cx| {
+        app.cardputers
+            .set_online_for_test(vec![crate::cardputers::OnlineDevice {
+                name: "Desk Card".into(),
+                host: "10.0.0.5".into(),
+                status: None,
+                error: None,
+                firmwares: vec![fm1_cardputer::InstalledFirmware {
+                    name: "sloop-2.8.5.fwsc".into(),
+                    title: "Sloop".into(),
+                    author: "isod89".into(),
+                    version: "2.8.5".into(),
+                    ..Default::default()
+                }],
+            }]);
+        cx.notify();
+    });
+    cx.update_window(window.into(), |_, window, cx| {
+        window.click(("tab", 1usize), cx);
+        app.update(cx, |app, cx| {
+            app.devices_tab = 2;
+            cx.notify();
+        });
+        window.render_frame(cx);
+        assert!(window.find(("cardputer-sync", 0usize)).visible());
+        // The button sits in the row's toggle header; pressing it must not open
+        // the accordion as well.
+        window.click(("cardputer-sync", 0usize), cx);
+        assert!(app.read(cx).cardputer_open.is_empty());
+    })
+    .unwrap();
+}

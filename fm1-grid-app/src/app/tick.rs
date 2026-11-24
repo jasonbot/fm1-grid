@@ -1,5 +1,5 @@
 use super::*;
-use crate::cardputers::{CardputerEvent, SendOutcome};
+use crate::cardputers::{CatalogOutcome, CardputerEvent, SendOutcome};
 use gpui_kit::component::WindowExt;
 use gpui_kit::component::notification::Notification;
 
@@ -117,7 +117,11 @@ impl GridApp {
         if cardputer_changed {
             let online = self.cardputers.online();
             let hosts: Vec<String> = online.iter().map(|device| device.host.clone()).collect();
+            let before = self.cardputer_open.clone();
             self.cardputer_open.retain(|host| hosts.contains(host));
+            if self.cardputer_open != before {
+                self.cardputers.set_detail(self.cardputer_open.clone());
+            }
         }
         for event in self.cardputers.take_events() {
             match event {
@@ -162,6 +166,28 @@ impl GridApp {
                     window.push_notification(
                         note.title("Cardputer firmware")
                             .id1::<CardputerSendNotification>(format!("{host}:{file}")),
+                        cx,
+                    );
+                }
+                CardputerEvent::CatalogSynced {
+                    host,
+                    device,
+                    result,
+                } => {
+                    let note = match result {
+                        Ok(CatalogOutcome::Synced { entries }) => Notification::success(format!(
+                            "Sent the {entries}-entry catalog to {device}."
+                        )),
+                        Ok(CatalogOutcome::UpToDate) => Notification::info(format!(
+                            "The catalog on {device} is already up to date."
+                        )),
+                        Err(error) => {
+                            Notification::error(format!("Could not sync {device}: {error}"))
+                        }
+                    };
+                    window.push_notification(
+                        note.title("Cardputer catalog")
+                            .id1::<CardputerCatalogNotification>(host),
                         cx,
                     );
                 }

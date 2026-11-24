@@ -93,7 +93,8 @@ The `.fwsc` files are gitignored. A fresh build downloads and checks any missing
 - Open it from the **Cardputers** pill on the Devices tab.
 - Lists M5Stack Cardputer-Adv handhelds. The app embeds the fm1-card release image fetched when the embedded image was last refreshed.
 - **Flashable devices** are Cardputers in ROM download mode (power off, hold G0, plug in USB-C, release G0). **Flash** writes the whole image and verifies it; power-cycle the device afterwards.
-- **Online devices** are Cardputers running fm1-card on your network. Each row expands to show the firmware packages on its SD card.
+- **Online devices** are Cardputers running fm1-card on your network. Each row expands to show the firmware packages on its SD card, with the sidecar title, author, version, tags, size and description; that slower detail listing is fetched when a row is expanded, not on every poll.
+- **Sync catalog** on an online row sends the same resolved firmware feed `fm1-remotes` prints. The app checks `GET /catalog` first and skips the upload when the card already holds the identical manifest (same SHA-256); the result appears as a notification.
 - The app scans only while the Cardputers section or the Library tab is open, every 5 seconds. It sends no discovery traffic otherwise.
 - Discovery is off by default. Turn it on from the section's **Enable Cardputers** button or Settings → Cardputers; the pill itself always stays available.
 - In the Library, **Flash To…** lists every online Cardputer. It copies the package only when the same bytes are not already there, sending its title, author, version, description and tags so the card shows them; success, already-present and failure each raise a notification.
@@ -192,6 +193,9 @@ cargo run --release -p fm1-remotes > firmware.json
   (and named on stderr), as are embedded firmwares.
 - The Hub's failure exits non-zero with no output; a failed additive feed warns on
   stderr and leaves its entries out.
+
+The Cardputers section's **Sync catalog** button sends exactly this feed (with the
+card's `GET /catalog` SHA-256 check first) to a connected Cardputer.
 
 ## Build
 

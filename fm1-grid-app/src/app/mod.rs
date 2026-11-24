@@ -54,6 +54,7 @@ pub(crate) const GRAPH_ANIM: Duration = Duration::from_millis(400);
 pub(crate) struct FirmwareDownloadNotification;
 pub(crate) struct CardputerSendNotification;
 pub(crate) struct CardputerFlashNotification;
+pub(crate) struct CardputerCatalogNotification;
 
 #[derive(Clone)]
 pub(crate) enum Source {

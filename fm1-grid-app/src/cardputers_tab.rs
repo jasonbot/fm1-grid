@@ -7,8 +7,8 @@ use crate::cardputers::{FlashableDevice, OnlineDevice};
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::base::{h_flex, v_flex};
 use gpui_kit::component::accordion::Accordion;
-use gpui_kit::component::button::Button;
-use gpui_kit::component::{ActiveTheme, Icon, Sizable};
+use gpui_kit::component::button::{Button, ButtonVariants};
+use gpui_kit::component::{ActiveTheme, Disableable, Icon, Sizable};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{TestSupportExt as _, *};
 
@@ -120,6 +120,9 @@ impl GridApp {
         for (ix, device) in online.iter().cloned().enumerate() {
             let open = self.cardputer_open.contains(&device.host);
             let busy = self.cardputers.busy(&device.host);
+            let sync_app = cx.entity().clone();
+            let sync_host = device.host.clone();
+            let sync_name = device.name.clone();
             let title = h_flex()
                 .items_center()
                 .gap_2()
@@ -137,8 +140,30 @@ impl GridApp {
                         .child(device.host.clone()),
                 )
                 .when(busy, |this| {
-                    this.child(div().text_size(px(10.0)).text_color(accent).child("copying…"))
-                });
+                    this.child(div().text_size(px(10.0)).text_color(accent).child("working…"))
+                })
+                .child(
+                    Button::new(("cardputer-sync", ix))
+                        .label("Sync catalog")
+                        .icon(Icon::new(Lucide::RefreshCw))
+                        .small()
+                        .ghost()
+                        .disabled(busy)
+                        .tooltip(
+                            "Send this app's online firmware catalog to the card, unless \
+                             it already holds the same one",
+                        )
+                        .on_click(move |_, _, cx| {
+                            // The row's click toggles the accordion; keep the button
+                            // from doing both.
+                            cx.stop_propagation();
+                            let host = sync_host.clone();
+                            let name = sync_name.clone();
+                            sync_app.update(cx, |this, _| {
+                                this.cardputers.sync_catalog(host, name);
+                            });
+                        }),
+                );
             let panel = self.cardputer_panel(ix, &device, border, surface, ink, dim, danger);
             accordion = accordion.item(move |item| item.open(open).title(title).child(panel));
         }
@@ -151,6 +176,7 @@ impl GridApp {
                 .collect();
             toggle_app.update(cx, |this, cx| {
                 this.cardputer_open = selected;
+                this.cardputers.set_detail(this.cardputer_open.clone());
                 cx.notify();
             });
         });
@@ -302,6 +328,11 @@ impl GridApp {
             );
         }
         for firmware in &device.firmwares {
+            let title = if firmware.title.is_empty() {
+                firmware.name.as_str()
+            } else {
+                firmware.title.as_str()
+            };
             let size = firmware
                 .size
                 .map(|size| format!("{:.0} KB", size as f64 / 1024.0))
@@ -311,23 +342,69 @@ impl GridApp {
                 .as_deref()
                 .map(|hash| &hash[..hash.len().min(12)])
                 .unwrap_or("");
-            let detail = [size.as_str(), hash]
+            let tail = [size.as_str(), hash]
                 .into_iter()
                 .filter(|part| !part.is_empty())
                 .collect::<Vec<_>>()
                 .join(" · ");
+            let mut facts: Vec<&str> = Vec::new();
+            if !firmware.author.is_empty() {
+                facts.push(&firmware.author);
+            }
+            if !firmware.version.is_empty() {
+                facts.push(&firmware.version);
+            }
+            if !firmware.tags.is_empty() {
+                facts.push(&firmware.tags);
+            }
             list = list.child(
-                h_flex()
+                v_flex()
                     .w_full()
-                    .justify_between()
-                    .gap_3()
+                    .gap_0p5()
                     .child(
-                        div()
-                            .text_size(px(10.5))
-                            .text_color(ink)
-                            .child(firmware.name.clone()),
+                        h_flex()
+                            .w_full()
+                            .justify_between()
+                            .gap_3()
+                            .child(
+                                div()
+                                    .text_size(px(10.5))
+                                    .text_color(ink)
+                                    .truncate()
+                                    .child(title.to_string()),
+                            )
+                            .child(
+                                div()
+                                    .text_size(px(9.5))
+                                    .text_color(dim)
+                                    .flex_none()
+                                    .child(tail),
+                            ),
                     )
-                    .child(div().text_size(px(9.5)).text_color(dim).child(detail)),
+                    .when(!facts.is_empty() || !firmware.product.is_empty(), |this| {
+                        this.child(
+                            div()
+                                .text_size(px(9.5))
+                                .text_color(dim)
+                                .truncate()
+                                .child(
+                                    [facts.join(" · "), firmware.product.clone()]
+                                        .into_iter()
+                                        .filter(|part| !part.is_empty())
+                                        .collect::<Vec<_>>()
+                                        .join(" · "),
+                                ),
+                        )
+                    })
+                    .when(!firmware.description.is_empty(), |this| {
+                        this.child(
+                            div()
+                                .text_size(px(9.0))
+                                .text_color(dim)
+                                .truncate()
+                                .child(firmware.description.clone()),
+                        )
+                    }),
             );
         }
         body.child(

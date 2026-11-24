@@ -170,14 +170,14 @@ The Hub is treated as the source of truth; the other feeds are additive. A
 listing's `source:` tag and the device/chip tags affect deduplication and
 filtering, so preserve them when editing a parser.
 
-`cargo run --release -p fm1-remotes > firmware.json` prints the merged listing
-with every entry resolved to a direct `.fwsc` URL, ready to host for clients
-without the download heuristics. Regenerate it after a feed or parser change;
-entries the heuristics can't resolve are omitted, so the output is only as
-complete as the current sources and network. Export `GITHUB_TOKEN` (or
-`GH_TOKEN`, for example `GITHUB_TOKEN=$(gh auth token)`) first: the
-unauthenticated GitHub API allows only 60 requests an hour, which drops most
-GitHub-hosted entries from the output.
+`cargo run --release -p fm1-remotes` prints the same merged listing with every
+entry resolved to a direct `.fwsc` URL. The Cardputers **Sync catalog** button
+builds that listing in-process and sends it to a card, so no hosted file needs
+regenerating; entries the heuristics can't resolve are omitted, so a sync is
+only as complete as the current sources and network. Export
+`GITHUB_TOKEN` (or `GH_TOKEN`, for example `GITHUB_TOKEN=$(gh auth token)`)
+before either one: the unauthenticated GitHub API allows only 60 requests an
+hour, which drops most GitHub-hosted entries.
 
 ## Releases and update feeds
 
@@ -245,5 +245,3 @@ the same change.
   `.part` files are ignored; never force-add them.
 - Remove completed items from `BACKLOG.md`, and keep README instructions in
   sync with the code and scripts.
-- If the file ~/projects/homepage/firmware-zoo/firmwares.json exists, refresh
-  it by running: `cargo run --release -p fm1-remotes > ~/projects/homepage/firmware-zoo/firmwares.json`

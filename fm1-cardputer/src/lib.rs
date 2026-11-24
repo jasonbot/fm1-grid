@@ -8,14 +8,17 @@
 //! - [`flash`] writes that image to a Cardputer in ROM download mode.
 //! - [`discover`] finds running devices with a UDP broadcast.
 //! - [`firmwares`], [`firmware_info`] and [`upload`] copy packages onto them.
+//! - [`catalog`] and [`upload_catalog`] check and replace the card's firmware
+//!   manifest, so it does not have to fetch the online catalog itself.
 
 mod esp;
 mod net;
 
 pub use esp::{FlashableDevice, find_flashable, flash};
 pub use net::{
-    DISCOVERY_PORT, Discovery, FirmwareInfo, InstalledFirmware, Status, UploadMetadata,
-    UploadReply, discover, firmware_info, firmwares, safe_file_name, sha256, status, upload,
+    CatalogInfo, CatalogReply, DISCOVERY_PORT, Discovery, FirmwareInfo, InstalledFirmware, Status,
+    UploadMetadata, UploadReply, catalog, discover, firmware_info, firmwares, safe_file_name,
+    sha256, status, upload, upload_catalog,
 };
 
 /// The merged full-flash image downloaded at build time (bootloader, partition

@@ -1,5 +1,29 @@
 use super::support::*;
 
+/// Toasts live bottom-right, clear of the transport bar, and survive a theme pick.
+#[gpui_kit::test]
+fn notifications_anchor_bottom_right(cx: &mut TestAppContext) {
+    use gpui_kit::component::ActiveTheme;
+    use gpui_kit::Anchor;
+
+    let _guard = ui_lock();
+    let (window, app) = open_app(cx);
+    cx.update(|cx| {
+        let settings = &cx.theme().notification;
+        assert_eq!(settings.placement, Anchor::BottomRight);
+        assert_eq!(settings.margins.bottom, px(56.0));
+    });
+    cx.update_window(window.into(), |_, _, cx| {
+        app.update(cx, |app, cx| app.set_theme_family("default", cx));
+    })
+    .unwrap();
+    cx.update(|cx| {
+        let settings = &cx.theme().notification;
+        assert_eq!(settings.placement, Anchor::BottomRight);
+        assert_eq!(settings.margins.bottom, px(56.0));
+    });
+}
+
 #[gpui_kit::test]
 fn metronome_toggles(cx: &mut TestAppContext) {
     let _guard = ui_lock();

@@ -75,6 +75,12 @@ impl GridApp {
             theme.dark_theme = dark;
         }
         Theme::change(mode, None, cx);
+        // Toasts sit bottom-right, above the transport bar. Theme::update keeps
+        // this across theme and appearance changes.
+        Theme::update(cx, |theme| {
+            theme.notification.placement = Anchor::BottomRight;
+            theme.notification.margins.bottom = px(56.0);
+        });
     }
     /// The Settings tab's theme pick: apply at once and save the session record
     /// immediately (a crash shouldn't lose the choice; the quit hook saves again).

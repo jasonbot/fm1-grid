@@ -12,8 +12,6 @@ use gpui_kit::component::{ActiveTheme, Disableable, Icon, Sizable};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{TestSupportExt as _, *};
 
-const PANEL_MAX_H: f32 = 180.0;
-
 impl GridApp {
     pub(crate) fn cardputers_tab(
         &mut self,
@@ -505,10 +503,7 @@ impl GridApp {
                 .id(("cardputer-firmwares", ix))
                 .test_support()
                 .w_full()
-                .max_h(px(PANEL_MAX_H))
-                .overflow_y_scroll()
                 .p_2()
-                .pr(px(14.0))
                 .rounded(px(5.0))
                 .border_1()
                 .border_color(border)

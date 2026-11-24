@@ -218,6 +218,24 @@ impl GridApp {
             }
             dirty = true;
         }
+        // Keep every known card's title bar on the app's accent. The scan reports
+        // the card's own color; a mismatch is written back, throttled per card.
+        if self.cardputers_enabled {
+            let target = crate::themes::cardputer_accent(&self.accent);
+            for device in self.cardputers.online().iter() {
+                if let Some(status) = &device.status {
+                    // Firmware older than the theme endpoint reports no color;
+                    // leave those cards alone instead of retrying a 404 forever.
+                    if status.theme_blue.is_empty() {
+                        continue;
+                    }
+                    if !status.theme_blue.eq_ignore_ascii_case(&target) {
+                        self.cardputers
+                            .sync_theme(device.host.clone(), target.clone());
+                    }
+                }
+            }
+        }
         // Raw download-mode probes arrive on their own thread.
         let recovery_changed = self.recovery.changed(&mut self.recovery_generation);
         dirty |= recovery_changed;

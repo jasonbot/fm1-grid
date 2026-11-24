@@ -25,6 +25,8 @@ pub struct Discovery {
 #[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
 #[serde(default)]
 pub struct Status {
+    /// The card's stored accent, as `#RRGGBB` after its RGB565 quantization.
+    pub theme_blue: String,
     pub app: String,
     pub version: String,
     pub name: String,
@@ -304,6 +306,33 @@ pub fn upload(
         .map_err(|error| Error::new(format!("upload {}: bad reply: {error}", name)))
 }
 
+/// The card's answer to a theme write; `theme_blue` is the RGB565 form it stored.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(default)]
+pub struct ThemeReply {
+    pub ok: bool,
+    pub theme_blue: String,
+}
+
+/// Replace the card's accent colour (its title bar) and return what it stored.
+/// The endpoint accepts six hex digits with or without `#`.
+pub fn set_theme(host: &str, color: &str) -> Result<ThemeReply, Error> {
+    let value = color.trim_start_matches('#');
+    if value.len() != 6 || !value.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Err(Error::new(format!("theme color {color} is not RRGGBB")));
+    }
+    let url = format!("http://{host}/theme?color={value}");
+    let mut response = agent(Duration::from_secs(10))
+        .post(&url)
+        .send_empty()
+        .map_err(|error| Error::new(format!("POST {url}: {error}")))?;
+    let text = response
+        .body_mut()
+        .read_to_string()
+        .map_err(|error| Error::new(format!("read {url}: {error}")))?;
+    serde_json::from_str(&text).map_err(|error| Error::new(format!("{url}: bad reply: {error}")))
+}
+
 /// ESP-IDF's HTTP server keeps the whole request URI in 512 bytes; a longer one
 /// is rejected before the handler runs, which reaches the client as a
 /// connection reset. `POST /firmwares?` and the HTTP version take 27, so the
@@ -506,17 +535,18 @@ mod tests {
     #[test]
     fn status_parses_the_device_and_library_summary() {
         let status: Status = serde_json::from_str(
-            r#"{"app":"fm1-card","version":"0.1.5","name":"Desk Card",
+            r##"{"theme_blue":"#006DE6","app":"fm1-card","version":"0.1.5","name":"Desk Card",
                 "ip":"192.168.1.20","sd":true,"wifi":"connected",
                 "ssid":"scheirer-eero","rssi":-78,
                 "devices":[{"slot":0,"path":"h0p1","identity":"FM-1_916","clock":true}],
                 "msc":0,"clock":{"bpm":120,"running":true},
                 "library":{"catalog":746,"local":32,"local_total":64},
                 "hoard":false,
-                "flash":{"running":true,"error":false,"step":"writing","package":"Sloop"}}"#,
+                "flash":{"running":true,"error":false,"step":"writing","package":"Sloop"}}"##,
         )
         .unwrap();
         assert_eq!(status.version, "0.1.5");
+        assert_eq!(status.theme_blue, "#006DE6");
         assert_eq!(status.ip, "192.168.1.20");
         assert_eq!(status.devices.len(), 1);
         assert_eq!(status.devices[0].identity, "FM-1_916");

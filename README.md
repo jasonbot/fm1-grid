@@ -100,6 +100,7 @@ The `.fwsc` files are gitignored. A fresh build downloads and checks any missing
 - The app scans only while the Cardputers section or the Library tab is open, every 5 seconds. It sends no discovery traffic otherwise.
 - Discovery is off by default. Turn it on from the section's **Enable Cardputers** button or Settings → Cardputers; the pill itself always stays available.
 - In the Library, **Flash To…** lists every online Cardputer. It copies the package only when the same bytes are not already there, sending its title, author, version, description and tags so the card shows them; success, already-present and failure each raise a notification.
+- While Cardputers is on, the app keeps each card's title-bar accent on your accent color. The card stores an RGB565 copy; the app darkens bright accents so their white title text stays readable.
 - Copies to one Cardputer queue up and run one at a time, so the card never handles two requests at once. Each queued copy keeps its notification until its upload finishes; the result replaces it. Package names are reduced to letters, digits, `-`, `_` and `.` so the SD card's FAT32 accepts them.
 
 ## MIDI graph

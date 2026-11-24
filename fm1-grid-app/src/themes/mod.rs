@@ -205,6 +205,33 @@ pub(crate) fn color(accent: &Accent) -> Hsla {
     gpui_kit::component::try_parse_color(&rgb.hex()).unwrap_or_default()
 }
 
+/// The accent as the Cardputer stores it: RGB565, five bits of red and blue and
+/// six of green, printed back as `#RRGGBB`. The card paints white text on this
+/// (its title bar), so a bright accent is darkened until it clears 4.5:1 against
+/// white.
+pub(crate) fn cardputer_accent(id: &str) -> String {
+    let accent = Rgb::parse(accent(id).hex);
+    let mut color = quantize(accent);
+    for step in 0..=100 {
+        let candidate = quantize(accent.darken(step as f32 / 100.0));
+        let contrast = 1.05 / (candidate.luminance() + 0.05);
+        color = candidate;
+        if contrast >= 4.5 {
+            break;
+        }
+    }
+    format!("#{:02X}{:02X}{:02X}", color.r, color.g, color.b)
+}
+
+/// The card's RGB565 form, scaled back to eight bits the way it prints it.
+fn quantize(color: Rgb) -> Rgb {
+    Rgb {
+        r: ((u32::from(color.r) >> 3) * 255 / 31) as u8,
+        g: ((u32::from(color.g) >> 2) * 255 / 63) as u8,
+        b: ((u32::from(color.b) >> 3) * 255 / 31) as u8,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -233,6 +260,17 @@ mod tests {
     #[test]
     fn unknown_accent_falls_back_to_blue() {
         assert_eq!(accent("nope").id, "blue");
+    }
+
+    #[test]
+    fn cardputer_accent_is_dark_enough_for_white_text() {
+        // Blue is bright enough that the card's white title text needs the darkening.
+        assert_eq!(cardputer_accent("blue"), "#0071EE");
+        for accent in ACCENTS {
+            let color = Rgb::parse(&cardputer_accent(accent.id));
+            let contrast = 1.05 / (color.luminance() + 0.05);
+            assert!(contrast >= 4.5, "{} has only {contrast:.2}:1", accent.id);
+        }
     }
 
     #[test]

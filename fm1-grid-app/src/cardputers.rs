@@ -21,6 +21,8 @@ const IDLE_SLEEP: Duration = Duration::from_millis(500);
 /// How often the catalog is gardened while Cardputers is enabled. New listings
 /// trigger a pass at once; this is the blank-filling retry cadence.
 const GARDEN_INTERVAL: Duration = Duration::from_secs(30 * 60);
+/// How long to wait for a scan to report a theme write before retrying it.
+const THEME_RETRY: Duration = Duration::from_secs(10);
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OnlineDevice {
@@ -78,6 +80,11 @@ pub struct CardputerState {
     upload_counts: Arc<Mutex<HashMap<String, usize>>>,
     /// Identity for each queued copy, so identical files keep separate notices.
     send_seq: Arc<AtomicU64>,
+    /// Last accent color written to each host and when. The card's next scan
+    /// reports it back; until then, do not resend the same color.
+    theme_sent: Arc<Mutex<HashMap<String, (String, Instant)>>>,
+    /// Hosts with an accent write in flight.
+    theme_inflight: Arc<Mutex<HashSet<String>>>,
     events: Arc<Mutex<Vec<CardputerEvent>>>,
     generation: Arc<AtomicU64>,
     /// Whether a visible place needs the online list, and whether the Cardputers
@@ -108,6 +115,8 @@ impl CardputerState {
             lanes: Arc::new(Mutex::new(HashMap::new())),
             upload_counts: Arc::new(Mutex::new(HashMap::new())),
             send_seq: Arc::new(AtomicU64::new(0)),
+            theme_sent: Arc::new(Mutex::new(HashMap::new())),
+            theme_inflight: Arc::new(Mutex::new(HashSet::new())),
             events: Arc::new(Mutex::new(Vec::new())),
             generation: Arc::new(AtomicU64::new(0)),
             wanted_network: Arc::new(AtomicBool::new(false)),
@@ -486,6 +495,57 @@ impl CardputerState {
         Some(id)
     }
 
+    /// Push the accent color to one card. The write shares the host lane, so it
+    /// queues behind a scan or upload. A repeated color is suppressed while the
+    /// card's next scan reports it back.
+    pub fn sync_theme(&self, host: String, color: String) -> bool {
+        if std::env::var_os("FM1_GRID_NO_CARDPUTERS").is_some() {
+            return false;
+        }
+        {
+            let mut inflight = self.theme_inflight.lock().unwrap();
+            if !inflight.insert(host.clone()) {
+                return false;
+            }
+        }
+        {
+            let sent = self.theme_sent.lock().unwrap();
+            if let Some((last, at)) = sent.get(&host) {
+                if last.eq_ignore_ascii_case(&color) && at.elapsed() < THEME_RETRY {
+                    self.theme_inflight.lock().unwrap().remove(&host);
+                    return false;
+                }
+            }
+        }
+        let lane = self.lane(&host);
+        let inflight = self.theme_inflight.clone();
+        let sent = self.theme_sent.clone();
+        let generation = self.generation.clone();
+        let failed_host = host.clone();
+        let spawned = std::thread::Builder::new()
+            .name("fm1-cardputer-theme".into())
+            .spawn(move || {
+                {
+                    let _gate = lane
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner());
+                    // A failed write is retried after the throttle; it needs no
+                    // toast, since the next scan simply shows the old color.
+                    let _ = cardputer::set_theme(&host, &color);
+                }
+                sent.lock()
+                    .unwrap()
+                    .insert(host.clone(), (color, Instant::now()));
+                inflight.lock().unwrap().remove(&host);
+                generation.fetch_add(1, Ordering::Relaxed);
+            });
+        if spawned.is_err() {
+            self.theme_inflight.lock().unwrap().remove(&failed_host);
+            return false;
+        }
+        true
+    }
+
     /// Send the card the catalog built so far, skipping the upload when it already
     /// holds the same manifest. The gardener fills unresolved entries in later.
     pub fn sync_catalog(&self, host: String, device: String) -> bool {
@@ -861,6 +921,8 @@ mod tests {
             lanes: Arc::new(Mutex::new(HashMap::new())),
             upload_counts: Arc::new(Mutex::new(HashMap::new())),
             send_seq: Arc::new(AtomicU64::new(0)),
+            theme_sent: Arc::new(Mutex::new(HashMap::new())),
+            theme_inflight: Arc::new(Mutex::new(HashSet::new())),
             events: Arc::new(Mutex::new(Vec::new())),
             generation: Arc::new(AtomicU64::new(0)),
             wanted_network: Arc::new(AtomicBool::new(false)),

@@ -73,24 +73,28 @@ impl RecoveryState {
                     changed = true;
                 }
                 // Probing new units takes seconds; keep the busy/outcome state the
-                // task threads wrote to the live list meanwhile.
-                let mut live = rows.lock().unwrap();
-                for row in current.iter_mut() {
-                    let Some(existing) = live.iter().find(|existing| existing.path == row.path)
-                    else {
-                        continue;
-                    };
-                    row.busy = existing.busy;
-                    row.busy_label = existing.busy_label.clone();
-                    row.outcome = existing.outcome.clone();
-                    if row.probe.is_none() {
-                        row.probe = existing.probe.clone();
+                // task threads wrote to the live list meanwhile. The guard is scoped:
+                // a named guard would stay alive through the sleep below, and the
+                // Devices pane would block on it for two seconds.
+                {
+                    let mut live = rows.lock().unwrap();
+                    for row in current.iter_mut() {
+                        let Some(existing) = live.iter().find(|existing| existing.path == row.path)
+                        else {
+                            continue;
+                        };
+                        row.busy = existing.busy;
+                        row.busy_label = existing.busy_label.clone();
+                        row.outcome = existing.outcome.clone();
+                        if row.probe.is_none() {
+                            row.probe = existing.probe.clone();
+                        }
+                        if row.error.is_none() {
+                            row.error = existing.error.clone();
+                        }
                     }
-                    if row.error.is_none() {
-                        row.error = existing.error.clone();
-                    }
+                    *live = current;
                 }
-                *live = current;
                 if changed {
                     generation.fetch_add(1, Ordering::Relaxed);
                 }
@@ -287,3 +291,36 @@ fn save_backup(
     Ok(item.label)
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Instant;
+
+    /// The scanner sleeps two seconds between passes; it must not own the row
+    /// list while it does, or every Devices render waits on it.
+    #[test]
+    fn rows_returns_while_the_scanner_sleeps() {
+        let dir = std::env::temp_dir().join(format!(
+            "fm1-grid-recovery-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.subsec_nanos())
+        ));
+        let state = RecoveryState::start(Store::in_dir(&dir));
+        // Cover a full scan cycle: the old code held the lock for ~2 s of it.
+        let end = Instant::now() + Duration::from_millis(2500);
+        let mut worst = Duration::ZERO;
+        while Instant::now() < end {
+            let started = Instant::now();
+            let _ = state.rows();
+            worst = worst.max(started.elapsed());
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        std::fs::remove_dir_all(&dir).ok();
+        assert!(
+            worst < Duration::from_millis(500),
+            "rows() blocked for {worst:?}; the scanner held the lock through its sleep"
+        );
+    }
+}

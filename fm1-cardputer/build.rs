@@ -4,7 +4,7 @@
 //! missing, this asks GitHub for the newest `jasonbot/fm1-card` release,
 //! downloads the image and its `SHA256SUMS`, verifies the hash, and records the
 //! release in `data/assets.json`. When both files exist, the hash is verified
-//! and no network is used. Delete the image (or the manifest) to refresh it.
+//! and no network is used. Delete both files to refresh it.
 
 use std::env;
 use std::fs::{self, File};

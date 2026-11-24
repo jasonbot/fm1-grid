@@ -148,7 +148,8 @@ fn recovery_row(unit: &crate::recovery::Unit) -> Line<'static> {
     if unit.busy {
         spans.push(Span::styled("  ·  writing…", Style::default().fg(ACCENT)));
     } else if let Some(outcome) = &unit.outcome {
-        let good = outcome.starts_with("firmware flashed");
+        let good = outcome.starts_with("firmware flashed")
+            || outcome.starts_with("firmware is already installed");
         spans.push(Span::styled(
             format!("  ·  {outcome}"),
             Style::default().fg(if good { OK } else { ERR }),

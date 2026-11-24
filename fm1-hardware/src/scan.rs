@@ -103,15 +103,14 @@ pub(crate) fn scan_loop(
                     let found = devices.lock().ok().and_then(|list| {
                         list.iter()
                             .find(|device| device.name == name)
-                            .map(|device| {
-                                (device.hw_id, device.link.clone(), device.outcome.clone())
-                            })
+                            .map(|device| (device.link.clone(), device.outcome.clone()))
                     });
-                    let Some((hw_id, link, outcome)) = found else {
+                    let Some((link, outcome)) = found else {
                         continue;
                     };
-                    // The clock's bytes would interrupt the SysEx between its bytes.
-                    clock.set_hw_target(hw_id, None);
+                    // The clock shares the output mutex with this SysEx, so its bytes
+                    // cannot land inside it; no need to detach. If the unit does enter
+                    // download mode its port drops and the scan detaches it.
                     let sent = link.send(&DOWNLOAD_MODE);
                     if let Ok(mut outcome) = outcome.lock() {
                         *outcome = Some(if sent {

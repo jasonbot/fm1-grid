@@ -2204,6 +2204,7 @@ name = "fm1-recovery"
 version = "0.1.0"
 dependencies = [
  "core-foundation-sys",
+ "fm1-base",
  "libc",
  "serde",
  "serde_json",

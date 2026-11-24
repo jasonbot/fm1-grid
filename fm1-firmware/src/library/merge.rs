@@ -17,7 +17,7 @@ pub(super) fn name_key(name: &str) -> String {
 const DEVICE_SUFFIXES: [&str; 3] = ["smk37pro", "smk37", "fm1"];
 
 /// `key` minus one trailing device token ("purplemonkeyfm1" -> "purplemonkey").
-fn without_device(key: &str) -> &str {
+pub(super) fn without_device(key: &str) -> &str {
     for suffix in DEVICE_SUFFIXES {
         if let Some(base) = key.strip_suffix(suffix) {
             if !base.is_empty() {

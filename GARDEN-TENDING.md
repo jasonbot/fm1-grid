@@ -142,9 +142,10 @@ To refresh the embedded firmware:
 3. Commit nothing under `fm1-cardputer/data/`; it is generated and ignored.
    The app shows the version recorded by the build.
 
-Deleting only the image re-downloads the release named by the manifest;
-deleting the manifest makes the next build ask for the latest release. A hash
-mismatch fails the build; delete the image to retry.
+Deleting only the image re-downloads the release named by the manifest. A
+remaining image with no manifest is treated as hand-placed and labelled `local`,
+so delete both files to fetch the latest release. A hash mismatch fails the
+build; delete the image to retry.
 
 ## Online firmware feeds
 

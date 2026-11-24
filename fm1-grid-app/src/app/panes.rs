@@ -114,7 +114,9 @@ impl GridApp {
             FirmwarePick::HubBlob(key) => self.load_blob(slot, &key),
         };
         self.slots[slot].install_recorded = false;
-        if installed {
+        // Only a pane that is running and booted counts here; a pick on a
+        // powered-off pane is recorded by set_power when it actually starts.
+        if installed && self.powered[slot] && self.slots[slot].error.is_none() {
             if let Some(firmware) = firmware {
                 self.library.record_install(&firmware);
                 self.slots[slot].install_recorded = true;

@@ -5,7 +5,7 @@
 use fm1_performer::store::Store;
 use fm1_recovery::Probe;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 #[derive(Clone)]
 pub struct Unit {
@@ -51,7 +51,24 @@ impl Recovery {
                     }
                     current.push(unit);
                 }
-                *scan.lock().unwrap() = current;
+                // Probing new units takes seconds; keep the busy/outcome state the
+                // flash threads wrote to the live list meanwhile.
+                let mut live = scan.lock().unwrap();
+                for unit in current.iter_mut() {
+                    let Some(existing) = live.iter().find(|existing| existing.path == unit.path)
+                    else {
+                        continue;
+                    };
+                    unit.busy = existing.busy;
+                    unit.outcome = existing.outcome.clone();
+                    if unit.probe.is_none() {
+                        unit.probe = existing.probe.clone();
+                    }
+                    if unit.error.is_none() {
+                        unit.error = existing.error.clone();
+                    }
+                }
+                *live = current;
                 std::thread::sleep(Duration::from_secs(2));
             })
             .expect("spawn recovery scanner");
@@ -67,21 +84,26 @@ impl Recovery {
     pub fn flash(&self, path: &str, bytes: Vec<u8>, store: Option<Store>) {
         let units = self.units.clone();
         let path = path.to_string();
-        if let Some(unit) = units.lock().unwrap().iter_mut().find(|unit| unit.path == path) {
+        let probe = {
+            let mut units = units.lock().unwrap();
+            let Some(unit) = units.iter_mut().find(|unit| unit.path == path) else {
+                return;
+            };
             if unit.busy {
                 return;
             }
             unit.busy = true;
             unit.outcome = None;
-        }
+            unit.probe.clone()
+        };
         std::thread::Builder::new()
             .name("fm1-tty-recovery-flash".into())
             .spawn(move || {
-                let result = flash_one(&path, &bytes, store);
+                let result = flash_one(&path, probe.as_ref(), &bytes, store);
                 if let Some(unit) = units.lock().unwrap().iter_mut().find(|unit| unit.path == path) {
                     unit.busy = false;
                     unit.outcome = Some(match result {
-                        Ok(()) => "firmware flashed; power-cycle the unit".into(),
+                        Ok(message) => message,
                         Err(error) => error,
                     });
                 }
@@ -90,28 +112,30 @@ impl Recovery {
     }
 }
 
-fn flash_one(path: &str, bytes: &[u8], store: Option<Store>) -> Result<(), String> {
+fn flash_one(
+    path: &str,
+    probe: Option<&Probe>,
+    bytes: &[u8],
+    store: Option<Store>,
+) -> Result<String, String> {
     let store = store.ok_or("no on-disk store for a full-flash backup")?;
+    let probe = probe.ok_or("the unit has not been identified yet")?;
     let mut backup = String::new();
     fm1_recovery::install_firmware(
         path,
         bytes,
         &mut |flash| {
-            let key = format!(
-                "recovery/tty-{}.bin",
-                SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .map(|d| d.as_millis())
-                    .unwrap_or(0)
-            );
-            store.store_blob(&key, flash)?;
-            backup = key.clone();
-            Ok(key)
+            let item = fm1_recovery::backups::save_backup(&store, probe, flash)?;
+            backup = item.label.clone();
+            Ok(item.label)
         },
         &mut |_| {},
         &mut |_, _| {},
     )
     .map_err(|error| error.to_string())?;
-    let _ = backup;
-    Ok(())
+    if backup.is_empty() {
+        Ok("firmware is already installed".into())
+    } else {
+        Ok(format!("firmware flashed; power-cycle the unit; backup {backup}"))
+    }
 }

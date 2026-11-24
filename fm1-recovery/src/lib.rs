@@ -5,6 +5,8 @@ mod loader;
 mod package;
 mod transport;
 
+pub mod backups;
+
 pub use transport::find_devices;
 
 /// The FM-1's full flash size. A backup must be exactly this long.

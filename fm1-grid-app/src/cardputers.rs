@@ -96,8 +96,10 @@ impl CardputerState {
                 // be slow; the Library only needs the network list.
                 let found_serial = serial_wanted.then(cardputer::find_flashable);
                 let mut found_online = Vec::new();
+                let mut publish_online = !network_wanted;
                 if network_wanted {
                     if let Ok(found) = cardputer::discover(DISCOVERY_TIMEOUT) {
+                        publish_online = true;
                         // One hung Cardputer must not hold up the others.
                         found_online = std::thread::scope(|scope| {
                             let handles: Vec<_> = found
@@ -123,13 +125,19 @@ impl CardputerState {
                     }
                     None => false,
                 };
-                // Compare outside the lock and swap only the Arc: the UI never
-                // waits for a large firmware list comparison.
-                let previous = online.lock().unwrap().clone();
-                let online_changed = *previous != found_online;
-                if online_changed {
-                    *online.lock().unwrap() = Arc::new(found_online);
-                }
+                // A failed discovery is not "no devices": keep the last list.
+                let online_changed = if publish_online {
+                    // Compare outside the lock and swap only the Arc: the UI never
+                    // waits for a large firmware list comparison.
+                    let previous = online.lock().unwrap().clone();
+                    let changed = *previous != found_online;
+                    if changed {
+                        *online.lock().unwrap() = Arc::new(found_online);
+                    }
+                    changed
+                } else {
+                    false
+                };
                 if serial_changed || online_changed {
                     generation.fetch_add(1, Ordering::Relaxed);
                 }
@@ -189,7 +197,9 @@ impl CardputerState {
         let events = self.events.clone();
         let busy = self.busy.clone();
         let generation = self.generation.clone();
-        std::thread::Builder::new()
+        let failed_path = path.clone();
+        let failed_device = description.clone();
+        let spawned = std::thread::Builder::new()
             .name("fm1-cardputer-flash".into())
             .spawn(move || {
                 let result = cardputer::flash(&path, cardputer::FIRMWARE_IMAGE, &mut |_, _| {})
@@ -201,8 +211,17 @@ impl CardputerState {
                 });
                 busy.lock().unwrap().remove(&path);
                 generation.fetch_add(1, Ordering::Relaxed);
-            })
-            .ok();
+            });
+        if let Err(error) = spawned {
+            self.busy.lock().unwrap().remove(&failed_path);
+            self.events.lock().unwrap().push(CardputerEvent::Flashed {
+                path: failed_path,
+                device: failed_device,
+                result: Err(format!("could not start the flash thread: {error}")),
+            });
+            self.generation.fetch_add(1, Ordering::Relaxed);
+            return false;
+        }
         true
     }
 
@@ -225,7 +244,8 @@ impl CardputerState {
         let events = self.events.clone();
         let busy = self.busy.clone();
         let generation = self.generation.clone();
-        std::thread::Builder::new()
+        let failed = (host.clone(), device.clone(), firmware.clone(), file.clone());
+        let spawned = std::thread::Builder::new()
             .name("fm1-cardputer-send".into())
             .spawn(move || {
                 let result = send_inner(&host, &file, &bytes, &metadata)
@@ -239,8 +259,20 @@ impl CardputerState {
                 });
                 busy.lock().unwrap().remove(&host);
                 generation.fetch_add(1, Ordering::Relaxed);
-            })
-            .ok();
+            });
+        if let Err(error) = spawned {
+            let (host, device, firmware, file) = failed;
+            self.busy.lock().unwrap().remove(&host);
+            self.events.lock().unwrap().push(CardputerEvent::Sent {
+                host,
+                device,
+                firmware,
+                file,
+                result: Err(format!("could not start the send thread: {error}")),
+            });
+            self.generation.fetch_add(1, Ordering::Relaxed);
+            return false;
+        }
         true
     }
 

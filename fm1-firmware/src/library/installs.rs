@@ -2,7 +2,7 @@
 //! bookkeeping lives in its own store object so builtins and online offers can
 //! share it without changing their persisted rows.
 
-use super::merge::name_key;
+use super::merge::{name_key, without_device};
 use super::util::civil_from_days;
 use super::*;
 use serde::{Deserialize, Serialize};
@@ -18,9 +18,11 @@ pub(crate) struct InstallRecord {
 }
 
 /// History follows the firmware identity (normalized name + device/variant), not
-/// the package version, so a project keeps its count when it upgrades.
+/// the package version, so a project keeps its count when it upgrades. The name
+/// part matches the merge's identity, so a device-suffixed respelling
+/// ("PurpleMonkey FM-1" -> "PurpleMonkey") keeps the count too.
 fn install_key(firmware: &Firmware) -> String {
-    let mut key = name_key(&firmware.name);
+    let mut key = without_device(&name_key(&firmware.name)).to_string();
     key.push('|');
     match firmware.device {
         FirmwareDevice::Fm1 => key.push_str("fm1"),

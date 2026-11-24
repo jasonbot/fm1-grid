@@ -162,8 +162,7 @@ fn verify_md5(link: &mut Link, image: &[u8], timeout: Duration) -> Result<(), Er
     let actual = if digest.len() == 16 {
         digest.iter().map(|byte| format!("{byte:02x}")).collect()
     } else {
-        // The ROM answers with 32 ASCII hex bytes plus NUL padding; esptool
-        // also treats the trailing status as part of the reply.
+        // Some ROMs answer with 32 ASCII hex bytes instead of the 16-byte digest.
         String::from_utf8_lossy(&digest)
             .trim_matches(|ch: char| ch == '\0' || ch.is_whitespace())
             .to_ascii_lowercase()
@@ -183,17 +182,19 @@ struct Reply {
 
 impl Reply {
     fn check(self, action: &str) -> Result<Vec<u8>, Error> {
-        if self.data.len() < 2 {
+        // Every ROM response ends with [status][error][reserved][reserved]; the
+        // reserved bytes are not the status.
+        if self.data.len() < 4 {
             return Err(Error::new(format!("{action}: the chip sent no status")));
         }
-        let status = self.data[self.data.len() - 2];
+        let status = self.data[self.data.len() - 4];
         if status != 0 {
-            let reason = self.data[self.data.len() - 1];
+            let reason = self.data[self.data.len() - 3];
             return Err(Error::new(format!(
                 "{action} failed (status {status:#04x}, reason {reason:#04x})"
             )));
         }
-        Ok(self.data[..self.data.len() - 2].to_vec())
+        Ok(self.data[..self.data.len() - 4].to_vec())
     }
 }
 
@@ -436,12 +437,19 @@ mod tests {
 
     #[test]
     fn reply_status_comes_from_the_tail() {
-        let reply = Reply { data: vec![0, 0] };
+        let reply = Reply {
+            data: vec![0, 0, 0, 0],
+        };
         assert_eq!(reply.check("ok").unwrap(), Vec::<u8>::new());
         let reply = Reply {
-            data: vec![0x01, 0x02],
+            data: vec![0x01, 0x02, 0, 0],
         };
         assert!(reply.check("write").unwrap_err().to_string().contains("status"));
+        // The two reserved bytes must never be mistaken for the status.
+        let reply = Reply {
+            data: vec![0xAA, 0xBB, 0, 0, 0, 0],
+        };
+        assert_eq!(reply.check("read").unwrap(), vec![0xAA, 0xBB]);
     }
 
     #[test]

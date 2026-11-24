@@ -85,6 +85,21 @@
     }
 
     #[test]
+    fn install_history_survives_a_device_suffix_spelling() {
+        let (store, dir) = temp_store("installs-suffix");
+        let mut library = Library::load(&store);
+        let before = hub_offer("PurpleMonkey FM-1", "0.11", "pm.fwsc");
+        library.record_install(&before);
+        let after = hub_offer("PurpleMonkey", "0.12", "pm.fwsc");
+        assert_eq!(library.install_count(&after), 1);
+        assert_eq!(
+            library.last_installed_date(&after),
+            library.last_installed_date(&before)
+        );
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
     fn two_library_handles_merge_install_history() {
         let (store, dir) = temp_store("installs-shared");
         let mut first = Library::load(&store);

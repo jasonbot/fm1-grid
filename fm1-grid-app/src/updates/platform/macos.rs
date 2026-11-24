@@ -34,7 +34,9 @@ const USER_AGENT: &str = "FM1-Grid-Updater/1.0";
 /// Runs after the GUI exits. `$1` is the old PID, `$2` the installed `.app`,
 /// `$3` the staged `.app`, `$4` the temporary download directory. Moving
 /// `Contents` preserves the bundle path and its writable parent. A trap restores
-/// the old contents if the script is interrupted between the two moves.
+/// the old contents and reopens the app if the swap does not finish; the
+/// `installed` sentinel keeps a signal trap and the EXIT trap from running it
+/// twice.
 const SWAP_SCRIPT: &str = r#"
 while kill -0 "$1" 2>/dev/null; do /bin/sleep 0.2; done
 APP=$2
@@ -42,15 +44,22 @@ NEW=$3
 TMP=$4
 BACKUP=$APP/Contents.fm1-old
 installed=0
+moved=0
 restore() {
-    if [ "$installed" = 0 ] && [ -d "$BACKUP" ] && [ ! -d "$APP/Contents" ]; then
+    [ "$installed" = 0 ] || return 0
+    installed=1
+    if [ "$moved" = 1 ] && [ -d "$BACKUP" ]; then
+        /bin/rm -rf "$APP/Contents"
         /bin/mv "$BACKUP" "$APP/Contents"
     fi
+    /usr/bin/open "$APP"
 }
-trap 'restore' 0 1 2 15
+trap 'restore' 0
+trap 'restore; exit 1' 1 2 15
 [ -d "$APP/Contents" ] && [ -d "$NEW/Contents" ] || exit 1
 /bin/rm -rf "$BACKUP"
 /bin/mv "$APP/Contents" "$BACKUP" || exit 1
+moved=1
 if ! /bin/mv "$NEW/Contents" "$APP/Contents"; then
     exit 1
 fi

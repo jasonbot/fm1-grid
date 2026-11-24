@@ -24,5 +24,5 @@ pub(crate) use windows::Backend;
 #[cfg_attr(not(windows), allow(dead_code))]
 mod msix;
 
-#[cfg(not(any(target_os = "linux", target_os = "windows")))]
+#[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
 mod stub;

@@ -436,10 +436,10 @@ impl GridApp {
             if rescue_on {
                 controls = controls.child(
                     Button::new(("dev-download", ix))
-                        .label("Download mode")
+                        .label("Download Mode")
                         .icon(Icon::new(Lucide::Usb))
                         .small()
-                        .w(px(132.0))
+                        .w(px(165.0))
                         .m(px(4.0))
                         .px(px(6.0))
                         .py(px(2.0))

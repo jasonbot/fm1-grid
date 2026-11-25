@@ -22,11 +22,19 @@ use std::sync::LazyLock;
 
 const FLATPAK_INFO: &str = "/.flatpak-info";
 
-/// Host-side relaunch: poll `flatpak ps` for this sandbox's instance id to
-/// disappear, then start the new deploy. The sandbox PID namespace makes
-/// `process::id()` meaningless on the host, so the instance id is the handle.
-/// The wait is bounded so a cancelled quit does not leave a watcher forever.
-const RELAUNCH_WATCHER_SCRIPT: &str = "for _ in $(seq 1 600); do\n\tflatpak ps --columns=instance | grep -qx \"$1\" || break\n\tsleep 1\ndone\nflatpak ps --columns=instance | grep -qx \"$1\" && exit 0\nexec flatpak run \"$2\"";
+/// Host-side relaunch: poll the app process's host PID with `kill -0` until it
+/// exits (the user quit), then start the new deploy with `flatpak run`.
+///
+/// Do NOT poll `flatpak ps` for the instance id instead: this watcher is itself
+/// a `flatpak-spawn` child of that sandbox, and a sandbox instance stays
+/// registered until its spawned children exit, so the watcher would be waiting
+/// on itself. The host PID is the app process's PID on the host, which dies as
+/// soon as the app exits even while teardown lingers; the sandbox PID namespace
+/// makes `process::id()` meaningless there.
+///
+/// The wait is bounded so a cancelled quit does not leave a watcher forever; if
+/// the app is still running when the budget ends, exit without relaunching.
+const RELAUNCH_WATCHER_SCRIPT: &str = "for _ in $(seq 1 600); do\n\tkill -0 \"$1\" 2>/dev/null || break\n\tsleep 1\ndone\nkill -0 \"$1\" 2>/dev/null && exit 0\nexec flatpak run \"$2\"";
 
 #[derive(Clone, Copy, Debug, Default)]
 pub(crate) struct Backend;
@@ -160,6 +168,33 @@ fn parse_remote_ls_update(stdout: &str, app_id: &str) -> Option<Option<String>> 
     None
 }
 
+/// Finds `instance_id` in `flatpak ps --columns=instance,pid` output
+/// (tab-separated rows) and returns that row's host PID: the app process's PID
+/// on the host, which the relaunch watcher polls. `None` when the instance is
+/// missing or the pid column is not a number.
+fn parse_ps_host_pid(stdout: &str, instance_id: &str) -> Option<u32> {
+    for line in stdout.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let (id, pid) = line.split_once('\t').unwrap_or((line, ""));
+        if id != instance_id {
+            continue;
+        }
+        return pid.trim().parse().ok();
+    }
+    None
+}
+
+/// Resolves the app process's host PID for the relaunch watcher. Unreadable or
+/// unparsable output is `None`: the update still installs, it just cannot
+/// relaunch automatically.
+fn instance_host_pid(instance_id: &str) -> Option<u32> {
+    let output = host_flatpak(None, &["ps", "--columns=instance,pid"]).ok()?;
+    parse_ps_host_pid(&String::from_utf8_lossy(&output.stdout), instance_id)
+}
+
 fn report(progress: &ProgressCallback, stage: UpdateStage, percentage: Option<i32>) {
     if let Ok(mut callback) = progress.lock() {
         callback(UpdateProgress {
@@ -224,12 +259,17 @@ impl PlatformUpdater for Backend {
 
     fn restart_app(&self) -> bool {
         // The sandbox cannot recreate itself: hand a detached watcher to the
-        // host before the UI loop quits. Without an instance id the update
-        // still applies on the next manual launch, but the app must not quit.
+        // host before the UI loop quits. The watcher polls the app's host PID
+        // (not the instance id, see RELAUNCH_WATCHER_SCRIPT). Without one the
+        // update still applies on the next manual launch, but the app must not
+        // quit.
         let Some(instance) = detected() else {
             return false;
         };
         let (Some(instance_id), Some(app_id)) = (&instance.instance_id, &instance.app_id) else {
+            return false;
+        };
+        let Some(host_pid) = instance_host_pid(instance_id) else {
             return false;
         };
         Command::new("flatpak-spawn")
@@ -240,7 +280,8 @@ impl PlatformUpdater for Backend {
                 RELAUNCH_WATCHER_SCRIPT,
                 "fm1-grid-relaunch-watcher",
             ])
-            .args([instance_id, app_id])
+            .arg(host_pid.to_string())
+            .arg(app_id)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
@@ -301,6 +342,15 @@ org.freedesktop.Flatpak=talk
         assert_eq!(instance.app_id.as_deref(), Some("org.other.App"));
         assert_eq!(instance.scope, Some(Scope::User));
         assert_eq!(scope_args(instance.scope), ["--user"]);
+    }
+
+    #[test]
+    fn ps_rows_yield_the_host_pid() {
+        let stdout = "org.gnome.Calculator\t1234\n12345\t4321\n";
+        assert_eq!(parse_ps_host_pid(stdout, "12345"), Some(4321));
+        assert_eq!(parse_ps_host_pid("12345\tnotapid\n", "12345"), None);
+        assert_eq!(parse_ps_host_pid("123456\t4321\n", "12345"), None);
+        assert_eq!(parse_ps_host_pid("", "12345"), None);
     }
 
     #[test]

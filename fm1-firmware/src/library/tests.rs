@@ -232,6 +232,70 @@
     }
 
     #[test]
+    fn downloaded_upgrade_inherits_chip_support() {
+        let (store, dir) = temp_store("upgrade-chips");
+        let builtin = BUILTINS
+            .iter()
+            .find(|b| b.tags.split(',').any(|tag| tag.trim() == "new chip"))
+            .expect("no new-chip builtin");
+        let mut library = Library::load(&store);
+        // The hub's newer package omits the chip field for this release.
+        let mut done = hub_offer(builtin.name, "999.0", "newer.fwsc");
+        done.tags = vec!["kind".to_string(), "source:hub".to_string()];
+        assert!(!done.works_on_new_chip());
+        let key = blob_key("fw/newer.fwsc");
+        store.store_blob(&key, b"package").unwrap();
+        done.source = FirmwareSource::Hub { path: "fw/newer.fwsc".to_string(), blob: Some(key) };
+        library.downloads.insert(
+            download_key(&done),
+            Arc::new(Download {
+                percent: AtomicU32::new(100),
+                outcome: Mutex::new(Some(Ok(done))),
+            }),
+        );
+
+        let view = library.list();
+        let row = view
+            .iter()
+            .find(|f| f.name == builtin.name)
+            .expect("the upgrade row");
+        assert!(matches!(row.source, FirmwareSource::Hub { .. }));
+        assert!(
+            row.works_on_new_chip(),
+            "an upgrade keeps the installed build's chip support"
+        );
+        assert!(crate::filter::DeviceFilter::NewChipFm1.shows(row));
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn stored_upgrade_backfills_chip_support_from_builtin() {
+        let (store, dir) = temp_store("upgrade-chips-backfill");
+        let builtin = BUILTINS
+            .iter()
+            .find(|b| b.tags.split(',').any(|tag| tag.trim() == "new chip"))
+            .expect("no new-chip builtin");
+        let mut library = Library::load(&store);
+        // Downloaded before the inheritance rule: no chip tag in the stored record.
+        let key = blob_key("fw/newer.fwsc");
+        store.store_blob(&key, b"package").unwrap();
+        let mut done = hub_offer(builtin.name, "999.0", "newer.fwsc");
+        done.tags = vec!["kind".to_string(), "source:hub".to_string()];
+        done.source = FirmwareSource::Hub { path: "fw/newer.fwsc".to_string(), blob: Some(key) };
+        library.stored.push(done);
+        library.view_dirty = true;
+
+        let view = library.list();
+        let row = view
+            .iter()
+            .find(|f| f.name == builtin.name)
+            .expect("the upgrade row");
+        assert!(row.works_on_new_chip());
+        assert!(crate::filter::DeviceFilter::NewChipFm1.shows(row));
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
     fn installed_hub_entry_is_upgradable() {
         let (store, dir) = temp_store("hub-upgrade");
         let mut library = Library::load(&store);

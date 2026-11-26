@@ -367,6 +367,16 @@ impl Library {
             view.push(firmware.clone());
         }
         for firmware in self.stored.iter_mut() {
+            // A downloaded upgrade supersedes the builtin it replaces; re-apply the
+            // builtin's chip support so a listing that omits it (or an upgrade
+            // fetched before this rule existed) cannot hide the row from the
+            // New-Chip filter.
+            if let Some(builtin) = self.builtins.iter().find(|builtin| {
+                same_firmware(builtin, firmware)
+                    && version_newer(&firmware.version, &builtin.version)
+            }) {
+                inherit_chip_tags(firmware, builtin);
+            }
             // An old stored duplicate of a builtin never shadows the builtin.
             if self.builtins.iter().any(|builtin| {
                 same_firmware(builtin, firmware)
@@ -767,7 +777,19 @@ impl Library {
             let download = self.downloads.remove(&name).unwrap();
             let outcome = download.outcome.lock().unwrap().take();
             match outcome {
-                Some(Ok(entry)) => {
+                Some(Ok(mut entry)) => {
+                    // An upgrade may only add chip support, never drop it: carry the
+                    // installed row's chip tags onto the downloaded package. The row
+                    // that armed this can be the hub offer itself (the GUI's Download
+                    // button), so inherit from every local entry this release
+                    // replaces or supersedes — builtin or stored.
+                    for installed in self.builtins.iter().chain(self.stored.iter()) {
+                        if same_firmware(installed, &entry)
+                            && !version_newer(&installed.version, &entry.version)
+                        {
+                            inherit_chip_tags(&mut entry, installed);
+                        }
+                    }
                     // Replace by firmware, not by exact name: the row that armed
                     // this download can be a variant spelling of the hub's name.
                     self.events.push(DownloadEvent::Done {

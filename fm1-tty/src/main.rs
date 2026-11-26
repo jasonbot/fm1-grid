@@ -7,6 +7,8 @@
 #[cfg(not(target_arch = "wasm32"))]
 mod app;
 #[cfg(not(target_arch = "wasm32"))]
+mod cardputers;
+#[cfg(not(target_arch = "wasm32"))]
 mod osc;
 #[cfg(not(target_arch = "wasm32"))]
 mod recovery;

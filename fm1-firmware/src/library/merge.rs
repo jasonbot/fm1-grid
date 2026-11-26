@@ -78,6 +78,24 @@ pub(super) fn same_author(a: &str, b: &str) -> bool {
     !a.is_empty() && a.to_lowercase() == b.trim().to_lowercase()
 }
 
+/// The tags that say which FM-1 flash-chip revisions a build accepts. A release only
+/// ever adds chip support, never removes it, so an upgrade keeps the installed
+/// entry's tags for any chip its own listing omits or regresses. The Library's
+/// "New Chip FM-1" filter reads this through `Firmware::works_on_new_chip`.
+const CHIP_TAGS: [&str; 3] = ["new chip", "any chip", "old chip"];
+
+/// Carry `installed`'s chip-support tags onto `upgrade`. Idempotent; other tags are
+/// left alone.
+pub(super) fn inherit_chip_tags(upgrade: &mut Firmware, installed: &Firmware) {
+    for tag in &installed.tags {
+        if CHIP_TAGS.iter().any(|chip| tag.eq_ignore_ascii_case(chip))
+            && !upgrade.tags.iter().any(|have| have.eq_ignore_ascii_case(tag))
+        {
+            upgrade.tags.push(tag.clone());
+        }
+    }
+}
+
 /// Fold an additive listing into the hub's. The hub is the source of truth: its
 /// entries keep their name, author and description. A name both sources carry
 /// (per [`same_firmware`]) gets the union of their non-origin tags,

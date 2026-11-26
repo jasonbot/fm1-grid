@@ -627,6 +627,10 @@ fn flash_target_popup(frame: &mut Frame, app: &mut TuiApp, sel: usize, targets: 
                     Style::default().fg(Color::Cyan),
                 ))
             }
+            FlashTarget::Cardputer { name, host } => Line::from(Span::styled(
+                format!("CARDPUTER: {name} · {host}"),
+                Style::default().fg(Color::Magenta),
+            )),
         })
         .collect();
     list_popup(frame, app, "Flash to…", &items, sel);

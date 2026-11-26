@@ -174,7 +174,7 @@ cargo run --release -p fm1-tty
 
 - **Devices**: live USB units and download-mode units. `R` toggles MIDI rescue mode; `D` switches a live unit into download mode; `f` on a selected library firmware also targets a download-mode unit.
 - **MIDI graph**: sources and their sink links. `Enter` removes a link or opens Connect.
-- **Library**: the same firmware list. `/` filters, `v` picks a device, `d` downloads, `x` deletes, `a` downloads all, `f` flashes. The flash picker shows each unit’s USB path and any download-mode units. Arrow, Page and Home/End keys in the filter jump back to the list.
+- **Library**: the same firmware list. `/` filters, `v` picks a device, `d` downloads, `x` deletes, `a` downloads all, `f` flashes. The flash picker shows each unit’s USB path, any download-mode units, and any fm1-card Cardputers found on the LAN. A Cardputer target copies the package onto its SD card, with the listing’s title, author, version and tags; the card’s own screen flashes the FM-1s it serves. Arrow, Page and Home/End keys in the filter jump back to the list.
 - **Metronome**: `Space` starts and stops it. `-`/`+` change the tempo.
 - `Tab` moves around. `q` quits. `Ctrl-C` quits from anywhere.
 - It shares the library, tempo, device filter and Download All setting with the GUI.

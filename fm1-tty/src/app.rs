@@ -13,7 +13,7 @@ use fm1_performer::session::{Dirty, Shared};
 use ratatui::layout::Rect;
 use ratatui::widgets::ListState;
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 /// How long a transient footer message stays up.
@@ -34,6 +34,9 @@ pub enum Focus {
 pub enum FlashTarget {
     Midi { name: String, rescue: bool },
     Recovery { path: String },
+    /// A running fm1-card Cardputer on the LAN; the package is copied to its SD
+    /// card rather than flashed into an FM-1.
+    Cardputer { name: String, host: String },
 }
 
 /// A modal over the main screen; while one is up it gets every key.
@@ -134,6 +137,12 @@ pub struct TuiApp {
     rescue_at: Instant,
     /// Raw download-mode units and their firmware flashing.
     pub recovery: crate::recovery::Recovery,
+    /// LAN Cardputers offered by the flash menu.
+    cardputers: crate::cardputers::Cardputers,
+    /// The Cardputer upload modal; the hardware board is separate.
+    cardputer_board: Arc<Mutex<Option<FlashState>>>,
+    /// The upload thread's footer message, drained by `tick`.
+    cardputer_note: Arc<Mutex<Option<String>>>,
     /// A transient footer message and when it was set.
     status: Option<(String, Instant)>,
     /// Mouse hit regions from the last draw.
@@ -288,6 +297,9 @@ impl TuiApp {
             rescue_ports: Vec::new(),
             rescue_at: Instant::now() - Duration::from_secs(1),
             recovery: crate::recovery::Recovery::start(),
+            cardputers: crate::cardputers::Cardputers::start(),
+            cardputer_board: Arc::new(Mutex::new(None)),
+            cardputer_note: Arc::new(Mutex::new(None)),
             status: None,
             regions: Regions::default(),
             list_state: ListState::default().with_selected(Some(0)),
@@ -318,6 +330,14 @@ impl TuiApp {
     /// the filter view and the graph snapshot, and keep the picked keyboard's graph
     /// links matched to the units that are actually plugged in.
     pub fn tick(&mut self) {
+        let note = self
+            .cardputer_note
+            .lock()
+            .ok()
+            .and_then(|mut note| note.take());
+        if let Some(note) = note {
+            self.say(note);
+        }
         if let Some(library) = &mut self.library {
             library.pump_downloads();
             // `list()` also runs the 500 ms on-disk status sweep; it is cheap when
@@ -845,11 +865,19 @@ impl TuiApp {
                 targets.push(FlashTarget::Recovery { path: unit.path });
             }
         }
+        // Any Cardputer can store any package; the card's own screen flashes the
+        // FM-1s it serves.
+        targets.extend(
+            self.cardputers
+                .targets()
+                .into_iter()
+                .map(|(name, host)| FlashTarget::Cardputer { name, host }),
+        );
         match targets.len() {
             0 => self.say(if self.rescue {
-                "no MIDI port or download-mode unit in sight".to_string()
+                "no MIDI port, download-mode unit or Cardputer in sight".to_string()
             } else {
-                "no matching unit on USB — R offers every MIDI port as a rescue target"
+                "no matching unit on USB or Cardputer on the network — R offers every MIDI port as a rescue target"
                     .to_string()
             }),
             1 => self.start_flash(&targets[0], &pick),
@@ -857,7 +885,8 @@ impl TuiApp {
         }
     }
 
-    /// Flash the package to a live/rescue MIDI target or a raw download-mode unit.
+    /// Flash the package to a live/rescue MIDI target, a raw download-mode unit, or
+    /// copy it onto a LAN Cardputer.
     pub fn start_flash(&mut self, target: &FlashTarget, pick: &FirmwarePick) {
         let (name, rescue) = match target {
             FlashTarget::Midi { name, rescue } => (name.as_str(), *rescue),
@@ -878,6 +907,11 @@ impl TuiApp {
                     }
                     Err(error) => self.say(error),
                 }
+                self.popup = None;
+                return;
+            }
+            FlashTarget::Cardputer { name, host } => {
+                self.send_to_cardputer(host.clone(), name.clone(), pick);
                 self.popup = None;
                 return;
             }
@@ -902,6 +936,97 @@ impl TuiApp {
         self.popup = None;
     }
 
+    /// Copy the picked package onto a running Cardputer's SD card. The upload runs
+    /// on its own thread; the flash modal shows its phase and failure, and the
+    /// footer reports success.
+    fn send_to_cardputer(&mut self, host: String, device: String, pick: &FirmwarePick) {
+        let Some(firmware) = self
+            .firmwares
+            .iter()
+            .find(|firmware| pick_of(firmware).as_ref() == Some(pick))
+            .cloned()
+        else {
+            self.say("that firmware left the library".to_string());
+            return;
+        };
+        let bytes = match pick.bytes(self.store.as_ref()) {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                self.say(error);
+                return;
+            }
+        };
+        let file = crate::cardputers::file_name(&firmware, pick);
+        let metadata = fm1_cardputer::UploadMetadata {
+            title: firmware.name.clone(),
+            author: firmware.byline.clone(),
+            version: firmware.version.clone(),
+            description: firmware.description.clone(),
+            tags: firmware.tags.join(" "),
+        };
+        let board = self.cardputer_board.clone();
+        let note = self.cardputer_note.clone();
+        if let Ok(mut state) = board.lock() {
+            *state = Some(FlashState {
+                step: format!("sending {} to {device}…", firmware.name),
+                progress: None,
+                error: false,
+                log: vec![format!("{file} → {host}")],
+            });
+        }
+        self.flash_dismissed = false;
+
+        let failed_board = board.clone();
+        let start_board = board.clone();
+        let failed_device = device.clone();
+        let failed_file = file.clone();
+        let sent_file = file.clone();
+        let spawned = std::thread::Builder::new()
+            .name("fm1-tty-cardputer".into())
+            .spawn(move || match fm1_cardputer::upload(&host, &file, &bytes, &metadata) {
+                Ok(reply) if reply.ok => {
+                    if let Ok(mut state) = board.lock() {
+                        *state = None;
+                    }
+                    if let Ok(mut note) = note.lock() {
+                        *note = Some(format!(
+                            "sent {sent_file} to {device} ({} bytes)",
+                            reply.size
+                        ));
+                    }
+                }
+                Ok(reply) => {
+                    if let Ok(mut state) = failed_board.lock() {
+                        *state = Some(FlashState {
+                            step: format!("could not send to {failed_device}"),
+                            progress: None,
+                            error: true,
+                            log: vec![format!(
+                                "{}: the card refused it ({} {})",
+                                failed_file, reply.name, reply.product
+                            )],
+                        });
+                    }
+                }
+                Err(error) => {
+                    if let Ok(mut state) = failed_board.lock() {
+                        *state = Some(FlashState {
+                            step: format!("could not send to {failed_device}"),
+                            progress: None,
+                            error: true,
+                            log: vec![format!("{failed_file}: {error}")],
+                        });
+                    }
+                }
+            });
+        if let Err(error) = spawned {
+            if let Ok(mut state) = start_board.lock() {
+                *state = None;
+            }
+            self.say(format!("could not start the Cardputer upload: {error}"));
+        }
+    }
+
     // ---- metronome ---------------------------------------------------------------
 
     /// Start or stop the MIDI clock.
@@ -919,13 +1044,16 @@ impl TuiApp {
 
     // ---- flash board + status ----------------------------------------------------
 
-    /// The pane-level flash state for the modal, unless the user dismissed it.
+    /// The pane-level flash state for the modal, unless the user dismissed it. A
+    /// Cardputer upload shares the same modal while it runs.
     pub fn flash_board(&self) -> Option<FlashState> {
         if self.flash_dismissed {
-            None
-        } else {
-            self.hardware.flash_state()
+            return None;
         }
+        if let Some(board) = self.cardputer_board.lock().ok().and_then(|board| board.clone()) {
+            return Some(board);
+        }
+        self.hardware.flash_state()
     }
 
     /// Dismiss the flash board; a running flash continues on its own thread.

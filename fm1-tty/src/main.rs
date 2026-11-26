@@ -24,6 +24,9 @@ fn main() -> std::io::Result<()> {
     use ratatui::crossterm::{event, execute, terminal};
     use std::io;
 
+    // Before TuiApp::new starts the MIDI threads: alsa-lib prints to stderr, which is
+    // this terminal, and an unopenable sequencer would print on every ½ s poll.
+    fm1_performer::alsa::silence_errors();
     terminal::enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(

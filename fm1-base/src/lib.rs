@@ -2,6 +2,7 @@
 //! keyboard poller, the key tables and the on-disk store. No firmware or hardware
 //! flashing lives here.
 
+pub mod alsa;
 pub mod clock;
 pub mod keys;
 pub mod midi_keys;

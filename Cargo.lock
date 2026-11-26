@@ -2099,6 +2099,7 @@ dependencies = [
 name = "fm1-base"
 version = "0.1.0"
 dependencies = [
+ "alsa-sys",
  "directories",
  "fm1-soc",
  "midir",

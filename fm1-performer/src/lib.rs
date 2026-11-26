@@ -14,7 +14,7 @@ pub mod session;
 pub mod usbmidi;
 
 // The shared pieces live in their own crates; keep the old paths working for the apps.
-pub use fm1_base::{clock, keys, midi_keys, routing, store};
+pub use fm1_base::{alsa, clock, keys, midi_keys, routing, store};
 pub use fm1_firmware::{builtin, download_heuristics, library, sources};
 pub use fm1_hardware as hardware;
 

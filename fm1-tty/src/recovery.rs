@@ -69,6 +69,8 @@ impl Recovery {
                     }
                 }
                 *live = current;
+                // The UI clones this list every frame; never sleep holding the lock.
+                drop(live);
                 std::thread::sleep(Duration::from_secs(2));
             })
             .expect("spawn recovery scanner");
